@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { normalizeGithubUsername } from "./github-user-access"
+import { normalizeGithubPermission, normalizeGithubUsername } from "./github-user-access"
 
 export const GITHUB_ACCESS_STAGED_DATA_ACTIVITY_TYPE = "github_access_maintenance" as const
 export const GITHUB_ACCESS_STAGED_DATA_SCHEMA_VERSION = 1 as const
@@ -12,8 +12,6 @@ export type GithubAccessSubject = {
 	highestPermission: GithubAccessPermission | string
 	directPermission: string | null
 	viaTeams: Array<{ teamSlug: string; teamName: string; permission: string }>
-	isNew: boolean
-	isGone: boolean
 	markedForRemoval: boolean
 	removalMarkedBy: string | null
 	removalMarkedAt: string | null
@@ -35,11 +33,12 @@ export type GithubAccessStagedData = {
 }
 
 export type GithubAccessSnapshot = {
+	type: typeof GITHUB_ACCESS_STAGED_DATA_ACTIVITY_TYPE
+	schemaVersion: typeof GITHUB_ACCESS_STAGED_DATA_SCHEMA_VERSION
 	gitRepository: string
 	subjects: Array<{
 		username: string
 		highestPermission: string
-		isGone: boolean
 		markedForRemoval: boolean
 		removalMarkedBy: string | null
 		removalMarkedAt: string | null
@@ -100,8 +99,6 @@ const githubAccessSubjectSchema = z
 				permission: z.string().min(1),
 			}),
 		),
-		isNew: z.boolean(),
-		isGone: z.boolean(),
 		markedForRemoval: z.boolean(),
 		removalMarkedBy: z.string().min(1).nullable(),
 		removalMarkedAt: dateOnlySchema,
@@ -163,11 +160,12 @@ export function isGithubAccessReviewComplete(data: GithubAccessStagedData): bool
 
 export function toGithubAccessSnapshot(data: GithubAccessStagedData): GithubAccessSnapshot {
 	return {
+		type: GITHUB_ACCESS_STAGED_DATA_ACTIVITY_TYPE,
+		schemaVersion: GITHUB_ACCESS_STAGED_DATA_SCHEMA_VERSION,
 		gitRepository: data.gitRepository,
 		subjects: data.subjects.map((subject) => ({
 			username: subject.username,
 			highestPermission: subject.highestPermission,
-			isGone: subject.isGone,
 			markedForRemoval: subject.markedForRemoval,
 			removalMarkedBy: subject.removalMarkedBy,
 			removalMarkedAt: subject.removalMarkedAt,
@@ -209,9 +207,6 @@ export function applyGithubAccessStagedDataPatch(
 	const existing = subjects[index]
 
 	if (patch.op === "mark-for-removal") {
-		if (existing.isGone) {
-			throw new Error(`Kan ikke markere en allerede fjernet bruker ${patch.username} for fjerning`)
-		}
 		subjects[index] = {
 			...existing,
 			markedForRemoval: true,
@@ -241,10 +236,7 @@ export function applyGithubAccessStagedDataPatch(
 	}
 
 	if (patch.op === "mark-for-adjustment") {
-		if (existing.isGone) {
-			throw new Error(`Kan ikke markere en allerede fjernet bruker ${patch.username} for tilgangsjustering`)
-		}
-		if (patch.targetPermission === existing.highestPermission) {
+		if (normalizeGithubPermission(patch.targetPermission) === normalizeGithubPermission(existing.highestPermission)) {
 			throw new Error(
 				`Målnivået "${patch.targetPermission}" er det samme som gjeldende tilgangsnivå for ${patch.username}`,
 			)

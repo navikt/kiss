@@ -21,6 +21,15 @@ export interface GithubCollaboratorAccess {
 
 export const GITHUB_PERMISSION_ORDER = ["admin", "maintain", "push", "write", "triage", "pull", "read"]
 
+const GITHUB_PERMISSION_ALIASES: Record<string, string> = {
+	write: "push",
+	read: "pull",
+}
+
+export function normalizeGithubPermission(permission: string): string {
+	return GITHUB_PERMISSION_ALIASES[permission] ?? permission
+}
+
 export function highestGithubPermission(permissions: string[]): string {
 	for (const p of GITHUB_PERMISSION_ORDER) {
 		if (permissions.includes(p)) return p

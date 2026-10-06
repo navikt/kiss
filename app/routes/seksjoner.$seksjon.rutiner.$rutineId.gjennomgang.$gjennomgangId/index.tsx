@@ -600,7 +600,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 			if (activity.type === "github_access_maintenance" && review.applicationId) {
 				if (activity.stagedData) {
 					actGithubAccessData = parseGithubAccessStagedData(activity.stagedData)
-				} else if (activity.status === "pending") {
+				} else if (activity.status === "pending" && review.status === "draft") {
 					const { seedGithubAccessActivity } = await import("~/db/queries/github-access-activity.server")
 					const stagedData = await seedGithubAccessActivity(activity.id, "system")
 					actGithubAccessData = stagedData
@@ -652,10 +652,13 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 				`Failed to load evidence data for activity ${activity.id} (${activity.type})`,
 				err instanceof Error ? err : { details: String(err) },
 			)
-			const evidenceLoadError =
-				err instanceof Response && err.status === 409
-					? "Gjennomgangen er låst av en annen operasjon. Prøv å laste siden på nytt om noen sekunder."
-					: "Kunne ikke laste bevisdata. Prøv å laste siden på nytt."
+			let evidenceLoadError = "Kunne ikke laste bevisdata. Prøv å laste siden på nytt."
+			if (err instanceof Response && err.status === 409) {
+				evidenceLoadError = "Gjennomgangen er låst av en annen operasjon. Prøv å laste siden på nytt om noen sekunder."
+			} else if (err instanceof Response && err.status === 400 && activity.type === "github_access_maintenance") {
+				const body = await err.text().catch(() => null)
+				if (body) evidenceLoadError = body
+			}
 			activitiesWithEvidence.push({
 				id: activity.id,
 				type: activity.type,
@@ -1934,7 +1937,6 @@ export default function GjennomgangDetalj() {
 				return (
 					<GithubAccessMaintenanceSection
 						activity={activity}
-						reviewId={review.id}
 						gitRepository={activity.githubAccessData.gitRepository}
 						subjects={activity.githubAccessData.subjects}
 						confirmedBy={activity.githubAccessData.confirmedBy}

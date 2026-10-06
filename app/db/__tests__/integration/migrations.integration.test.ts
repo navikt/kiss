@@ -127,7 +127,6 @@ describe("Database migrations", () => {
 				"framework_risk_control_mappings",
 				"framework_risks",
 				"framework_versions",
-				"github_access_assessments",
 				"github_repo_collaborators",
 				"github_repo_team_members",
 				"github_repo_teams",

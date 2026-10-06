@@ -1162,6 +1162,132 @@ describe("Routines integration tests", () => {
 		})
 	})
 
+	describe("createReview cross-routine advisory lock (github_access_maintenance)", () => {
+		async function makeApprovedGithubRoutine(sectionId: string, name: string) {
+			const routine = await createRoutine({
+				sectionId,
+				name,
+				description: null,
+				frequency: "annually",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+				activityTypes: ["github_access_maintenance"],
+			})
+			await markRoutineApproved(routine.id)
+			return routine
+		}
+
+		it("serializes concurrent createReview calls for two GitHub routines on the same application into one review and one 409", async () => {
+			const sectionId = await createTestSection("Cross-routine lock section", "cross-routine-lock")
+			const appId = await createTestApp("Cross-routine lock app")
+			const routineA = await makeApprovedGithubRoutine(sectionId, "GitHub routine A")
+			const routineB = await makeApprovedGithubRoutine(sectionId, "GitHub routine B")
+
+			const results = await Promise.allSettled([
+				createReview({
+					routineId: routineA.id,
+					applicationId: appId,
+					title: "Routine A review",
+					summary: null,
+					routineSnapshotPath: null,
+					reviewedAt: new Date(),
+					createdBy: "Z990001",
+					participants: [],
+				}),
+				createReview({
+					routineId: routineB.id,
+					applicationId: appId,
+					title: "Routine B review",
+					summary: null,
+					routineSnapshotPath: null,
+					reviewedAt: new Date(),
+					createdBy: "Z990001",
+					participants: [],
+				}),
+			])
+
+			const fulfilled = results.filter((r) => r.status === "fulfilled")
+			const rejected = results.filter((r) => r.status === "rejected")
+			expect(fulfilled).toHaveLength(1)
+			expect(rejected).toHaveLength(1)
+			expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({ status: 409 })
+
+			const reviews = [...(await getReviewsForRoutine(routineA.id)), ...(await getReviewsForRoutine(routineB.id))]
+			expect(reviews).toHaveLength(1)
+		})
+
+		it("does not conflict for GitHub routines on different applications", async () => {
+			const sectionId = await createTestSection("Cross-routine diff app section", "cross-routine-diff-app")
+			const appA = await createTestApp("Cross-routine app A")
+			const appB = await createTestApp("Cross-routine app B")
+			const routineA = await makeApprovedGithubRoutine(sectionId, "GitHub routine diff app A")
+			const routineB = await makeApprovedGithubRoutine(sectionId, "GitHub routine diff app B")
+
+			const results = await Promise.allSettled([
+				createReview({
+					routineId: routineA.id,
+					applicationId: appA,
+					title: "App A review",
+					summary: null,
+					routineSnapshotPath: null,
+					reviewedAt: new Date(),
+					createdBy: "Z990001",
+					participants: [],
+				}),
+				createReview({
+					routineId: routineB.id,
+					applicationId: appB,
+					title: "App B review",
+					summary: null,
+					routineSnapshotPath: null,
+					reviewedAt: new Date(),
+					createdBy: "Z990001",
+					participants: [],
+				}),
+			])
+
+			expect(results.every((r) => r.status === "fulfilled")).toBe(true)
+		})
+
+		it("does not conflict with a discarded prior review for the same application", async () => {
+			const sectionId = await createTestSection("Cross-routine discarded section", "cross-routine-discarded")
+			const appId = await createTestApp("Cross-routine discarded app")
+			const routineA = await makeApprovedGithubRoutine(sectionId, "GitHub routine discarded A")
+			const routineB = await makeApprovedGithubRoutine(sectionId, "GitHub routine discarded B")
+
+			const firstReview = await createReview({
+				routineId: routineA.id,
+				applicationId: appId,
+				title: "First (will be discarded)",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "Z990001",
+				participants: [],
+			})
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE routine_reviews SET status = 'discarded' WHERE id = '${firstReview.id}'`)
+
+			const secondReview = await createReview({
+				routineId: routineB.id,
+				applicationId: appId,
+				title: "Second (should succeed)",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "Z990001",
+				participants: [],
+			})
+			expect(secondReview.id).toBeTruthy()
+		})
+	})
+
 	// ─── Eligibility ─────────────────────────────────────────────────────
 
 	describe("Eligibility", () => {

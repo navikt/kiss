@@ -74,8 +74,6 @@ const rawData = {
 			highestPermission: "admin",
 			directPermission: "admin",
 			viaTeams: [],
-			isNew: false,
-			isGone: false,
 			markedForRemoval: false,
 			removalMarkedBy: null,
 			removalMarkedAt: null,
@@ -108,7 +106,7 @@ describe("github access activity", () => {
 		mocks.select.mockReturnValue(selectResult([]))
 		mocks.execute.mockReset()
 		mocks.execute.mockResolvedValue({
-			rows: [{ lastSuccessfulSyncAt: timestamp, teams: [], members: [], collaborators: [], assessments: [] }],
+			rows: [{ lastSuccessfulSyncAt: timestamp, teams: [], members: [], collaborators: [] }],
 		})
 	})
 
@@ -174,23 +172,26 @@ describe("github access activity", () => {
 		expect(mocks.audit).not.toHaveBeenCalled()
 	})
 
-	it("seeds subjects without any legacy justification fields", async () => {
+	it("builds staged data from the live synced GitHub access", async () => {
 		mocks.execute.mockResolvedValueOnce({
 			rows: [
 				{
 					gitRepository: "navikt/kiss",
+					syncedGitRepository: "navikt/kiss",
 					lastSuccessfulSyncAt: timestamp,
 					teams: [],
 					members: [],
-					collaborators: [{ username: "glad-fjord", permission: "admin", syncedAt: timestamp }],
-					assessments: [{ username: "glad-fjord", lastKnownPermission: "admin" }],
+					collaborators: [
+						{ username: "glad-fjord", permission: "admin", syncedAt: timestamp },
+						{ username: "ny-bruker", permission: "pull", syncedAt: timestamp },
+					],
 				},
 			],
 		})
-		const { stagedData } = await buildGithubAccessSeedResult("app-1")
-		expect(stagedData).toMatchObject({ confirmedBy: null, confirmedAt: null })
-		expect(stagedData.subjects[0]).not.toHaveProperty("businessJustification")
-		expect(stagedData.subjects[0]).not.toHaveProperty("reviewedThisRound")
+		const stagedData = await buildGithubAccessSeedResult("app-1")
+
+		expect(stagedData.subjects.find((s) => s.username === "glad-fjord")?.highestPermission).toBe("admin")
+		expect(stagedData.subjects.find((s) => s.username === "ny-bruker")?.highestPermission).toBe("pull")
 	})
 
 	it("falls back to the recorded sync timestamp when a successful sync has no access rows", async () => {
@@ -198,15 +199,15 @@ describe("github access activity", () => {
 			rows: [
 				{
 					gitRepository: "navikt/kiss",
+					syncedGitRepository: "navikt/kiss",
 					lastSuccessfulSyncAt: timestamp,
 					teams: [],
 					members: [],
 					collaborators: [],
-					assessments: [],
 				},
 			],
 		})
-		const { stagedData } = await buildGithubAccessSeedResult("app-1")
+		const stagedData = await buildGithubAccessSeedResult("app-1")
 		expect(stagedData.dataSyncedAt).toBe(timestamp)
 	})
 
@@ -215,16 +216,32 @@ describe("github access activity", () => {
 			rows: [
 				{
 					gitRepository: "navikt/kiss",
+					syncedGitRepository: "navikt/kiss",
 					lastSuccessfulSyncAt: "2026-09-02 00:00:00+00",
 					teams: [],
 					members: [],
 					collaborators: [],
-					assessments: [],
 				},
 			],
 		})
-		const { stagedData } = await buildGithubAccessSeedResult("app-1")
+		const stagedData = await buildGithubAccessSeedResult("app-1")
 		expect(stagedData.dataSyncedAt).toBe(timestamp)
+	})
+
+	it("rejects seeding when the synced repo no longer matches the resolved repo", async () => {
+		mocks.execute.mockResolvedValueOnce({
+			rows: [
+				{
+					gitRepository: "navikt/kiss",
+					syncedGitRepository: "navikt/old-repo",
+					lastSuccessfulSyncAt: timestamp,
+					teams: [],
+					members: [],
+					collaborators: [],
+				},
+			],
+		})
+		await expect(buildGithubAccessSeedResult("app-1")).rejects.toMatchObject({ status: 400 })
 	})
 
 	it("rejects seeding when the repo has never been successfully synced", async () => {
@@ -232,11 +249,11 @@ describe("github access activity", () => {
 			rows: [
 				{
 					gitRepository: "navikt/kiss",
+					syncedGitRepository: "navikt/kiss",
 					lastSuccessfulSyncAt: null,
 					teams: [],
 					members: [],
 					collaborators: [],
-					assessments: [],
 				},
 			],
 		})
@@ -286,14 +303,13 @@ describe("github access activity", () => {
 			]),
 		)
 		mocks.select.mockReturnValueOnce(selectResult([]))
-		const snapshot = await commitGithubAccessActivity("activity-1", "review-1", "Z990001", db)
+		await commitGithubAccessActivity("activity-1", "review-1", "Z990001", db)
 		expect(mocks.followUp).toHaveBeenCalledTimes(2)
 		expect(mocks.followUp.mock.calls[0][1]).toMatchObject({ text: "Fjern GitHub-tilgang for @glad-fjord" })
 		expect(mocks.followUp.mock.calls[1][1]).toMatchObject({
 			text: 'Juster GitHub-tilgang for @rask-elv fra "admin" til "push"',
 			description: expect.stringContaining('fra "admin" til "push"'),
 		})
-		expect(snapshot.subjects.every((s) => !("businessJustification" in s))).toBe(true)
 	})
 
 	it("rejects commit when the review has not been confirmed", async () => {
@@ -305,29 +321,5 @@ describe("github access activity", () => {
 		await expect(commitGithubAccessActivity("activity-1", "review-1", "Z990001", db)).rejects.toMatchObject({
 			status: 400,
 		})
-	})
-
-	it("upserts only username + lastKnownPermission (+ audit columns) for non-gone subjects on commit", async () => {
-		const data = parseGithubAccessStagedData({
-			...rawData,
-			subjects: [rawData.subjects[0], { ...rawData.subjects[0], username: "rask-elv", isGone: true }],
-			confirmedBy: "Z990001",
-			confirmedAt: timestamp,
-		})
-		mocks.select.mockReturnValueOnce(
-			selectResult([
-				{ reviewId: "review-1", status: "pending", stagedData: data, applicationId: "app-1", reviewStatus: "draft" },
-			]),
-		)
-		mocks.select.mockReturnValueOnce(selectResult([]))
-		await commitGithubAccessActivity("activity-1", "review-1", "Z990001", db)
-		const assessmentInserts = mocks.insertValues.mock.calls
-			.map(([values]) => values)
-			.filter((v) => v && typeof v === "object" && "username" in v)
-		expect(assessmentInserts).toHaveLength(1)
-		expect(assessmentInserts[0]).toMatchObject({ username: "glad-fjord", lastKnownPermission: "admin" })
-		expect(assessmentInserts[0]).not.toHaveProperty("businessJustification")
-		expect(assessmentInserts[0]).not.toHaveProperty("segregationCompliant")
-		expect(assessmentInserts[0]).not.toHaveProperty("compensatingControls")
 	})
 })

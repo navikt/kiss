@@ -23,6 +23,10 @@ import {
 	type EntraStagedGroupsProp,
 } from "../seksjoner.$seksjon.rutiner.$rutineId.gjennomgang.$gjennomgangId/components/activities/EntraMaintenanceSection"
 import {
+	GithubAccessMaintenanceSection,
+	type GithubAccessSubjectWithIdentity,
+} from "../seksjoner.$seksjon.rutiner.$rutineId.gjennomgang.$gjennomgangId/components/activities/GithubAccessMaintenanceSection"
+import {
 	type OracleRoleCriticalityData,
 	OracleRoleCriticalityMaintenanceSection,
 } from "../seksjoner.$seksjon.rutiner.$rutineId.gjennomgang.$gjennomgangId/components/activities/OracleRoleCriticalityMaintenanceSection"
@@ -146,6 +150,39 @@ const MOCK_RPA_DATA: RpaMaintenanceData = {
 	],
 	assessments: {},
 }
+
+const MOCK_GITHUB_ACCESS_SUBJECTS: GithubAccessSubjectWithIdentity[] = [
+	{
+		username: "glad-fjord",
+		displayName: "Glad Fjord (eksempel)",
+		navIdent: "Z990001",
+		highestPermission: "admin",
+		directPermission: "admin",
+		viaTeams: [],
+		markedForRemoval: false,
+		removalMarkedBy: null,
+		removalMarkedAt: null,
+		permissionAdjustmentRequested: false,
+		targetPermission: null,
+		permissionAdjustmentMarkedBy: null,
+		permissionAdjustmentMarkedAt: null,
+	},
+	{
+		username: "rask-elv",
+		displayName: "Rask Elv (eksempel)",
+		navIdent: "Z990002",
+		highestPermission: "push",
+		directPermission: null,
+		viaTeams: [{ teamSlug: "eksempel-team", teamName: "eksempel-team", permission: "push" }],
+		markedForRemoval: false,
+		removalMarkedBy: null,
+		removalMarkedAt: null,
+		permissionAdjustmentRequested: false,
+		targetPermission: null,
+		permissionAdjustmentMarkedBy: null,
+		permissionAdjustmentMarkedAt: null,
+	},
+]
 
 const MOCK_ACTIVITY_PROP = {
 	id: "preview",
@@ -491,6 +528,19 @@ export default function ForhåndsvisningGjennomgang() {
 					<RpaUserMaintenanceSection
 						activity={{ ...MOCK_ACTIVITY_PROP, type: "rpa_user_maintenance" }}
 						rpaMaintenanceData={MOCK_RPA_DATA}
+						isDraft={false}
+					/>
+				)
+			}
+
+			if (activityType === "github_access_maintenance") {
+				return (
+					<GithubAccessMaintenanceSection
+						activity={{ ...MOCK_ACTIVITY_PROP, type: "github_access_maintenance" }}
+						gitRepository="navikt/eksempel-repo"
+						subjects={MOCK_GITHUB_ACCESS_SUBJECTS}
+						confirmedBy={null}
+						confirmedAt={null}
 						isDraft={false}
 					/>
 				)

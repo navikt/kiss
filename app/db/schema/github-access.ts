@@ -57,31 +57,10 @@ export const githubAccessSyncStatus = pgTable("github_access_sync_status", {
 	applicationId: uuid("application_id")
 		.primaryKey()
 		.references(() => monitoredApplications.id, { onDelete: "cascade" }),
+	gitRepository: text("git_repository").notNull(),
 	lastSuccessAt: timestamp("last_success_at", { withTimezone: true }).notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	createdBy: text("created_by").notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedBy: text("updated_by").notNull(),
 })
-
-export const githubAccessAssessments = pgTable(
-	"github_access_assessments",
-	{
-		id: uuid("id").primaryKey().defaultRandom(),
-		applicationId: uuid("application_id")
-			.notNull()
-			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
-		username: text("username").notNull(),
-		lastKnownPermission: text("last_known_permission"),
-		archivedAt: timestamp("archived_at", { withTimezone: true }),
-		archivedBy: text("archived_by"),
-		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-		createdBy: text("created_by").notNull(),
-		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-		updatedBy: text("updated_by").notNull(),
-	},
-	(t) => [
-		unique("uq_github_access_assessments_app_user").on(t.applicationId, t.username),
-		index("idx_github_access_assessments_app").on(t.applicationId),
-	],
-)

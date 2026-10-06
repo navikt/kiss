@@ -5,7 +5,24 @@ import { formatDateTimeOslo, formatUserDisplayName } from "~/lib/utils"
 const blue = "#0067c5"
 const dark = "#222222"
 const gray = "#666666"
-const red = "#c30000"
+
+function chunkLinesByHeight(doc: PdfDoc, lines: string[], width: number, maxHeight: number): string[][] {
+	if (lines.length === 0) return [[]]
+	const chunks: string[][] = []
+	let current: string[] = []
+	for (const line of lines) {
+		const candidate = [...current, line]
+		const candidateHeight = doc.heightOfString(candidate.join("\n"), { width })
+		if (current.length > 0 && candidateHeight > maxHeight) {
+			chunks.push(current)
+			current = [line]
+		} else {
+			current = candidate
+		}
+	}
+	if (current.length > 0) chunks.push(current)
+	return chunks
+}
 
 type PdfDoc = InstanceType<typeof PDFDocument>
 
@@ -14,7 +31,6 @@ export function buildGithubAccessReviewPdf(
 	params: {
 		performedBy: string
 		generatedAt?: Date
-		isDraft?: boolean
 		participants?: Array<{ userIdent: string; userName: string | null; confirmedAt: Date | string | null }>
 		githubUserLookups?: Map<string, { displayName: string | null; navIdent: string | null }>
 		nameByNavIdent?: ReadonlyMap<string, string>
@@ -45,17 +61,9 @@ export function buildGithubAccessReviewPdf(
 		}
 		const removedDuringReview = data.subjects.filter((s) => s.markedForRemoval)
 		const adjustedDuringReview = data.subjects.filter((s) => s.permissionAdjustmentRequested)
-		const activeSubjects = data.subjects.filter(
-			(s) => !s.isGone && !s.markedForRemoval && !s.permissionAdjustmentRequested,
-		)
-		const reviewedSubjects = data.subjects.filter((s) => !s.isGone)
-		const goneSubjects = data.subjects.filter((s) => s.isGone)
+		const activeSubjects = data.subjects.filter((s) => !s.markedForRemoval && !s.permissionAdjustmentRequested)
 
 		doc.fontSize(16).fillColor(blue).text("Periodisk gjennomgang av tilganger – GitHub", { align: "left" })
-		if (params.isDraft) {
-			doc.moveDown(0.2)
-			doc.fontSize(10).fillColor(red).text("UTKAST — gjennomgangen er ikke fullført ennå. Ikke gyldig revisjonsbevis.")
-		}
 		doc.moveDown(0.3)
 		doc.fontSize(9).fillColor(gray)
 		doc.text(`Repo: ${data.gitRepository}`)
@@ -72,10 +80,9 @@ export function buildGithubAccessReviewPdf(
 		doc.moveDown(0.6)
 
 		doc.fontSize(10).fillColor(dark)
-		doc.text(`Personer med tilgang gjennomgått: ${reviewedSubjects.length}`)
+		doc.text(`Personer med tilgang gjennomgått: ${data.subjects.length}`)
 		doc.text(`Antall tilganger merket for fjerning i denne gjennomgangen: ${removedDuringReview.length}`)
 		doc.text(`Antall tilgangsnivå merket for justering i denne gjennomgangen: ${adjustedDuringReview.length}`)
-		doc.text(`Antall som har fått tilgangen fjernet siden forrige gjennomgang: ${goneSubjects.length}`)
 		doc.moveDown(0.8)
 
 		doc.fontSize(9).fillColor(gray)
@@ -114,20 +121,41 @@ export function buildGithubAccessReviewPdf(
 			)
 		}
 
-		if (goneSubjects.length > 0) {
-			doc.moveDown(0.8)
-			renderSimpleSubjectsTable(doc, "Fjernet siden forrige gjennomgang", goneSubjects, userLabel)
-		}
-
 		doc.end()
 	})
 }
 
-function renderSimpleSubjectsTable(
+function subjectSourceLines(subject: GithubAccessStagedData["subjects"][number]): string[] {
+	return [
+		subject.directPermission ? "Direkte" : null,
+		...subject.viaTeams.map((t) => `Team: ${t.teamName || t.teamSlug}`),
+	].filter((s): s is string => s !== null)
+}
+
+function dateOnlyLabel(dateOnly: string | null): string {
+	if (!dateOnly) return "—"
+	const [y, m, d] = dateOnly.split("-").map(Number)
+	return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("nb-NO", {
+		day: "numeric",
+		month: "long",
+		year: "numeric",
+		timeZone: "UTC",
+	})
+}
+
+type TableColumn = { key: string; label: string; x: number; width: number }
+
+/**
+ * Tegner en tabell med én "wrap"-kolonne (teamliste) som kan brytes over flere
+ * fortsettelsesrader og sideskift. De øvrige kolonnene vises kun på radens første chunk.
+ */
+function renderSubjectsTable(
 	doc: PdfDoc,
 	title: string,
 	subjects: GithubAccessStagedData["subjects"],
-	userLabel: (username: string) => string,
+	columns: TableColumn[],
+	wrapColumnKey: string,
+	getCellText: (subject: GithubAccessStagedData["subjects"][number]) => Record<string, string>,
 ) {
 	doc.fontSize(12).fillColor(blue).text(title)
 	doc.moveDown(0.3)
@@ -137,10 +165,9 @@ function renderSimpleSubjectsTable(
 		return
 	}
 
-	const colX = { user: 40, access: 180, source: 280 }
-	const colW = { user: 140, access: 100, source: 260 }
-	const tableRight = colX.source + colW.source
 	const pad = 3
+	const tableLeft = columns[0].x
+	const tableRight = columns[columns.length - 1].x + columns[columns.length - 1].width
 	const pageBottom = doc.page.height - doc.page.margins.bottom
 	const border = "#c6c2bf"
 
@@ -148,67 +175,99 @@ function renderSimpleSubjectsTable(
 		const y = doc.y
 		doc.fontSize(8)
 		const headerHeight =
-			Math.max(
-				doc.heightOfString("Bruker", { width: colW.user - pad * 2 }),
-				doc.heightOfString("Tilgang", { width: colW.access - pad * 2 }),
-				doc.heightOfString("Tilgang via", { width: colW.source - pad * 2 }),
-			) +
-			pad * 2
-		doc.rect(colX.user, y, tableRight - colX.user, headerHeight).fill("#e6f0ff")
+			Math.max(...columns.map((c) => doc.heightOfString(c.label, { width: c.width - pad * 2 }))) + pad * 2
+		doc.rect(tableLeft, y, tableRight - tableLeft, headerHeight).fill("#e6f0ff")
 		doc.fontSize(8).fillColor(blue)
-		doc.text("Bruker", colX.user + pad, y + pad, { width: colW.user - pad * 2 })
-		doc.text("Tilgang", colX.access + pad, y + pad, { width: colW.access - pad * 2 })
-		doc.text("Tilgang via", colX.source + pad, y + pad, { width: colW.source - pad * 2 })
+		for (const c of columns) doc.text(c.label, c.x + pad, y + pad, { width: c.width - pad * 2 })
 		doc
 			.strokeColor(border)
 			.lineWidth(0.5)
-			.rect(colX.user, y, tableRight - colX.user, headerHeight)
+			.rect(tableLeft, y, tableRight - tableLeft, headerHeight)
 			.stroke()
 		doc.y = y + headerHeight
-		doc.x = colX.user
+		doc.x = tableLeft
+		return headerHeight
 	}
 
-	drawHeader()
+	const wrapColumn = columns.find((c) => c.key === wrapColumnKey)
+	if (!wrapColumn) throw new Error(`Ukjent wrap-kolonne: ${wrapColumnKey}`)
+
+	const headerHeight = drawHeader()
+	const maxChunkHeight = pageBottom - doc.page.margins.top - headerHeight - pad * 2
 
 	for (const subject of subjects) {
-		if (doc.y > pageBottom - 80) {
-			doc.addPage()
-			drawHeader()
-		}
+		const cellText = getCellText(subject)
+		const wrapLines = subjectSourceLines(subject)
+		const wrapChunks = chunkLinesByHeight(
+			doc,
+			wrapLines.length > 0 ? wrapLines : ["—"],
+			wrapColumn.width - pad * 2,
+			maxChunkHeight,
+		)
 
-		const source = [
-			subject.directPermission ? "Direkte" : null,
-			...subject.viaTeams.map((t) => `Team: ${t.teamName || t.teamSlug}`),
-		].filter((s): s is string => s !== null)
-		const sourceText = source.length > 0 ? source.join("\n") : "—"
-		const accessText = subject.highestPermission
-		const userText = userLabel(subject.username)
+		wrapChunks.forEach((chunk, chunkIndex) => {
+			const isFirstChunk = chunkIndex === 0
+			const wrapText = chunk.join("\n")
 
-		doc.fontSize(8)
-		const rowHeight =
-			pad * 2 +
-			Math.max(
-				doc.heightOfString(userText, { width: colW.user - pad * 2 }),
-				doc.heightOfString(accessText, { width: colW.access - pad * 2 }),
-				doc.heightOfString(sourceText, { width: colW.source - pad * 2 }),
-			)
+			doc.fontSize(8)
+			const rowHeight =
+				pad * 2 +
+				Math.max(
+					...columns.map((c) =>
+						c.key === wrapColumnKey
+							? doc.heightOfString(wrapText, { width: c.width - pad * 2 })
+							: isFirstChunk
+								? doc.heightOfString(cellText[c.key] ?? "", { width: c.width - pad * 2 })
+								: 0,
+					),
+				)
 
-		const y = doc.y
-		doc
-			.strokeColor(border)
-			.lineWidth(0.5)
-			.rect(colX.user, y, tableRight - colX.user, rowHeight)
-			.stroke()
+			if (doc.y + rowHeight > pageBottom) {
+				doc.addPage()
+				drawHeader()
+			}
 
-		doc.fontSize(8).fillColor(dark)
-		doc.text(userText, colX.user + pad, y + pad, { width: colW.user - pad * 2 })
-		doc.text(accessText, colX.access + pad, y + pad, { width: colW.access - pad * 2 })
-		doc.text(sourceText, colX.source + pad, y + pad, { width: colW.source - pad * 2 })
+			const y = doc.y
+			doc
+				.strokeColor(border)
+				.lineWidth(0.5)
+				.rect(tableLeft, y, tableRight - tableLeft, rowHeight)
+				.stroke()
 
-		doc.y = y + rowHeight
-		doc.x = colX.user
-		doc.moveDown(0.4)
+			doc.fontSize(8).fillColor(dark)
+			for (const c of columns) {
+				if (c.key === wrapColumnKey) {
+					doc.text(wrapText, c.x + pad, y + pad, { width: c.width - pad * 2 })
+				} else if (isFirstChunk) {
+					doc.text(cellText[c.key] ?? "", c.x + pad, y + pad, { width: c.width - pad * 2 })
+				}
+			}
+
+			doc.y = y + rowHeight
+			doc.x = tableLeft
+			doc.moveDown(0.4)
+		})
 	}
+}
+
+function renderSimpleSubjectsTable(
+	doc: PdfDoc,
+	title: string,
+	subjects: GithubAccessStagedData["subjects"],
+	userLabel: (username: string) => string,
+) {
+	renderSubjectsTable(
+		doc,
+		title,
+		subjects,
+		[
+			{ key: "user", label: "Bruker", x: 40, width: 140 },
+			{ key: "access", label: "Tilgang", x: 180, width: 100 },
+			{ key: "source", label: "Tilgang via", x: 280, width: 260 },
+		],
+		"source",
+		(subject) => ({ user: userLabel(subject.username), access: subject.highestPermission }),
+	)
 }
 
 function renderDecisionSubjectsTable(
@@ -218,111 +277,30 @@ function renderDecisionSubjectsTable(
 	userLabel: (username: string) => string,
 	identLabel: (navIdent: string | null) => string,
 ) {
-	doc.fontSize(12).fillColor(blue).text(title)
-	doc.moveDown(0.3)
-
-	if (subjects.length === 0) {
-		doc.fontSize(9).fillColor(gray).text("Ingen.")
-		return
-	}
-
-	const dateOnlyLabel = (dateOnly: string | null) => {
-		if (!dateOnly) return "—"
-		const [y, m, d] = dateOnly.split("-").map(Number)
-		return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("nb-NO", {
-			day: "numeric",
-			month: "long",
-			year: "numeric",
-			timeZone: "UTC",
-		})
-	}
-
-	const colX = { user: 40, access: 150, source: 230, markedBy: 350, date: 460 }
-	const colW = { user: 110, access: 80, source: 120, markedBy: 110, date: 80 }
-	const tableRight = colX.date + colW.date
-	const pad = 3
-	const pageBottom = doc.page.height - doc.page.margins.bottom
-	const border = "#c6c2bf"
-
-	function drawHeader() {
-		const y = doc.y
-		doc.fontSize(8)
-		const headerHeight =
-			Math.max(
-				doc.heightOfString("Bruker", { width: colW.user - pad * 2 }),
-				doc.heightOfString("Tilgang", { width: colW.access - pad * 2 }),
-				doc.heightOfString("Tilgang via", { width: colW.source - pad * 2 }),
-				doc.heightOfString("Registrert av", { width: colW.markedBy - pad * 2 }),
-				doc.heightOfString("Dato", { width: colW.date - pad * 2 }),
-			) +
-			pad * 2
-		doc.rect(colX.user, y, tableRight - colX.user, headerHeight).fill("#e6f0ff")
-		doc.fontSize(8).fillColor(blue)
-		doc.text("Bruker", colX.user + pad, y + pad, { width: colW.user - pad * 2 })
-		doc.text("Tilgang", colX.access + pad, y + pad, { width: colW.access - pad * 2 })
-		doc.text("Tilgang via", colX.source + pad, y + pad, { width: colW.source - pad * 2 })
-		doc.text("Registrert av", colX.markedBy + pad, y + pad, { width: colW.markedBy - pad * 2 })
-		doc.text("Dato", colX.date + pad, y + pad, { width: colW.date - pad * 2 })
-		doc
-			.strokeColor(border)
-			.lineWidth(0.5)
-			.rect(colX.user, y, tableRight - colX.user, headerHeight)
-			.stroke()
-		doc.y = y + headerHeight
-		doc.x = colX.user
-	}
-
-	drawHeader()
-
-	for (const subject of subjects) {
-		if (doc.y > pageBottom - 80) {
-			doc.addPage()
-			drawHeader()
-		}
-
-		const source = [
-			subject.directPermission ? "Direkte" : null,
-			...subject.viaTeams.map((t) => `Team: ${t.teamName || t.teamSlug}`),
-		].filter((s): s is string => s !== null)
-		const sourceText = source.length > 0 ? source.join("\n") : "—"
-
-		const accessText = subject.permissionAdjustmentRequested
-			? `${subject.highestPermission} -> ${subject.targetPermission}`
-			: subject.highestPermission
-
-		const markedBy = subject.markedForRemoval ? subject.removalMarkedBy : subject.permissionAdjustmentMarkedBy
-		const markedAt = subject.markedForRemoval ? subject.removalMarkedAt : subject.permissionAdjustmentMarkedAt
-		const markedByText = identLabel(markedBy)
-		const dateText = dateOnlyLabel(markedAt)
-		const userText = userLabel(subject.username)
-
-		doc.fontSize(8)
-		const rowHeight =
-			pad * 2 +
-			Math.max(
-				doc.heightOfString(userText, { width: colW.user - pad * 2 }),
-				doc.heightOfString(accessText, { width: colW.access - pad * 2 }),
-				doc.heightOfString(sourceText, { width: colW.source - pad * 2 }),
-				doc.heightOfString(markedByText, { width: colW.markedBy - pad * 2 }),
-				doc.heightOfString(dateText, { width: colW.date - pad * 2 }),
-			)
-
-		const y = doc.y
-		doc
-			.strokeColor(border)
-			.lineWidth(0.5)
-			.rect(colX.user, y, tableRight - colX.user, rowHeight)
-			.stroke()
-
-		doc.fontSize(8).fillColor(dark)
-		doc.text(userText, colX.user + pad, y + pad, { width: colW.user - pad * 2 })
-		doc.text(accessText, colX.access + pad, y + pad, { width: colW.access - pad * 2 })
-		doc.text(sourceText, colX.source + pad, y + pad, { width: colW.source - pad * 2 })
-		doc.text(markedByText, colX.markedBy + pad, y + pad, { width: colW.markedBy - pad * 2 })
-		doc.text(dateText, colX.date + pad, y + pad, { width: colW.date - pad * 2 })
-
-		doc.y = y + rowHeight
-		doc.x = colX.user
-		doc.moveDown(0.4)
-	}
+	renderSubjectsTable(
+		doc,
+		title,
+		subjects,
+		[
+			{ key: "user", label: "Bruker", x: 40, width: 110 },
+			{ key: "access", label: "Tilgang", x: 150, width: 80 },
+			{ key: "source", label: "Tilgang via", x: 230, width: 120 },
+			{ key: "markedBy", label: "Registrert av", x: 350, width: 110 },
+			{ key: "date", label: "Dato", x: 460, width: 80 },
+		],
+		"source",
+		(subject) => {
+			const accessText = subject.permissionAdjustmentRequested
+				? `${subject.highestPermission} -> ${subject.targetPermission}`
+				: subject.highestPermission
+			const markedBy = subject.markedForRemoval ? subject.removalMarkedBy : subject.permissionAdjustmentMarkedBy
+			const markedAt = subject.markedForRemoval ? subject.removalMarkedAt : subject.permissionAdjustmentMarkedAt
+			return {
+				user: userLabel(subject.username),
+				access: accessText,
+				markedBy: identLabel(markedBy),
+				date: dateOnlyLabel(markedAt),
+			}
+		},
+	)
 }

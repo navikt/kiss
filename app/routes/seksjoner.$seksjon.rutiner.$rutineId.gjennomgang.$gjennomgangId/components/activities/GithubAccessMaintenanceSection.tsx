@@ -1,6 +1,5 @@
-import { CheckmarkCircleIcon, MenuElipsisVerticalIcon, PencilIcon, XMarkOctagonIcon } from "@navikt/aksel-icons"
+import { CheckmarkCircleIcon, PencilIcon, XMarkOctagonIcon } from "@navikt/aksel-icons"
 import {
-	ActionMenu,
 	Alert,
 	BodyShort,
 	Box,
@@ -20,7 +19,7 @@ import { GithubPermissionTag } from "~/components/GithubPermissionTag"
 import { UserDisplayName } from "~/components/UserDisplayName"
 import type { GithubAccessSubject } from "~/lib/github-access-staged-data"
 import { githubAccessPermissionValues } from "~/lib/github-access-staged-data"
-import { githubProfileUrl } from "~/lib/github-user-access"
+import { githubProfileUrl, normalizeGithubPermission } from "~/lib/github-user-access"
 import { formatDateTimeOslo } from "~/lib/utils"
 import type { ActionResult, ActivityProp } from "../shared"
 
@@ -48,37 +47,8 @@ function SubjectIdentity({ subject }: { subject: GithubAccessSubjectWithIdentity
 	const displayName = subject.displayName?.trim() || null
 	return (
 		<a href={githubProfileUrl(subject.username)} target="_blank" rel="noopener noreferrer">
-			{displayName ?? subject.username}
+			{displayName ? `${displayName} (${subject.username})` : subject.username}
 		</a>
-	)
-}
-
-function SubjectIdentityDetails({ subject }: { subject: GithubAccessSubjectWithIdentity }) {
-	const displayName = subject.displayName?.trim() || null
-	const navIdent = subject.navIdent?.trim() || null
-	if (!displayName) return null
-	return (
-		<HStack gap="space-4" align="center">
-			<Detail>
-				GitHub-brukernavn:{" "}
-				<a href={githubProfileUrl(subject.username)} target="_blank" rel="noopener noreferrer">
-					{subject.username}
-				</a>
-			</Detail>
-			{navIdent && <Detail>Nav-ident: {navIdent}</Detail>}
-		</HStack>
-	)
-}
-
-function SubjectIdentityInline({ subject }: { subject: GithubAccessSubjectWithIdentity }) {
-	const displayName = subject.displayName?.trim() || null
-	const navIdent = subject.navIdent?.trim() || null
-	if (!displayName) return null
-	return (
-		<Detail>
-			{subject.username}
-			{navIdent && ` · ${navIdent}`}
-		</Detail>
 	)
 }
 
@@ -101,120 +71,47 @@ function AccessSourceDetails({ subject }: { subject: GithubAccessSubject }) {
 	)
 }
 
-function AccessSourceSummary({ subject }: { subject: GithubAccessSubject }) {
-	const maxVisibleTeams = 2
-	const visibleTeams = subject.viaTeams.slice(0, maxVisibleTeams)
-	const hiddenTeamCount = subject.viaTeams.length - visibleTeams.length
-
-	return (
-		<HStack gap="space-1" wrap>
-			{subject.directPermission && (
-				<Tag variant="neutral" size="xsmall">
-					Direkte
-				</Tag>
-			)}
-			{visibleTeams.map((team) => (
-				<Tag key={team.teamSlug} variant="info" size="xsmall" title={`Via team ${team.teamName || team.teamSlug}`}>
-					{team.teamName || team.teamSlug}
-				</Tag>
-			))}
-			{hiddenTeamCount > 0 && (
-				<Tag variant="info" size="xsmall">
-					+{hiddenTeamCount} team
-				</Tag>
-			)}
-		</HStack>
-	)
-}
-
 function SubjectActions({
 	subject,
+	disabled,
 	onMarkForRemoval,
-	onUnmarkForRemoval,
 	onMarkForAdjustment,
-	onUnmarkForAdjustment,
 }: {
 	subject: GithubAccessSubject
+	disabled: boolean
 	onMarkForRemoval: () => void
-	onUnmarkForRemoval: () => void
 	onMarkForAdjustment: (targetPermission: string) => void
-	onUnmarkForAdjustment: () => void
 }) {
-	const [removalOpen, setRemovalOpen] = useState(false)
 	const [adjustmentOpen, setAdjustmentOpen] = useState(false)
 	const [targetPermission, setTargetPermission] = useState("")
 
 	return (
 		<>
-			<ActionMenu>
-				<ActionMenu.Trigger>
-					<Button
-						aria-label={`Handlinger for ${subject.username}`}
-						data-color="neutral"
-						icon={<MenuElipsisVerticalIcon aria-hidden />}
-						size="small"
-						variant="tertiary"
-					/>
-				</ActionMenu.Trigger>
-				<ActionMenu.Content>
-					{subject.markedForRemoval ? (
-						<ActionMenu.Item onSelect={onUnmarkForRemoval}>Angre — behold tilgangen i stedet</ActionMenu.Item>
-					) : subject.permissionAdjustmentRequested ? (
-						<ActionMenu.Item onSelect={onUnmarkForAdjustment}>
-							Angre — behold nåværende tilgangsnivå i stedet
-						</ActionMenu.Item>
-					) : (
-						<>
-							<ActionMenu.Item
-								onSelect={() => {
-									setTargetPermission("")
-									setAdjustmentOpen(true)
-								}}
-							>
-								Juster tilgang
-							</ActionMenu.Item>
-							<ActionMenu.Item variant="danger" onSelect={() => setRemovalOpen(true)}>
-								Fjern tilgang
-							</ActionMenu.Item>
-						</>
-					)}
-				</ActionMenu.Content>
-			</ActionMenu>
-
-			<Dialog open={removalOpen} onOpenChange={setRemovalOpen}>
-				<Dialog.Popup
-					width="small"
-					position="center"
-					closeOnOutsideClick
-					aria-label={`Fjern tilgang for ${subject.username}`}
+			<HStack gap="space-2" justify="end">
+				<Button
+					type="button"
+					data-color="neutral"
+					variant="secondary"
+					size="small"
+					disabled={disabled}
+					onClick={() => {
+						setTargetPermission("")
+						setAdjustmentOpen(true)
+					}}
 				>
-					<Dialog.Header>Fjern tilgang?</Dialog.Header>
-					<Dialog.Body>
-						<VStack gap="space-16">
-							<BodyShort size="small">
-								Tilgangen merkes for fjerning. Et oppfølgingspunkt opprettes ved fullføring. KISS utfører eller
-								bekrefter ikke endringen i GitHub.
-							</BodyShort>
-							<HStack gap="space-4">
-								<Button
-									type="button"
-									variant="danger"
-									size="small"
-									onClick={() => {
-										setRemovalOpen(false)
-										onMarkForRemoval()
-									}}
-								>
-									Merk for fjerning
-								</Button>
-								<Button type="button" variant="secondary" size="small" onClick={() => setRemovalOpen(false)}>
-									Avbryt
-								</Button>
-							</HStack>
-						</VStack>
-					</Dialog.Body>
-				</Dialog.Popup>
-			</Dialog>
+					Endre
+				</Button>
+				<Button
+					type="button"
+					variant="danger"
+					size="small"
+					disabled={disabled}
+					loading={disabled}
+					onClick={onMarkForRemoval}
+				>
+					Fjern
+				</Button>
+			</HStack>
 
 			<Dialog open={adjustmentOpen} onOpenChange={setAdjustmentOpen}>
 				<Dialog.Popup
@@ -235,7 +132,12 @@ function SubjectActions({
 							>
 								<option value="">Velg tilgangsnivå…</option>
 								{githubAccessPermissionValues
-									.filter((p) => p !== subject.highestPermission)
+									.filter(
+										(p, index, all) =>
+											normalizeGithubPermission(p) !== normalizeGithubPermission(subject.highestPermission) &&
+											all.findIndex((other) => normalizeGithubPermission(other) === normalizeGithubPermission(p)) ===
+												index,
+									)
 									.map((p) => (
 										<option key={p} value={p}>
 											{p}
@@ -250,7 +152,8 @@ function SubjectActions({
 									type="button"
 									variant="secondary"
 									size="small"
-									disabled={targetPermission === ""}
+									disabled={disabled || targetPermission === ""}
+									loading={disabled}
 									onClick={() => {
 										setAdjustmentOpen(false)
 										onMarkForAdjustment(targetPermission)
@@ -272,7 +175,6 @@ function SubjectActions({
 
 export function GithubAccessMaintenanceSection({
 	activity,
-	reviewId,
 	gitRepository,
 	subjects,
 	confirmedBy,
@@ -282,7 +184,6 @@ export function GithubAccessMaintenanceSection({
 	isDraft,
 }: {
 	activity: ActivityProp
-	reviewId: string
 	gitRepository: string
 	subjects: GithubAccessSubjectWithIdentity[]
 	confirmedBy?: string | null
@@ -292,11 +193,12 @@ export function GithubAccessMaintenanceSection({
 	isDraft: boolean
 }) {
 	const reviewFetcher = useFetcher<ActionResult>()
+	const isSubmitting = reviewFetcher.state !== "idle"
 	const isPending = activity.status === "pending"
 	const canEdit = isDraft && isPending
 
-	const activeSubjects = subjects.filter((s) => !s.isGone)
-	const goneSubjects = subjects.filter((s) => s.isGone)
+	const pendingSubjects = subjects.filter((s) => !s.markedForRemoval && !s.permissionAdjustmentRequested)
+	const decidedSubjects = subjects.filter((s) => s.markedForRemoval || s.permissionAdjustmentRequested)
 
 	const handleMarkForRemoval = (username: string) => {
 		reviewFetcher.submit({ intent: "mark-github-access-subject-for-removal", username }, { method: "POST" })
@@ -358,117 +260,110 @@ export function GithubAccessMaintenanceSection({
 				<Table size="small">
 					<Table.Header>
 						<Table.Row>
-							<Table.HeaderCell scope="col" />
 							<Table.HeaderCell scope="col">Bruker</Table.HeaderCell>
 							<Table.HeaderCell scope="col">Høyeste tilgang</Table.HeaderCell>
 							<Table.HeaderCell scope="col">Kilde</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Status</Table.HeaderCell>
 							<Table.HeaderCell scope="col" align="right">
 								Handlinger
 							</Table.HeaderCell>
 						</Table.Row>
 					</Table.Header>
 					<Table.Body>
-						{activeSubjects.map((subject) => (
-							<Table.ExpandableRow
-								key={subject.username}
-								content={
-									<VStack gap="space-4">
-										<SubjectIdentityDetails subject={subject} />
-										<AccessSourceDetails subject={subject} />
-										{subject.markedForRemoval ? (
-											<Box background="danger-soft" padding="space-8" borderRadius="4">
-												<Detail weight="semibold">Merket for fjerning — følges opp etter fullføring.</Detail>
-											</Box>
-										) : subject.permissionAdjustmentRequested ? (
-											<Box background="info-soft" padding="space-8" borderRadius="4">
-												<Detail weight="semibold">
-													Justering: {subject.highestPermission} → {subject.targetPermission}
-												</Detail>
-											</Box>
-										) : null}
-									</VStack>
-								}
-								colSpan={6}
-							>
+						{pendingSubjects.map((subject) => (
+							<Table.Row key={subject.username}>
 								<Table.DataCell>
-									<HStack gap="space-2" align="center">
-										<SubjectIdentity subject={subject} />
-										{subject.isNew && (
-											<Tag variant="info" size="xsmall">
-												Ny
-											</Tag>
-										)}
-									</HStack>
+									<SubjectIdentity subject={subject} />
 								</Table.DataCell>
 								<Table.DataCell>
 									<GithubPermissionTag permission={subject.highestPermission} />
 								</Table.DataCell>
 								<Table.DataCell>
-									<AccessSourceSummary subject={subject} />
-								</Table.DataCell>
-								<Table.DataCell>
-									{subject.markedForRemoval ? (
-										<Tag variant="error" size="xsmall" icon={<XMarkOctagonIcon aria-hidden />}>
-											Merket for fjerning
-										</Tag>
-									) : subject.permissionAdjustmentRequested ? (
-										<Tag variant="info" size="xsmall" icon={<PencilIcon aria-hidden />}>
-											Justering markert
-										</Tag>
-									) : (
-										<Tag variant="neutral" size="xsmall">
-											Ingen beslutning
-										</Tag>
-									)}
+									<AccessSourceDetails subject={subject} />
 								</Table.DataCell>
 								<Table.DataCell align="right">
 									{canEdit && (
 										<SubjectActions
 											subject={subject}
+											disabled={isSubmitting}
 											onMarkForRemoval={() => handleMarkForRemoval(subject.username)}
-											onUnmarkForRemoval={() => handleUnmarkForRemoval(subject.username)}
 											onMarkForAdjustment={(targetPermission) =>
 												handleMarkForAdjustment(subject.username, targetPermission)
 											}
-											onUnmarkForAdjustment={() => handleUnmarkForAdjustment(subject.username)}
 										/>
 									)}
 								</Table.DataCell>
-							</Table.ExpandableRow>
+							</Table.Row>
 						))}
 					</Table.Body>
 				</Table>
-				{activeSubjects.length === 0 && (
+				{pendingSubjects.length === 0 && (
 					<BodyShort size="small" textColor="subtle" style={{ padding: "var(--ax-space-16)" }}>
 						Ingen personer med tilgang.
 					</BodyShort>
 				)}
 			</section>
 
-			{goneSubjects.length > 0 && (
-				<VStack gap="space-2">
-					<Detail weight="semibold">Fjernet siden forrige gjennomgang ({goneSubjects.length})</Detail>
+			{decidedSubjects.length > 0 && (
+				<VStack gap="space-4">
+					<Heading size="small" level="4">
+						Tilganger som skal endres ({decidedSubjects.length})
+					</Heading>
 					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-					<section className="table-scroll" tabIndex={0} aria-label="Personer fjernet siden forrige gjennomgang">
+					<section className="table-scroll" tabIndex={0} aria-label="Tilganger som skal endres">
 						<Table size="small">
 							<Table.Header>
 								<Table.Row>
 									<Table.HeaderCell scope="col">Bruker</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Siste kjente tilgang</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Høyeste tilgang</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Endring</Table.HeaderCell>
+									<Table.HeaderCell scope="col" align="right">
+										Handlinger
+									</Table.HeaderCell>
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
-								{goneSubjects.map((subject) => (
-									<Table.Row key={subject.username} style={{ backgroundColor: "var(--ax-bg-danger-soft)" }}>
+								{decidedSubjects.map((subject) => (
+									<Table.Row key={subject.username}>
 										<Table.DataCell>
-											<VStack gap="space-1">
-												<SubjectIdentity subject={subject} />
-												<SubjectIdentityInline subject={subject} />
-											</VStack>
+											<SubjectIdentity subject={subject} />
 										</Table.DataCell>
 										<Table.DataCell>
 											<GithubPermissionTag permission={subject.highestPermission} />
+										</Table.DataCell>
+										<Table.DataCell>
+											<VStack gap="space-1">
+												{subject.markedForRemoval ? (
+													<Tag variant="error" size="xsmall" icon={<XMarkOctagonIcon aria-hidden />}>
+														Skal fjernes
+													</Tag>
+												) : (
+													<Tag variant="info" size="xsmall" icon={<PencilIcon aria-hidden />}>
+														Skal endres
+													</Tag>
+												)}
+												{subject.permissionAdjustmentRequested && (
+													<Detail>
+														{subject.highestPermission} → {subject.targetPermission}
+													</Detail>
+												)}
+											</VStack>
+										</Table.DataCell>
+										<Table.DataCell align="right">
+											{canEdit && (
+												<Button
+													type="button"
+													variant="tertiary"
+													size="small"
+													disabled={isSubmitting}
+													onClick={() =>
+														subject.markedForRemoval
+															? handleUnmarkForRemoval(subject.username)
+															: handleUnmarkForAdjustment(subject.username)
+													}
+												>
+													Angre
+												</Button>
+											)}
 										</Table.DataCell>
 									</Table.Row>
 								))}
@@ -483,23 +378,18 @@ export function GithubAccessMaintenanceSection({
 					<VStack gap="space-4">
 						<BodyShort weight="semibold">Fullføring av Github-tilgangsgjennomgang</BodyShort>
 						<BodyShort size="small">
-							Bekrefter at resterende personer har tjenstlig behov for tilgangen. Personer merket for fjerning eller
-							justering får automatisk et preutfylt oppfølgingspunkt som må adresseres.
+							Bekrefter at resterende personer har tjenstlig behov for tilgangen. Tilganger som skal fjernes eller
+							endres får automatisk et preutfylt oppfølgingspunkt som må adresseres.
 						</BodyShort>
 						<HStack gap="space-4" align="center" wrap>
-							<Button type="button" size="small" onClick={handleConfirmReview}>
-								Bekreft tjenstlig behov for alle
-							</Button>
 							<Button
-								as="a"
-								href={`/api/gjennomgang/${reviewId}/github-tilgang.pdf`}
-								target="_blank"
-								rel="noopener noreferrer"
 								type="button"
-								variant="secondary"
 								size="small"
+								onClick={handleConfirmReview}
+								disabled={isSubmitting}
+								loading={isSubmitting}
 							>
-								Forhåndsvis PDF-revisjonsbevis
+								Bekreft tjenstlig behov for alle
 							</Button>
 						</HStack>
 						{confirmedAt && (

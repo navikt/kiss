@@ -13,6 +13,7 @@ import {
 	parseGithubAccessStagedData,
 	toGithubAccessSnapshot,
 } from "~/lib/github-access-staged-data"
+import { canonicalizeGitRepository } from "~/lib/github-access-sync.server"
 import { computeGithubUserAccess, normalizeGithubUsername } from "~/lib/github-user-access"
 import { withAdvisoryLock } from "~/lib/lock.server"
 import { logger } from "~/lib/logger.server"
@@ -20,7 +21,6 @@ import { type GitHubUserLookupResult, lookupGitHubUsers } from "~/lib/nda-github
 import { sanitizeFilename } from "~/lib/sanitize-filename"
 import { getStorageProvider } from "~/lib/storage/index.server"
 import { db } from "../connection.server"
-import { githubAccessAssessments } from "../schema/github-access"
 import {
 	routineReviewActivities,
 	routineReviewAttachments,
@@ -34,13 +34,13 @@ import { writeAuditLog } from "./audit.server"
 export async function buildGithubAccessSeedResult(
 	applicationId: string,
 	executor: DbExecutor = db,
-): Promise<{ stagedData: GithubAccessStagedData; snapshot: GithubAccessSnapshot }> {
+): Promise<GithubAccessStagedData> {
 	const seedInputs = await executor.execute(sql`
-SELECT
-  (SELECT COALESCE(
+WITH repo AS (
+  SELECT COALESCE(
       NULLIF(trim(ma.git_repository), ''),
       (
-        SELECT ae.git_repository
+        SELECT trim(ae.git_repository)
         FROM application_environments ae
         WHERE ae.application_id = ma.id
           AND ae.git_repository IS NOT NULL
@@ -48,9 +48,13 @@ SELECT
         ORDER BY ae.discovered_at ASC
         LIMIT 1
       )
-    )
-   FROM monitored_applications ma WHERE ma.id = ${applicationId}) AS "gitRepository",
+    ) AS "gitRepository"
+   FROM monitored_applications ma WHERE ma.id = ${applicationId}
+)
+SELECT
+  (SELECT "gitRepository" FROM repo) AS "gitRepository",
   (SELECT s.last_success_at FROM github_access_sync_status s WHERE s.application_id = ${applicationId}) AS "lastSuccessfulSyncAt",
+  (SELECT s.git_repository FROM github_access_sync_status s WHERE s.application_id = ${applicationId}) AS "syncedGitRepository",
   (SELECT COALESCE(json_agg(json_build_object(
       'id', t.id, 'teamSlug', t.team_slug, 'teamName', t.team_name,
       'permission', t.permission, 'syncedAt', t.synced_at
@@ -65,29 +69,41 @@ SELECT
   (SELECT COALESCE(json_agg(json_build_object(
       'username', c.username, 'permission', c.permission, 'syncedAt', c.synced_at
     )), '[]'::json)
-   FROM github_repo_collaborators c WHERE c.application_id = ${applicationId}) AS collaborators,
-  (SELECT COALESCE(json_agg(json_build_object(
-      'username', a.username, 'lastKnownPermission', a.last_known_permission
-    )), '[]'::json)
-   FROM github_access_assessments a
-   WHERE a.application_id = ${applicationId} AND a.archived_at IS NULL) AS assessments
+   FROM github_repo_collaborators c WHERE c.application_id = ${applicationId}) AS collaborators
 `)
 
 	const seedRow = seedInputs.rows[0] as {
 		gitRepository: string | null
 		lastSuccessfulSyncAt: string | null
+		syncedGitRepository: string | null
 		teams: Array<{ id: string; teamSlug: string; teamName: string; permission: string; syncedAt: string }>
 		members: Array<{ repoTeamId: string; username: string; role: string; syncedAt: string }>
 		collaborators: Array<{ username: string; permission: string; syncedAt: string }>
-		assessments: Array<{ username: string; lastKnownPermission: string | null }>
 	}
 
-	const gitRepository = seedRow.gitRepository?.trim() || null
-	if (!gitRepository) {
+	const rawGitRepository = seedRow.gitRepository?.trim() || null
+	if (!rawGitRepository) {
 		throw new Response("Applikasjonen mangler et konfigurert Github-repo", { status: 400 })
 	}
 
-	if (!seedRow.lastSuccessfulSyncAt) {
+	let gitRepository: string
+	try {
+		gitRepository = canonicalizeGitRepository(rawGitRepository)
+	} catch {
+		throw new Response("Applikasjonen har et ugyldig konfigurert Github-repo", { status: 400 })
+	}
+
+	const syncedGitRepository = (() => {
+		const raw = seedRow.syncedGitRepository?.trim()
+		if (!raw) return null
+		try {
+			return canonicalizeGitRepository(raw)
+		} catch {
+			return null
+		}
+	})()
+
+	if (!seedRow.lastSuccessfulSyncAt || syncedGitRepository !== gitRepository) {
 		throw new Response(
 			"Dette repoet har ikke blitt synkronisert mot Github ennå. Vent til neste synkronisering er fullført før gjennomgangen kan startes.",
 			{ status: 400 },
@@ -118,7 +134,6 @@ SELECT
 		permission: c.permission,
 		syncedAt: new Date(c.syncedAt),
 	}))
-	const assessmentRows = seedRow.assessments
 
 	const teamsById = new Map<string, { teamSlug: string; teamName: string; permission: string; syncedAt: Date }>()
 	const membersByTeamId = new Map<string, Array<{ username: string; role: string }>>()
@@ -152,8 +167,6 @@ SELECT
 		collaboratorRows.map((c) => ({ username: c.username, permission: c.permission })),
 	)
 
-	const assessmentByUsername = new Map(assessmentRows.map((a) => [normalizeGithubUsername(a.username), a]))
-	const liveUsernames = new Set(userAccess.map((u) => normalizeGithubUsername(u.username)))
 	const seededAt = new Date().toISOString()
 
 	const syncedTimestamps: Date[] = [
@@ -168,34 +181,12 @@ SELECT
 				? new Date(seedRow.lastSuccessfulSyncAt).toISOString()
 				: null
 
-	const activeSubjects: GithubAccessSubject[] = userAccess.map((u) => {
-		const prior = assessmentByUsername.get(u.username) ?? null
-		return {
+	const subjects: GithubAccessSubject[] = userAccess
+		.map((u) => ({
 			username: u.username,
 			highestPermission: u.highestPermission,
 			directPermission: u.directPermission,
 			viaTeams: u.viaTeams,
-			isNew: prior === null,
-			isGone: false,
-			markedForRemoval: false,
-			removalMarkedBy: null,
-			removalMarkedAt: null,
-			permissionAdjustmentRequested: false,
-			targetPermission: null,
-			permissionAdjustmentMarkedBy: null,
-			permissionAdjustmentMarkedAt: null,
-		}
-	})
-
-	const goneSubjects: GithubAccessSubject[] = assessmentRows
-		.filter((a) => !liveUsernames.has(normalizeGithubUsername(a.username)))
-		.map((a) => ({
-			username: normalizeGithubUsername(a.username),
-			highestPermission: a.lastKnownPermission ?? "ukjent",
-			directPermission: null,
-			viaTeams: [],
-			isNew: false,
-			isGone: true,
 			markedForRemoval: false,
 			removalMarkedBy: null,
 			removalMarkedAt: null,
@@ -204,11 +195,7 @@ SELECT
 			permissionAdjustmentMarkedBy: null,
 			permissionAdjustmentMarkedAt: null,
 		}))
-
-	const subjects = [...activeSubjects, ...goneSubjects].sort((a, b) => {
-		if (a.isGone !== b.isGone) return a.isGone ? 1 : -1
-		return a.username.localeCompare(b.username, "nb")
-	})
+		.sort((a, b) => a.username.localeCompare(b.username, "nb"))
 
 	const stagedData: GithubAccessStagedData = {
 		activityType: GITHUB_ACCESS_STAGED_DATA_ACTIVITY_TYPE,
@@ -221,7 +208,45 @@ SELECT
 		confirmedAt: null,
 	}
 
-	return { stagedData, snapshot: toGithubAccessSnapshot(stagedData) }
+	return stagedData
+}
+
+/**
+ * Sikrer at en Github-aktivitet har staged_data, og seed'er den (med audit-logg) hvis ikke.
+ * MÅ kalles inne i en transaksjon der aktivitetsraden allerede er låst (SELECT ... FOR UPDATE),
+ * slik at seed-skrivingen og audit-loggen blir atomiske og konkurrerende kall ikke overskriver hverandre.
+ */
+async function ensureGithubAccessStagedData(
+	tx: DbExecutor,
+	activityId: string,
+	applicationId: string,
+	performedBy: string,
+): Promise<GithubAccessStagedData> {
+	const seeded = await buildGithubAccessSeedResult(applicationId, tx)
+	const [updated] = await tx
+		.update(routineReviewActivities)
+		.set({
+			stagedData: seeded,
+			snapshotBefore: sql`COALESCE(${routineReviewActivities.snapshotBefore}, ${JSON.stringify(toGithubAccessSnapshot(seeded))}::jsonb)`,
+		})
+		.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
+		.returning({ stagedData: routineReviewActivities.stagedData })
+
+	if (updated?.stagedData) {
+		await writeAuditLog(
+			{ action: "review_activity_seeded", entityType: "routine_review_activity", entityId: activityId, performedBy },
+			tx,
+		)
+		return parseGithubAccessStagedData(updated.stagedData)
+	}
+
+	const [current] = await tx
+		.select({ stagedData: routineReviewActivities.stagedData })
+		.from(routineReviewActivities)
+		.where(eq(routineReviewActivities.id, activityId))
+		.limit(1)
+	if (!current?.stagedData) throw new Error(`Kunne ikke seed'e Github-aktivitet ${activityId}`)
+	return parseGithubAccessStagedData(current.stagedData)
 }
 
 export async function seedGithubAccessActivity(
@@ -234,6 +259,7 @@ export async function seedGithubAccessActivity(
 			status: routineReviewActivities.status,
 			stagedData: routineReviewActivities.stagedData,
 			applicationId: routineReviews.applicationId,
+			reviewStatus: routineReviews.status,
 		})
 		.from(routineReviewActivities)
 		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
@@ -246,53 +272,41 @@ export async function seedGithubAccessActivity(
 	}
 	if (!precheck.applicationId) throw new Response("Github-aktiviteten mangler applikasjon", { status: 400 })
 	if (precheck.status !== "pending") throw new Response("Kan ikke seed'e en fullført aktivitet", { status: 409 })
+	if (precheck.reviewStatus !== "draft") {
+		throw new Response("Gjennomgangen er ikke lenger redigerbar.", { status: 409 })
+	}
 	if (precheck.stagedData) return parseGithubAccessStagedData(precheck.stagedData)
 
-	const seeded = await buildGithubAccessSeedResult(precheck.applicationId)
-
+	const applicationId = precheck.applicationId
 	const lockName = `github_access_maintenance-activity-${activityId}`
 	const lockResult = await withAdvisoryLock(lockName, async () => {
-		const [current] = await db
-			.select({ status: routineReviewActivities.status, stagedData: routineReviewActivities.stagedData })
-			.from(routineReviewActivities)
-			.where(eq(routineReviewActivities.id, activityId))
-			.limit(1)
-
-		if (!current) throw new Error(`Fant ikke review-aktivitet ${activityId}`)
-		if (current.status !== "pending") throw new Response("Kan ikke seed'e en fullført aktivitet", { status: 409 })
-		if (current.stagedData) return parseGithubAccessStagedData(current.stagedData)
-
 		return db.transaction(async (tx) => {
-			const [updated] = await tx
-				.update(routineReviewActivities)
-				.set({
-					stagedData: seeded.stagedData,
-					snapshotBefore: sql`COALESCE(${routineReviewActivities.snapshotBefore}, ${JSON.stringify(seeded.snapshot)}::jsonb)`,
+			const [current] = await tx
+				.select({
+					status: routineReviewActivities.status,
+					stagedData: routineReviewActivities.stagedData,
+					reviewId: routineReviewActivities.reviewId,
 				})
-				.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
-				.returning({ stagedData: routineReviewActivities.stagedData })
-
-			if (updated?.stagedData) {
-				await writeAuditLog(
-					{
-						action: "review_activity_seeded",
-						entityType: "routine_review_activity",
-						entityId: activityId,
-						performedBy,
-					},
-					tx,
-				)
-				return parseGithubAccessStagedData(updated.stagedData)
-			}
-
-			const [current2] = await tx
-				.select({ stagedData: routineReviewActivities.stagedData })
 				.from(routineReviewActivities)
 				.where(eq(routineReviewActivities.id, activityId))
+				.for("update")
 				.limit(1)
 
-			if (!current2?.stagedData) throw new Error(`Kunne ikke seed'e Github-aktivitet ${activityId}`)
-			return parseGithubAccessStagedData(current2.stagedData)
+			if (!current) throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+			if (current.status !== "pending") throw new Response("Kan ikke seed'e en fullført aktivitet", { status: 409 })
+			if (current.stagedData) return parseGithubAccessStagedData(current.stagedData)
+
+			const [review] = await tx
+				.select({ status: routineReviews.status })
+				.from(routineReviews)
+				.where(eq(routineReviews.id, current.reviewId))
+				.for("update")
+				.limit(1)
+			if (!review || review.status !== "draft") {
+				throw new Response("Gjennomgangen er ikke lenger redigerbar.", { status: 409 })
+			}
+
+			return ensureGithubAccessStagedData(tx, activityId, applicationId, performedBy)
 		})
 	})
 
@@ -330,14 +344,7 @@ export async function patchGithubAccessActivity(
 	if (precheck.reviewStatus !== "draft") throw new Response("Gjennomgangen er ikke lenger redigerbar.", { status: 409 })
 	if (precheck.status !== "pending") throw new Response("Kan ikke endre en fullført aktivitet", { status: 409 })
 
-	const seedResult =
-		!precheck.stagedData && precheck.applicationId
-			? await buildGithubAccessSeedResult(precheck.applicationId)
-			: !precheck.stagedData
-				? (() => {
-						throw new Response("Github-aktiviteten mangler applikasjon", { status: 400 })
-					})()
-				: null
+	const applicationId = precheck.applicationId
 
 	const lockName = `github_access_maintenance-activity-${activityId}`
 	const lockResult = await withAdvisoryLock(lockName, async () => {
@@ -357,21 +364,23 @@ export async function patchGithubAccessActivity(
 			if (activity.status !== "pending") throw new Response("Kan ikke endre en fullført aktivitet", { status: 409 })
 
 			const [review] = await tx
-				.select({ status: routineReviews.status })
+				.select({ status: routineReviews.status, routineArchivedAt: routines.archivedAt })
 				.from(routineReviews)
+				.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 				.where(eq(routineReviews.id, activity.reviewId))
 				.for("update")
 				.limit(1)
 			if (!review || review.status !== "draft") {
 				throw new Response("Gjennomgangen er ikke lenger redigerbar.", { status: 409 })
 			}
+			if (review.routineArchivedAt) {
+				throw new Response("Kan ikke endre vurderinger på en arkivert rutine.", { status: 403 })
+			}
 
 			let stagedData = activity.stagedData ? parseGithubAccessStagedData(activity.stagedData) : null
-			let seededInThisCall = false
 			if (!stagedData) {
-				if (!seedResult) throw new Error(`Mangler staged_data for Github-aktivitet ${activityId}`)
-				stagedData = seedResult.stagedData
-				seededInThisCall = true
+				if (!applicationId) throw new Response("Github-aktiviteten mangler applikasjon", { status: 400 })
+				stagedData = await ensureGithubAccessStagedData(tx, activityId, applicationId, performedBy)
 			}
 
 			let updatedData: GithubAccessStagedData
@@ -382,15 +391,10 @@ export async function patchGithubAccessActivity(
 			}
 			const hasChanged = JSON.stringify(stagedData) !== JSON.stringify(updatedData)
 
-			if (hasChanged || seededInThisCall) {
+			if (hasChanged) {
 				const [updated] = await tx
 					.update(routineReviewActivities)
-					.set({
-						stagedData: updatedData,
-						...(seededInThisCall && {
-							snapshotBefore: sql`COALESCE(${routineReviewActivities.snapshotBefore}, ${JSON.stringify(seedResult?.snapshot)}::jsonb)`,
-						}),
-					})
+					.set({ stagedData: updatedData })
 					.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))
 					.returning({ id: routineReviewActivities.id })
 				if (!updated) {
@@ -398,20 +402,21 @@ export async function patchGithubAccessActivity(
 				}
 			}
 
-			if (seededInThisCall) {
-				await writeAuditLog(
-					{
-						action: "review_activity_seeded",
-						entityType: "routine_review_activity",
-						entityId: activityId,
-						performedBy,
-					},
-					tx,
-				)
-			}
-
 			if (hasChanged) {
 				const username = "username" in patch ? normalizeGithubUsername(patch.username) : null
+				const subjectAuditSnapshot = (subject: GithubAccessSubject) => ({
+					username: subject.username,
+					markedForRemoval: subject.markedForRemoval,
+					removalMarkedBy: subject.removalMarkedBy,
+					removalMarkedAt: subject.removalMarkedAt,
+					permissionAdjustmentRequested: subject.permissionAdjustmentRequested,
+					targetPermission: subject.targetPermission,
+					permissionAdjustmentMarkedBy: subject.permissionAdjustmentMarkedBy,
+					permissionAdjustmentMarkedAt: subject.permissionAdjustmentMarkedAt,
+				})
+				const priorSubject = username
+					? stagedData.subjects.find((s) => normalizeGithubUsername(s.username) === username)
+					: null
 				const patchedSubject = username
 					? updatedData.subjects.find((s) => normalizeGithubUsername(s.username) === username)
 					: null
@@ -421,18 +426,11 @@ export async function patchGithubAccessActivity(
 						action: "review_activity_github_access_patched",
 						entityType: "routine_review_activity",
 						entityId: activityId,
-						previousValue: JSON.stringify(activity.stagedData ?? stagedData),
+						previousValue: priorSubject
+							? JSON.stringify(subjectAuditSnapshot(priorSubject))
+							: JSON.stringify({ confirmedBy: stagedData.confirmedBy, confirmedAt: stagedData.confirmedAt }),
 						newValue: patchedSubject
-							? JSON.stringify({
-									username: patchedSubject.username,
-									markedForRemoval: patchedSubject.markedForRemoval,
-									removalMarkedBy: patchedSubject.removalMarkedBy,
-									removalMarkedAt: patchedSubject.removalMarkedAt,
-									permissionAdjustmentRequested: patchedSubject.permissionAdjustmentRequested,
-									targetPermission: patchedSubject.targetPermission,
-									permissionAdjustmentMarkedBy: patchedSubject.permissionAdjustmentMarkedBy,
-									permissionAdjustmentMarkedAt: patchedSubject.permissionAdjustmentMarkedAt,
-								})
+							? JSON.stringify(subjectAuditSnapshot(patchedSubject))
 							: JSON.stringify({ confirmedBy: updatedData.confirmedBy, confirmedAt: updatedData.confirmedAt }),
 						metadata: { activityId, ...(username && { username }) },
 						performedBy,
@@ -461,6 +459,7 @@ export async function commitGithubAccessActivity(
 	performedBy: string,
 	executor: DbExecutor,
 	onUploaded?: (path: string) => void,
+	prefetchedGithubUserLookups?: Map<string, GitHubUserLookupResult>,
 ): Promise<GithubAccessSnapshot> {
 	const [activity] = await executor
 		.select({
@@ -487,34 +486,9 @@ export async function commitGithubAccessActivity(
 	}
 	if (!activity.applicationId) throw new Response("Github-aktiviteten mangler applikasjon", { status: 400 })
 
-	let stagedData = activity.stagedData ? parseGithubAccessStagedData(activity.stagedData) : null
-	if (!stagedData) {
-		const seeded = await buildGithubAccessSeedResult(activity.applicationId, executor)
-		const [seededActivity] = await executor
-			.update(routineReviewActivities)
-			.set({
-				stagedData: seeded.stagedData,
-				snapshotBefore: sql`COALESCE(${routineReviewActivities.snapshotBefore}, ${JSON.stringify(seeded.snapshot)}::jsonb)`,
-			})
-			.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
-			.returning({ stagedData: routineReviewActivities.stagedData })
-
-		if (seededActivity?.stagedData) {
-			await writeAuditLog(
-				{ action: "review_activity_seeded", entityType: "routine_review_activity", entityId: activityId, performedBy },
-				executor,
-			)
-			stagedData = parseGithubAccessStagedData(seededActivity.stagedData)
-		} else {
-			const [current] = await executor
-				.select({ stagedData: routineReviewActivities.stagedData })
-				.from(routineReviewActivities)
-				.where(eq(routineReviewActivities.id, activityId))
-				.limit(1)
-			if (!current?.stagedData) throw new Error(`Mangler staged_data for Github-aktivitet ${activityId}`)
-			stagedData = parseGithubAccessStagedData(current.stagedData)
-		}
-	}
+	const stagedData = activity.stagedData
+		? parseGithubAccessStagedData(activity.stagedData)
+		: await ensureGithubAccessStagedData(executor, activityId, activity.applicationId, performedBy)
 
 	if (!isGithubAccessReviewComplete(stagedData)) {
 		throw new Response("Gjennomgangen må bekreftes før aktiviteten kan fullføres.", { status: 400 })
@@ -529,11 +503,13 @@ export async function commitGithubAccessActivity(
 		.from(routineReviewParticipants)
 		.where(and(eq(routineReviewParticipants.reviewId, reviewId), isNull(routineReviewParticipants.archivedAt)))
 
-	let githubUserLookups = new Map<string, GitHubUserLookupResult>()
-	try {
-		githubUserLookups = await lookupGitHubUsers(stagedData.subjects.map((s) => s.username))
-	} catch (error) {
-		logger.warn("Kunne ikke hente visningsnavn for GitHub-brukere fra NDA til PDF-en", error)
+	let githubUserLookups = prefetchedGithubUserLookups ?? new Map<string, GitHubUserLookupResult>()
+	if (!prefetchedGithubUserLookups) {
+		try {
+			githubUserLookups = await lookupGitHubUsers(stagedData.subjects.map((s) => s.username))
+		} catch (error) {
+			logger.warn("Kunne ikke hente visningsnavn for GitHub-brukere fra NDA til PDF-en", error)
+		}
 	}
 
 	const reviewerNavIdents = new Set<string>([performedBy])
@@ -606,85 +582,6 @@ export async function commitGithubAccessActivity(
 				performedBy,
 			})
 		}
-	}
-
-	const existingAssessments = await executor
-		.select({
-			id: githubAccessAssessments.id,
-			username: githubAccessAssessments.username,
-			lastKnownPermission: githubAccessAssessments.lastKnownPermission,
-			archivedAt: githubAccessAssessments.archivedAt,
-		})
-		.from(githubAccessAssessments)
-		.where(eq(githubAccessAssessments.applicationId, activity.applicationId))
-	const existingAssessmentByUsername = new Map(existingAssessments.map((a) => [normalizeGithubUsername(a.username), a]))
-
-	for (const subject of stagedData.subjects) {
-		const username = normalizeGithubUsername(subject.username)
-		const existing = existingAssessmentByUsername.get(username) ?? null
-		const previousValue = existing
-			? JSON.stringify({ username, lastKnownPermission: existing.lastKnownPermission, archivedAt: existing.archivedAt })
-			: null
-
-		if (subject.isGone) {
-			const [archived] = await executor
-				.update(githubAccessAssessments)
-				.set({ archivedAt: new Date(), archivedBy: performedBy, updatedBy: performedBy, updatedAt: new Date() })
-				.where(
-					and(
-						eq(githubAccessAssessments.applicationId, activity.applicationId),
-						eq(githubAccessAssessments.username, username),
-					),
-				)
-				.returning({ id: githubAccessAssessments.id })
-			if (archived) {
-				await writeAuditLog(
-					{
-						action: "github_access_assessment_saved",
-						entityType: "github_access_assessment",
-						entityId: archived.id,
-						previousValue,
-						newValue: JSON.stringify({ username, archived: true }),
-						metadata: { applicationId: activity.applicationId, reviewId, activityId },
-						performedBy,
-					},
-					executor,
-				)
-			}
-			continue
-		}
-		const [upserted] = await executor
-			.insert(githubAccessAssessments)
-			.values({
-				applicationId: activity.applicationId,
-				username,
-				lastKnownPermission: subject.highestPermission,
-				createdBy: performedBy,
-				updatedBy: performedBy,
-			})
-			.onConflictDoUpdate({
-				target: [githubAccessAssessments.applicationId, githubAccessAssessments.username],
-				set: {
-					lastKnownPermission: subject.highestPermission,
-					archivedAt: null,
-					archivedBy: null,
-					updatedBy: performedBy,
-					updatedAt: new Date(),
-				},
-			})
-			.returning({ id: githubAccessAssessments.id })
-		await writeAuditLog(
-			{
-				action: "github_access_assessment_saved",
-				entityType: "github_access_assessment",
-				entityId: upserted.id,
-				previousValue,
-				newValue: JSON.stringify({ username, lastKnownPermission: subject.highestPermission }),
-				metadata: { applicationId: activity.applicationId, reviewId, activityId },
-				performedBy,
-			},
-			executor,
-		)
 	}
 
 	return toGithubAccessSnapshot(stagedData)

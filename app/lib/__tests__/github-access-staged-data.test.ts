@@ -12,8 +12,6 @@ const subject = {
 	highestPermission: "admin",
 	directPermission: "admin",
 	viaTeams: [],
-	isNew: false,
-	isGone: false,
 	markedForRemoval: false,
 	removalMarkedBy: null,
 	removalMarkedAt: null,
@@ -139,11 +137,6 @@ describe("github access staged data", () => {
 		}
 	})
 
-	it.each([removal, adjustment])("rejects $op for a gone subject", (patch) => {
-		const data = parseGithubAccessStagedData({ ...baseData, subjects: [{ ...subject, isGone: true }] })
-		expect(() => applyGithubAccessStagedDataPatch(data, patch)).toThrow()
-	})
-
 	it.each([removal, adjustment])("keeps $op mutually exclusive with the other decision", (patch) => {
 		let updated = applyGithubAccessStagedDataPatch(parsed(), removal)
 		updated = applyGithubAccessStagedDataPatch(updated, adjustment)
@@ -162,6 +155,20 @@ describe("github access staged data", () => {
 		expect(() =>
 			applyGithubAccessStagedDataPatch(parsed(), { ...adjustment, targetPermission: subject.highestPermission }),
 		).toThrow()
+	})
+
+	it("rejects an adjustment target that is only an alias of the subject's current permission", () => {
+		const writeSubject = parseGithubAccessStagedData({
+			...baseData,
+			subjects: [{ ...subject, highestPermission: "write" }],
+		})
+		expect(() => applyGithubAccessStagedDataPatch(writeSubject, { ...adjustment, targetPermission: "push" })).toThrow()
+
+		const pullSubject = parseGithubAccessStagedData({
+			...baseData,
+			subjects: [{ ...subject, highestPermission: "pull" }],
+		})
+		expect(() => applyGithubAccessStagedDataPatch(pullSubject, { ...adjustment, targetPermission: "read" })).toThrow()
 	})
 
 	it("rejects conflicting removal and adjustment decisions", () => {

@@ -1,18 +1,18 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { GithubAccessSubject } from "~/lib/github-access-staged-data"
-import { GithubAccessMaintenanceSection } from "~/routes/seksjoner.$seksjon.rutiner.$rutineId.gjennomgang.$gjennomgangId/components/activities/GithubAccessMaintenanceSection"
+import {
+	GithubAccessMaintenanceSection,
+	type GithubAccessSubjectWithIdentity,
+} from "~/routes/seksjoner.$seksjon.rutiner.$rutineId.gjennomgang.$gjennomgangId/components/activities/GithubAccessMaintenanceSection"
 
 const submit = vi.hoisted(() => vi.fn())
-vi.mock("react-router", () => ({ useFetcher: () => ({ submit }) }))
+vi.mock("react-router", () => ({ useFetcher: () => ({ submit, state: "idle" }) }))
 
-const subject: GithubAccessSubject = {
+const subject: GithubAccessSubjectWithIdentity = {
 	username: "glad-fjord",
 	highestPermission: "admin",
 	directPermission: "admin",
 	viaTeams: [],
-	isNew: false,
-	isGone: false,
 	markedForRemoval: false,
 	removalMarkedBy: null,
 	removalMarkedAt: null,
@@ -36,7 +36,6 @@ function renderSection(
 				createdAt: "2026-09-01T00:00:00Z",
 				changes: [],
 			}}
-			reviewId="review-1"
 			gitRepository="navikt/kiss"
 			subjects={subjects}
 			confirmedBy={props.confirmedBy ?? null}
@@ -47,23 +46,12 @@ function renderSection(
 	)
 }
 
-function expandSubject() {
-	const button = screen.getByRole("link", { name: subject.username }).closest("tr")?.querySelector("button")
-	if (!button) throw new Error("Missing expandable row button")
-	fireEvent.click(button)
-}
-
-function openActionMenu() {
-	fireEvent.click(screen.getByRole("button", { name: `Handlinger for ${subject.username}` }))
-}
-
 describe("GitHub access maintenance UI", () => {
 	beforeEach(() => submit.mockClear())
 	afterEach(() => cleanup())
 
 	it("has no per-subject approval form, justification text, or bulk-select controls", () => {
 		renderSection()
-		expandSubject()
 		expect(screen.queryByLabelText("Tjenstlig behov")).toBeNull()
 		expect(screen.queryByRole("button", { name: "Godkjenn tilgang" })).toBeNull()
 		expect(screen.queryByRole("checkbox", { name: "Velg alle synlige" })).toBeNull()
@@ -71,23 +59,19 @@ describe("GitHub access maintenance UI", () => {
 		expect(screen.queryByText("Gjennomgått av")).toBeNull()
 	})
 
-	it("marks removal without a reason and does not promise a GitHub change", () => {
+	it("marks removal without a reason or dialog, via a direct 'Fjern'-button", () => {
 		renderSection()
-		openActionMenu()
-		fireEvent.click(screen.getByRole("menuitem", { name: "Fjern tilgang" }))
+		fireEvent.click(screen.getByRole("button", { name: "Fjern" }))
 		expect(screen.queryByRole("textbox")).toBeNull()
-		expect(screen.getByText(/KISS utfører eller bekrefter ikke/)).toBeDefined()
-		fireEvent.click(screen.getByRole("button", { name: "Merk for fjerning" }))
 		expect(submit).toHaveBeenCalledWith(
 			{ intent: "mark-github-access-subject-for-removal", username: subject.username },
 			{ method: "POST" },
 		)
 	})
 
-	it("marks adjustment with a target permission but no reason", () => {
+	it("marks adjustment with a target permission but no reason, via an 'Endre'-dialog", () => {
 		renderSection()
-		openActionMenu()
-		fireEvent.click(screen.getByRole("menuitem", { name: "Juster tilgang" }))
+		fireEvent.click(screen.getByRole("button", { name: "Endre" }))
 		expect(screen.queryByRole("textbox")).toBeNull()
 		fireEvent.change(screen.getByLabelText("Nytt tilgangsnivå"), { target: { value: "push" } })
 		fireEvent.click(screen.getByRole("button", { name: "Merk for justering" }))
@@ -97,10 +81,11 @@ describe("GitHub access maintenance UI", () => {
 		)
 	})
 
-	it("allows undoing a removal mark via the Handlinger menu", () => {
+	it("moves a removal-marked subject out of the main table and into 'Tilganger som skal endres', with an Angre-button", () => {
 		renderSection([{ ...subject, markedForRemoval: true, removalMarkedBy: "Z990002", removalMarkedAt: "2026-09-02" }])
-		openActionMenu()
-		fireEvent.click(screen.getByRole("menuitem", { name: "Angre — behold tilgangen i stedet" }))
+		expect(screen.getByText("Tilganger som skal endres (1)")).toBeDefined()
+		expect(screen.queryByRole("button", { name: "Fjern" })).toBeNull()
+		fireEvent.click(screen.getByRole("button", { name: "Angre" }))
 		expect(submit).toHaveBeenCalledWith(
 			{ intent: "unmark-github-access-subject-for-removal", username: subject.username },
 			{ method: "POST" },
@@ -129,5 +114,21 @@ describe("GitHub access maintenance UI", () => {
 		renderSection([subject], { confirmedBy: "Z990001", confirmedAt: "2026-09-02T10:00:00.000Z" })
 		fireEvent.click(screen.getByRole("button", { name: "Bekreft tjenstlig behov for alle" }))
 		expect(submit).toHaveBeenCalledWith({ intent: "confirm-github-access-review" }, { method: "POST" })
+	})
+
+	it("shows team access directly in the Kilde column without a dropdown, hides Nav-ident, and shows name + github username", () => {
+		renderSection([
+			{
+				...subject,
+				displayName: "Glad Fjord",
+				navIdent: "Z990001",
+				directPermission: null,
+				viaTeams: [{ teamSlug: "teampensjon", teamName: "teampensjon", permission: "maintain" }],
+			},
+		])
+		expect(screen.getByText("Via team teampensjon:")).toBeDefined()
+		expect(screen.getByRole("link", { name: "Glad Fjord (glad-fjord)" })).toBeDefined()
+		expect(screen.queryByText("Z990001")).toBeNull()
+		expect(screen.queryByRole("button", { name: /vis detaljer|ekspander/i })).toBeNull()
 	})
 })

@@ -15,8 +15,10 @@ import {
 	toEntraGroupSnapshot,
 } from "../../lib/entra-staged-data"
 import { getProviderUiConfig } from "../../lib/evidence-providers/ui-config"
+import { parseGithubAccessStagedData } from "../../lib/github-access-staged-data"
 import { resolveGroupNames } from "../../lib/graph.server"
 import { withAdvisoryLock } from "../../lib/lock.server"
+import { logger } from "../../lib/logger.server"
 import {
 	isManualActivityComplete,
 	MANUAL_ACTIVITY_SCHEMA_VERSION,
@@ -24,6 +26,7 @@ import {
 	type ManualActivityStagedData,
 	parseManualActivityStagedData,
 } from "../../lib/manual-activity-staged-data"
+import { type GitHubUserLookupResult, lookupGitHubUsers } from "../../lib/nda-github-users.server"
 import { getOracleRoles, shouldAssessRole } from "../../lib/oracle-revisjon.server"
 import {
 	applyOracleRoleCriticalityPatch,
@@ -2194,6 +2197,27 @@ export async function completeReview(reviewId: string, performedBy: string) {
 		}
 	}
 
+	const githubUserLookupsByActivityId = new Map<string, Map<string, GitHubUserLookupResult>>()
+	for (const activity of allActivities) {
+		if (activity.status !== "pending" || activity.type !== "github_access_maintenance") continue
+		const [current] = await db
+			.select({ stagedData: routineReviewActivities.stagedData })
+			.from(routineReviewActivities)
+			.where(eq(routineReviewActivities.id, activity.id))
+			.limit(1)
+		if (!current?.stagedData) continue
+		try {
+			const stagedData = parseGithubAccessStagedData(current.stagedData)
+			githubUserLookupsByActivityId.set(
+				activity.id,
+				await lookupGitHubUsers(stagedData.subjects.map((s) => s.username)),
+			)
+		} catch (error) {
+			logger.warn("Kunne ikke hente visningsnavn for GitHub-brukere fra NDA til PDF-en", error)
+			githubUserLookupsByActivityId.set(activity.id, new Map())
+		}
+	}
+
 	const uploadedGithubPdfPaths: string[] = []
 	let result: { newStatus: "completed" | "needs_follow_up" }
 	try {
@@ -2202,7 +2226,14 @@ export async function completeReview(reviewId: string, performedBy: string) {
 			// tilbake ved transaksjonsfeil (f.eks. statusvakt i UPDATE matchet 0 rader).
 			for (const activity of allActivities) {
 				if (activity.status === "pending") {
-					await completeReviewActivity(activity.id, null, performedBy, tx, uploadedGithubPdfPaths)
+					await completeReviewActivity(
+						activity.id,
+						null,
+						performedBy,
+						tx,
+						uploadedGithubPdfPaths,
+						githubUserLookupsByActivityId.get(activity.id),
+					)
 				}
 			}
 
@@ -6496,6 +6527,7 @@ export async function completeReviewActivity(
 	performedBy: string,
 	tx?: DbExecutor,
 	uploadedPaths?: string[],
+	prefetchedGithubUserLookups?: Map<string, GitHubUserLookupResult>,
 ) {
 	const [activity] = await (tx ?? db)
 		.select({
@@ -6623,11 +6655,31 @@ export async function completeReviewActivity(
 	}
 
 	if (activity.type === "github_access_maintenance") {
+		let githubUserLookups = prefetchedGithubUserLookups
+		if (!githubUserLookups) {
+			if (!tx && activity.stagedData) {
+				try {
+					const stagedData = parseGithubAccessStagedData(activity.stagedData)
+					githubUserLookups = await lookupGitHubUsers(stagedData.subjects.map((s) => s.username))
+				} catch (error) {
+					logger.warn("Kunne ikke hente visningsnavn for GitHub-brukere fra NDA til PDF-en", error)
+				}
+			}
+			if (tx && !githubUserLookups) {
+				githubUserLookups = new Map()
+			}
+		}
+
 		const lockName = `github_access_maintenance-activity-${activityId}`
 		const result = await withAdvisoryLock(lockName, async () => {
 			const run = async (exec: DbExecutor) => {
-				const snapshot = await commitGithubAccessActivity(activityId, activity.reviewId, performedBy, exec, (path) =>
-					uploadedPaths?.push(path),
+				const snapshot = await commitGithubAccessActivity(
+					activityId,
+					activity.reviewId,
+					performedBy,
+					exec,
+					(path) => uploadedPaths?.push(path),
+					githubUserLookups,
 				)
 
 				const [updated] = await exec

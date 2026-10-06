@@ -62,6 +62,12 @@ export function parseGitRepository(gitRepository: string): { owner: string; repo
 	return { owner: segments[0], repo: segments[1] }
 }
 
+/** Normalizes any accepted git repository format to a canonical "owner/repo" identity. */
+export function canonicalizeGitRepository(gitRepository: string): string {
+	const { owner, repo } = parseGitRepository(gitRepository)
+	return `${owner}/${repo}`
+}
+
 /**
  * Henter alle aktive applikasjoner som har et git-repository konfigurert.
  * Foretrekker app-nivå git_repository, faller tilbake til første environment-repo (tidligst discoveredAt).
@@ -190,6 +196,7 @@ interface AppSyncResult {
 
 async function syncAppAccess(appId: string, gitRepository: string, performedBy: string): Promise<AppSyncResult> {
 	const { owner, repo } = parseGitRepository(gitRepository)
+	const canonicalGitRepository = canonicalizeGitRepository(gitRepository)
 
 	// Fetch current state from GitHub (outside transaction to avoid long-held locks)
 	const [ghTeams, ghCollaborators] = await Promise.all([getRepoTeams(owner, repo), getRepoCollaborators(owner, repo)])
@@ -219,7 +226,7 @@ async function syncAppAccess(appId: string, gitRepository: string, performedBy: 
 		}
 
 		// Sync teams
-		const teamResult = await syncTeams(tx, appId, gitRepository, ghTeams, performedBy)
+		const teamResult = await syncTeams(tx, appId, canonicalGitRepository, ghTeams, performedBy)
 		result.teamsAdded = teamResult.added
 		result.teamsRemoved = teamResult.removed
 		result.teamsUpdated = teamResult.updated
@@ -232,28 +239,50 @@ async function syncAppAccess(appId: string, gitRepository: string, performedBy: 
 
 		for (const team of currentTeams) {
 			const members = ghTeamMembers.get(team.teamSlug) ?? []
-			const memberResult = await syncTeamMembers(tx, team.id, team.teamSlug, appId, gitRepository, members, performedBy)
+			const memberResult = await syncTeamMembers(
+				tx,
+				team.id,
+				team.teamSlug,
+				appId,
+				canonicalGitRepository,
+				members,
+				performedBy,
+			)
 			result.membersAdded += memberResult.added
 			result.membersRemoved += memberResult.removed
 		}
 
 		// Sync collaborators
-		const collabResult = await syncCollaborators(tx, appId, gitRepository, ghCollaborators, performedBy)
+		const collabResult = await syncCollaborators(tx, appId, canonicalGitRepository, ghCollaborators, performedBy)
 		result.collaboratorsAdded = collabResult.added
 		result.collaboratorsRemoved = collabResult.removed
 		result.collaboratorsUpdated = collabResult.updated
 
 		const [existingSyncStatus] = await tx
-			.select({ lastSuccessAt: githubAccessSyncStatus.lastSuccessAt })
+			.select({
+				lastSuccessAt: githubAccessSyncStatus.lastSuccessAt,
+				gitRepository: githubAccessSyncStatus.gitRepository,
+			})
 			.from(githubAccessSyncStatus)
 			.where(eq(githubAccessSyncStatus.applicationId, appId))
 		const newSuccessAt = new Date()
 		await tx
 			.insert(githubAccessSyncStatus)
-			.values({ applicationId: appId, lastSuccessAt: newSuccessAt, createdBy: performedBy, updatedBy: performedBy })
+			.values({
+				applicationId: appId,
+				gitRepository: canonicalGitRepository,
+				lastSuccessAt: newSuccessAt,
+				createdBy: performedBy,
+				updatedBy: performedBy,
+			})
 			.onConflictDoUpdate({
 				target: githubAccessSyncStatus.applicationId,
-				set: { lastSuccessAt: newSuccessAt, updatedBy: performedBy, updatedAt: newSuccessAt },
+				set: {
+					gitRepository: canonicalGitRepository,
+					lastSuccessAt: newSuccessAt,
+					updatedBy: performedBy,
+					updatedAt: newSuccessAt,
+				},
 			})
 		await writeAuditLog(
 			{
@@ -261,10 +290,13 @@ async function syncAppAccess(appId: string, gitRepository: string, performedBy: 
 				entityType: "monitored_application",
 				entityId: appId,
 				previousValue: existingSyncStatus
-					? JSON.stringify({ lastSuccessAt: existingSyncStatus.lastSuccessAt })
+					? JSON.stringify({
+							lastSuccessAt: existingSyncStatus.lastSuccessAt,
+							gitRepository: existingSyncStatus.gitRepository,
+						})
 					: undefined,
-				newValue: JSON.stringify({ lastSuccessAt: newSuccessAt }),
-				metadata: { gitRepository },
+				newValue: JSON.stringify({ lastSuccessAt: newSuccessAt, gitRepository: canonicalGitRepository }),
+				metadata: { gitRepository: canonicalGitRepository },
 				performedBy,
 			},
 			tx,

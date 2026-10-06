@@ -10,8 +10,6 @@ const subject: GithubAccessSubject = {
 	highestPermission: "admin",
 	directPermission: "admin",
 	viaTeams: [],
-	isNew: false,
-	isGone: false,
 	markedForRemoval: false,
 	removalMarkedBy: null,
 	removalMarkedAt: null,
@@ -68,7 +66,6 @@ describe("GitHub access PDF", () => {
 		const generatedAt = new Date("2026-09-02T12:00:00.000Z")
 		const buffer = await buildGithubAccessReviewPdf(data, {
 			performedBy: "Z990001",
-			isDraft: true,
 			generatedAt,
 			participants: [
 				{ userIdent: "Z990010", userName: "Glad Fjord", confirmedAt: timestamp },
@@ -115,7 +112,7 @@ describe("GitHub access PDF", () => {
 
 	it("renders the simple Bruker/Tilgang/Tilgang via columns (no Tidspunkt/Registrert av) for plain subject tables", async () => {
 		const textSpy = vi.spyOn(PDFDocument.prototype, "text")
-		const data = buildData([subject, { ...subject, username: "borte-bru", isGone: true }])
+		const data = buildData([subject])
 		await buildGithubAccessReviewPdf(data, { performedBy: "Z990001" })
 		const texts = textSpy.mock.calls.map(([text]) => text)
 		expect(texts).toContain("Bruker")
@@ -124,7 +121,32 @@ describe("GitHub access PDF", () => {
 		expect(texts).not.toContain("Tidspunkt")
 	})
 
-	it("counts all non-gone subjects as reviewed, including those marked for removal or adjustment", async () => {
+	it("splits a long, wrapping list of team names into continuation rows that each fit on a page", async () => {
+		const rectSpy = vi.spyOn(PDFDocument.prototype, "rect")
+		const longTeamName = "Et-usedvanlig-langt-teamnavn-som-skal-brytes-over-flere-linjer-i-kolonnen"
+		const data = buildData([
+			{
+				...subject,
+				viaTeams: Array.from({ length: 30 }, (_, i) => ({
+					teamSlug: `team-${i}`,
+					teamName: `${longTeamName}-${i}`,
+					permission: "admin",
+				})),
+			},
+		])
+		await buildGithubAccessReviewPdf(data, { performedBy: "Z990001" })
+
+		const pageHeight = 841.89 // A4 i punkter, pdfkit-default
+		const margin = 72 // pdfkit-default
+		const maxRowHeight = pageHeight - margin * 2
+
+		for (const call of rectSpy.mock.calls) {
+			const [, , , height] = call
+			expect(height).toBeLessThanOrEqual(maxRowHeight)
+		}
+	})
+
+	it("counts all subjects as reviewed, including those marked for removal or adjustment", async () => {
 		const textSpy = vi.spyOn(PDFDocument.prototype, "text")
 		const data = buildData([
 			{ ...subject, markedForRemoval: true, removalMarkedBy: "Z990001", removalMarkedAt: markedAt },
@@ -136,7 +158,6 @@ describe("GitHub access PDF", () => {
 				permissionAdjustmentMarkedBy: "Z990001",
 				permissionAdjustmentMarkedAt: markedAt,
 			},
-			{ ...subject, username: "stille-skog", isGone: true },
 		])
 		await buildGithubAccessReviewPdf(data, { performedBy: "Z990001" })
 		const texts = textSpy.mock.calls.map(([text]) => text)
