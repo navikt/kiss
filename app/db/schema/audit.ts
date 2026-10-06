@@ -113,6 +113,7 @@ export const auditLogActionEnum = [
 	// Oracle-instans-konfigurasjon (revisjonsbevis-kilder)
 	"oracle_instance_configured",
 	"oracle_instance_removed",
+	"oracle_instance_report_updated",
 
 	// Entra-gruppe-klassifisering (logisk arkivering)
 	"entra_group_classification_created",

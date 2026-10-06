@@ -81,6 +81,20 @@ export function canManageTeam(user: NavUser, devTeamId: string, sectionId?: stri
 	)
 }
 
+/** Kan administrere en applikasjon (admin eller produktleder/tech lead for et team applikasjonen tilhører). */
+export function canManageApplication(user: NavUser, devTeamIds: string[]): boolean {
+	return isAdmin(user) || devTeamIds.some((devTeamId) => canManageTeam(user, devTeamId))
+}
+
+/** Krev admin eller produktleder/tech lead for et av applikasjonens team. */
+export async function requireApplicationManagementAccess(user: NavUser, appId: string): Promise<void> {
+	if (isAdmin(user)) return
+	const { devTeamIds } = await getAppScopeIds(appId)
+	if (!canManageApplication(user, devTeamIds)) {
+		throw new Response("Ikke autorisert", { status: 403 })
+	}
+}
+
 /** Kan se seksjonsrapporter (admin, seksjonsleder, teknologileder for seksjonen, eller revisor) */
 export function canViewSectionReports(user: NavUser, sectionId: string): boolean {
 	return canManageSection(user, sectionId) || isAuditor(user)

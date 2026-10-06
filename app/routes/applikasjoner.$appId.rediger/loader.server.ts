@@ -5,7 +5,7 @@ import { findLinkCandidates, getApplicationDetail, getLinkCandidatesForSection }
 import { getAllTechnologyElements, getApplicationElements } from "~/db/queries/technology-elements.server"
 import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireAdmin } from "~/lib/authorization.server"
+import { requireApplicationManagementAccess } from "~/lib/authorization.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
 import { getOracleInstances } from "~/lib/oracle-revisjon.server"
 import type { Route } from "./+types/index"
@@ -22,7 +22,7 @@ export async function loader({ request, params }: LoaderArgs) {
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 
 	const authedUser = await requireAuthenticatedUser(request)
-	requireAdmin(authedUser)
+	await requireApplicationManagementAccess(authedUser, appId)
 
 	const breadcrumbCtx = await (async () => {
 		if (params.seksjon && params.team) {
@@ -54,6 +54,10 @@ export async function loader({ request, params }: LoaderArgs) {
 	const accessibleInstances = filterInstancesByAccess(allOracleInstances, authedUser.groups)
 	const accessibleInstanceIds = new Set(accessibleInstances.map((i) => i.id))
 	const filteredOracleInstances = oracleInstances.filter((i) => accessibleInstanceIds.has(i.instanceId))
+	const allInstanceIds = new Set(allOracleInstances.map((i) => i.id))
+	const unavailableOracleInstances = oracleInstances
+		.filter((i) => !allInstanceIds.has(i.instanceId))
+		.map((i) => ({ id: i.id, instanceId: i.instanceId }))
 
 	const relevantCandidates = [
 		...new Map(
@@ -94,6 +98,7 @@ export async function loader({ request, params }: LoaderArgs) {
 		availableElements: allElements.filter((e) => !appElements.some((ae) => ae.id === e.id)),
 		availableTeams,
 		oracleInstances: filteredOracleInstances,
+		unavailableOracleInstances,
 		availableOracleInstances,
 		oraclePersistence: detail.persistence
 			.filter((p) => p.type === "oracle")

@@ -22,6 +22,9 @@ const {
 	searchApplications,
 	unlinkAppFromTeam,
 } = await import("~/db/queries/applications.server")
+const { archiveApplication, linkApplication, promoteToPrimary, renameApplication, unlinkApplication } = await import(
+	"~/db/queries/nais.server"
+)
 const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
 const { archiveTeam } = await import("~/db/queries/sections.server")
 const { assignRole } = await import("~/db/queries/users.server")
@@ -339,6 +342,166 @@ describe("Applications integration tests", () => {
 		expect(ids).toContain(activeAppId)
 		expect(ids).toContain(manualAppId)
 		expect(ids).not.toContain(excludedAppId)
+	})
+
+	describe("linkApplication", () => {
+		it("rejects self-links and moving an already linked application", async () => {
+			const primaryId = await createTestApp("primary-app")
+			const childId = await createTestApp("child-app")
+			const otherPrimaryId = await createTestApp("other-primary-app")
+
+			await expect(linkApplication(primaryId, primaryId, "test")).rejects.toMatchObject({ status: 400 })
+			await linkApplication(childId, primaryId, "test")
+			await expect(linkApplication(childId, otherPrimaryId, "test")).rejects.toMatchObject({ status: 409 })
+
+			const db = getTestDb()
+			const result = await db.execute(
+				/* sql */ `SELECT primary_application_id FROM monitored_applications WHERE id = '${childId}'`,
+			)
+			expect((result.rows[0] as { primary_application_id: string }).primary_application_id).toBe(primaryId)
+		})
+
+		it("rejects linking an application that already has linked children", async () => {
+			const childGroupPrimaryId = await createTestApp("child-group-primary")
+			const existingChildId = await createTestApp("existing-child")
+			const newPrimaryId = await createTestApp("new-primary")
+			await linkApplication(existingChildId, childGroupPrimaryId, "test")
+
+			await expect(linkApplication(childGroupPrimaryId, newPrimaryId, "test")).rejects.toMatchObject({
+				status: 409,
+			})
+
+			const db = getTestDb()
+			const rows = await db.execute(
+				/* sql */ `SELECT id, primary_application_id FROM monitored_applications WHERE id IN ('${childGroupPrimaryId}', '${existingChildId}')`,
+			)
+			expect(rows.rows).toEqual(
+				expect.arrayContaining([
+					{ id: childGroupPrimaryId, primary_application_id: null },
+					{ id: existingChildId, primary_application_id: childGroupPrimaryId },
+				]),
+			)
+		})
+
+		it("checks the complete affected set inside promotion and audits the old relationship", async () => {
+			const currentPrimaryId = await createTestApp("current-primary")
+			const newPrimaryId = await createTestApp("new-primary")
+			const siblingId = await createTestApp("sibling")
+			await linkApplication(newPrimaryId, currentPrimaryId, "manager")
+			await linkApplication(siblingId, currentPrimaryId, "manager")
+
+			const db = getTestDb()
+			const linkAudit = await db.execute(
+				/* sql */ `SELECT previous_value FROM audit_log WHERE action = 'application_linked' AND entity_id = '${newPrimaryId}'`,
+			)
+			expect((linkAudit.rows[0] as { previous_value: string }).previous_value).toBe(JSON.stringify({ primaryId: null }))
+
+			await expect(
+				promoteToPrimary(newPrimaryId, currentPrimaryId, "manager", [currentPrimaryId, newPrimaryId]),
+			).rejects.toMatchObject({ status: 403 })
+
+			const unchanged = await db.execute(
+				/* sql */ `SELECT id, primary_application_id FROM monitored_applications WHERE id IN ('${currentPrimaryId}', '${newPrimaryId}', '${siblingId}')`,
+			)
+			expect(unchanged.rows).toEqual(
+				expect.arrayContaining([
+					{ id: currentPrimaryId, primary_application_id: null },
+					{ id: newPrimaryId, primary_application_id: currentPrimaryId },
+					{ id: siblingId, primary_application_id: currentPrimaryId },
+				]),
+			)
+
+			await promoteToPrimary(newPrimaryId, currentPrimaryId, "manager", [currentPrimaryId, newPrimaryId, siblingId])
+			const promoted = await db.execute(
+				/* sql */ `SELECT id, primary_application_id FROM monitored_applications WHERE id IN ('${currentPrimaryId}', '${newPrimaryId}', '${siblingId}')`,
+			)
+			expect(promoted.rows).toEqual(
+				expect.arrayContaining([
+					{ id: newPrimaryId, primary_application_id: null },
+					{ id: currentPrimaryId, primary_application_id: newPrimaryId },
+					{ id: siblingId, primary_application_id: newPrimaryId },
+				]),
+			)
+		})
+
+		it("rejects promotion of an archived linked application", async () => {
+			const currentPrimaryId = await createTestApp("current-primary")
+			const archivedChildId = await createTestApp("archived-child")
+			const siblingId = await createTestApp("sibling")
+			await linkApplication(archivedChildId, currentPrimaryId, "manager")
+			await linkApplication(siblingId, currentPrimaryId, "manager")
+			await archiveApplication(archivedChildId, "manager")
+
+			await expect(
+				promoteToPrimary(archivedChildId, currentPrimaryId, "manager", [currentPrimaryId, archivedChildId, siblingId]),
+			).rejects.toMatchObject({ status: 409 })
+
+			const db = getTestDb()
+			const rows = await db.execute(
+				/* sql */ `SELECT id, primary_application_id, archived_at FROM monitored_applications WHERE id IN ('${currentPrimaryId}', '${archivedChildId}', '${siblingId}')`,
+			)
+			expect(rows.rows).toEqual(
+				expect.arrayContaining([
+					{ id: currentPrimaryId, primary_application_id: null, archived_at: null },
+					{
+						id: archivedChildId,
+						primary_application_id: currentPrimaryId,
+						archived_at: expect.anything(),
+					},
+					{ id: siblingId, primary_application_id: currentPrimaryId, archived_at: null },
+				]),
+			)
+		})
+
+		it("writes rename and unlink audit records atomically with their updates", async () => {
+			const primaryId = await createTestApp("primary-app")
+			const childId = await createTestApp("child-app")
+			await linkApplication(childId, primaryId, "manager")
+
+			await renameApplication(childId, "Renamed child", "manager")
+			await unlinkApplication(childId, primaryId, "manager")
+
+			const db = getTestDb()
+			const application = await db.execute(
+				/* sql */ `SELECT name, primary_application_id FROM monitored_applications WHERE id = '${childId}'`,
+			)
+			expect(application.rows[0]).toMatchObject({ name: "Renamed child", primary_application_id: null })
+
+			const audits = await db.execute(
+				/* sql */ `SELECT action, previous_value, new_value, performed_by FROM audit_log WHERE entity_type = 'monitored_application' AND entity_id = '${childId}' AND action IN ('application_renamed', 'application_unlinked') ORDER BY action`,
+			)
+			expect(audits.rows).toEqual(
+				expect.arrayContaining([
+					{
+						action: "application_renamed",
+						previous_value: JSON.stringify({ name: "child-app" }),
+						new_value: JSON.stringify({ name: "Renamed child" }),
+						performed_by: "manager",
+					},
+					{
+						action: "application_unlinked",
+						previous_value: JSON.stringify({ primaryId, appName: "Renamed child" }),
+						new_value: null,
+						performed_by: "manager",
+					},
+				]),
+			)
+		})
+
+		it("does not unlink from a different primary than the one authorized", async () => {
+			const firstPrimaryId = await createTestApp("first-primary")
+			const secondPrimaryId = await createTestApp("second-primary")
+			const childId = await createTestApp("child-app")
+			await linkApplication(childId, secondPrimaryId, "manager")
+
+			await expect(unlinkApplication(childId, firstPrimaryId, "manager")).rejects.toMatchObject({ status: 409 })
+
+			const db = getTestDb()
+			const result = await db.execute(
+				/* sql */ `SELECT primary_application_id FROM monitored_applications WHERE id = '${childId}'`,
+			)
+			expect((result.rows[0] as { primary_application_id: string }).primary_application_id).toBe(secondPrimaryId)
+		})
 	})
 
 	describe("getTeamMembersForApp", () => {

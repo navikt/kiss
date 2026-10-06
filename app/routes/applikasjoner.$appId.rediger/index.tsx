@@ -29,6 +29,7 @@ export default function ApplikasjonRediger() {
 		availableTeams,
 		oracleInstances,
 		availableOracleInstances,
+		unavailableOracleInstances,
 		oraclePersistence,
 		canDelete,
 	} = useLoaderData<typeof loader>()
@@ -46,7 +47,11 @@ export default function ApplikasjonRediger() {
 
 			<TechnologyElementsSection appElements={appElements} availableElements={availableElements} />
 
-			<OracleEvidenceSection oracleInstances={oracleInstances} availableOracleInstances={availableOracleInstances} />
+			<OracleEvidenceSection
+				oracleInstances={oracleInstances}
+				availableOracleInstances={availableOracleInstances}
+				unavailableOracleInstances={unavailableOracleInstances}
+			/>
 
 			{oraclePersistence.length > 0 && oracleInstances.length > 0 && (
 				<OracleDatabaseLinkSection oraclePersistence={oraclePersistence} oracleInstances={oracleInstances} />
