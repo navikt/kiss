@@ -22,6 +22,7 @@ const {
 	updatePersistenceClassification,
 	upsertAppPersistence,
 } = await import("~/db/queries/nais.server")
+const { configureOracleInstance, removeOracleInstance } = await import("~/db/queries/audit-evidence.server")
 const { ensureOraclePersistenceEntries } = await import("~/db/queries/audit-logging.server")
 
 async function createTestApp(name: string) {
@@ -214,8 +215,35 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		const db = getTestDb()
 		await db.execute(/* sql */ `UPDATE application_persistence SET archived_at = now() WHERE id = '${row.id}'`)
 
-		await expect(linkPersistenceToOracleInstance(row.id, "instance-2")).rejects.toMatchObject({
+		await expect(linkPersistenceToOracleInstance(row.id, "instance-2", "manager")).rejects.toMatchObject({
 			status: 403,
+		})
+	})
+
+	it("audits Oracle instance links with previous and new values", async () => {
+		const appId = await createTestApp("Oracle persistence audit")
+		await upsertAppPersistence(appId, "oracle", "instance-1")
+		await configureOracleInstance(appId, "instance-2", "manager")
+		const [row] = await getAppPersistence(appId)
+
+		await linkPersistenceToOracleInstance(row.id, "instance-2", "manager")
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const entry = audit.find((candidate) => candidate.action === "persistence_updated")
+		expect(entry?.previous_value).toBe(JSON.stringify({ oracleInstanceId: null }))
+		expect(entry?.new_value).toBe(JSON.stringify({ oracleInstanceId: "instance-2" }))
+		expect(entry?.performed_by).toBe("manager")
+	})
+
+	it("rejects linking persistence to an inactive Oracle instance", async () => {
+		const appId = await createTestApp("Oracle persistence inactive target")
+		await upsertAppPersistence(appId, "oracle", "instance-1")
+		const [row] = await getAppPersistence(appId)
+		await configureOracleInstance(appId, "instance-2", "manager")
+		await removeOracleInstance(appId, "instance-2", "manager")
+
+		await expect(linkPersistenceToOracleInstance(row.id, "instance-2", "manager")).rejects.toMatchObject({
+			status: 409,
 		})
 	})
 

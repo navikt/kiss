@@ -475,67 +475,167 @@ export async function syncAllApplicationElements() {
 }
 
 /** Confirm an auto-detected technology element for an application. */
-export async function confirmApplicationElement(linkId: string, performedBy: string) {
-	const [row] = await db
-		.update(applicationTechnologyElements)
-		.set({
-			confirmedAt: new Date(),
-			confirmedBy: performedBy,
-			rejectedAt: null,
-			rejectedBy: null,
-			rejectionReason: null,
-		})
-		.where(and(eq(applicationTechnologyElements.id, linkId), isNull(applicationTechnologyElements.archivedAt)))
-		.returning({
-			appId: applicationTechnologyElements.applicationId,
-			elementId: applicationTechnologyElements.elementId,
-		})
+export async function confirmApplicationElement(appId: string, linkId: string, performedBy: string) {
+	const row = await db.transaction(async (tx) => {
+		const [previous] = await tx
+			.select({
+				confirmedAt: applicationTechnologyElements.confirmedAt,
+				confirmedBy: applicationTechnologyElements.confirmedBy,
+				rejectedAt: applicationTechnologyElements.rejectedAt,
+				rejectedBy: applicationTechnologyElements.rejectedBy,
+				rejectionReason: applicationTechnologyElements.rejectionReason,
+			})
+			.from(applicationTechnologyElements)
+			.where(
+				and(
+					eq(applicationTechnologyElements.id, linkId),
+					eq(applicationTechnologyElements.applicationId, appId),
+					isNull(applicationTechnologyElements.archivedAt),
+				),
+			)
+			.for("update")
+			.limit(1)
+		if (!previous) return null
 
-	if (row) {
-		await writeAuditLog({
-			action: "technology_element_confirmed",
-			entityType: "application_technology_element",
-			entityId: linkId,
-			newValue: "confirmed",
-			metadata: { applicationId: row.appId, elementId: row.elementId },
-			performedBy,
-		})
+		const confirmedAt = new Date()
+		const [updated] = await tx
+			.update(applicationTechnologyElements)
+			.set({
+				confirmedAt,
+				confirmedBy: performedBy,
+				rejectedAt: null,
+				rejectedBy: null,
+				rejectionReason: null,
+			})
+			.where(
+				and(
+					eq(applicationTechnologyElements.id, linkId),
+					eq(applicationTechnologyElements.applicationId, appId),
+					isNull(applicationTechnologyElements.archivedAt),
+				),
+			)
+			.returning({
+				appId: applicationTechnologyElements.applicationId,
+				elementId: applicationTechnologyElements.elementId,
+			})
 
-		// Sync materialized compliance controls after tech element confirmation
-		const { syncApplicationControls } = await import("./application-controls.server")
-		await syncApplicationControls(row.appId, performedBy)
-	}
+		if (!updated) return null
+
+		await writeAuditLog(
+			{
+				action: "technology_element_confirmed",
+				entityType: "application_technology_element",
+				entityId: linkId,
+				previousValue: JSON.stringify({
+					...previous,
+					description: previous.confirmedAt
+						? "Bekreftet"
+						: previous.rejectedAt
+							? `Avvist: ${previous.rejectionReason ?? ""}`
+							: "Ikke bekreftet",
+				}),
+				newValue: JSON.stringify({
+					confirmedAt,
+					confirmedBy: performedBy,
+					rejectedAt: null,
+					rejectedBy: null,
+					rejectionReason: null,
+					description: "Bekreftet",
+				}),
+				metadata: { applicationId: updated.appId, elementId: updated.elementId },
+				performedBy,
+			},
+			tx,
+		)
+		return updated
+	})
+
+	if (!row) return
+
+	// Sync materialized compliance controls after tech element confirmation
+	const { syncApplicationControls } = await import("./application-controls.server")
+	await syncApplicationControls(row.appId, performedBy)
 }
 
 /** Reject an auto-detected technology element for an application. */
-export async function rejectApplicationElement(linkId: string, reason: string, performedBy: string) {
-	const [row] = await db
-		.update(applicationTechnologyElements)
-		.set({
-			rejectedAt: new Date(),
-			rejectedBy: performedBy,
-			rejectionReason: reason,
-			confirmedAt: null,
-			confirmedBy: null,
-		})
-		.where(and(eq(applicationTechnologyElements.id, linkId), isNull(applicationTechnologyElements.archivedAt)))
-		.returning({
-			appId: applicationTechnologyElements.applicationId,
-			elementId: applicationTechnologyElements.elementId,
-		})
+export async function rejectApplicationElement(appId: string, linkId: string, reason: string, performedBy: string) {
+	const row = await db.transaction(async (tx) => {
+		const [previous] = await tx
+			.select({
+				confirmedAt: applicationTechnologyElements.confirmedAt,
+				confirmedBy: applicationTechnologyElements.confirmedBy,
+				rejectedAt: applicationTechnologyElements.rejectedAt,
+				rejectedBy: applicationTechnologyElements.rejectedBy,
+				rejectionReason: applicationTechnologyElements.rejectionReason,
+			})
+			.from(applicationTechnologyElements)
+			.where(
+				and(
+					eq(applicationTechnologyElements.id, linkId),
+					eq(applicationTechnologyElements.applicationId, appId),
+					isNull(applicationTechnologyElements.archivedAt),
+				),
+			)
+			.for("update")
+			.limit(1)
+		if (!previous) return null
 
-	if (row) {
-		await writeAuditLog({
-			action: "technology_element_rejected",
-			entityType: "application_technology_element",
-			entityId: linkId,
-			newValue: reason,
-			metadata: { applicationId: row.appId, elementId: row.elementId },
-			performedBy,
-		})
+		const rejectedAt = new Date()
+		const [updated] = await tx
+			.update(applicationTechnologyElements)
+			.set({
+				rejectedAt,
+				rejectedBy: performedBy,
+				rejectionReason: reason,
+				confirmedAt: null,
+				confirmedBy: null,
+			})
+			.where(
+				and(
+					eq(applicationTechnologyElements.id, linkId),
+					eq(applicationTechnologyElements.applicationId, appId),
+					isNull(applicationTechnologyElements.archivedAt),
+				),
+			)
+			.returning({
+				appId: applicationTechnologyElements.applicationId,
+				elementId: applicationTechnologyElements.elementId,
+			})
 
-		// Sync materialized compliance controls after tech element rejection
-		const { syncApplicationControls } = await import("./application-controls.server")
-		await syncApplicationControls(row.appId, performedBy)
-	}
+		if (!updated) return null
+
+		await writeAuditLog(
+			{
+				action: "technology_element_rejected",
+				entityType: "application_technology_element",
+				entityId: linkId,
+				previousValue: JSON.stringify({
+					...previous,
+					description: previous.confirmedAt
+						? "Bekreftet"
+						: previous.rejectedAt
+							? `Avvist: ${previous.rejectionReason ?? ""}`
+							: "Ikke bekreftet",
+				}),
+				newValue: JSON.stringify({
+					confirmedAt: null,
+					confirmedBy: null,
+					rejectedAt,
+					rejectedBy: performedBy,
+					rejectionReason: reason,
+					description: `Avvist: ${reason}`,
+				}),
+				metadata: { applicationId: updated.appId, elementId: updated.elementId },
+				performedBy,
+			},
+			tx,
+		)
+		return updated
+	})
+
+	if (!row) return
+
+	// Sync materialized compliance controls after tech element rejection
+	const { syncApplicationControls } = await import("./application-controls.server")
+	await syncApplicationControls(row.appId, performedBy)
 }

@@ -48,6 +48,7 @@ Ved auditor-suppression (bruker har `auditor`-rolle men er ikke admin) strippes 
 - `hasAnySectionRole(user, sectionId)` — true for admin, direkte seksjonsrolle, team-rolle der teamet tilhører seksjonen (`devTeamSectionId`), **eller** Entra-teammedlemskap i et team som tilhører seksjonen (`entraSectionIds`). Gir kun skriverettigheter (godkjenne rutine, opprette regelsett, redigere screening) — lesetilgang til seksjonens rutiner/regelsett/screening er allerede åpen for alle innloggede brukere uavhengig av rolle.
 - `canManageTeam(user, devTeamId, sectionId?)` — kun `product_owner`/`tech_lead` for teamet, eller `tech_manager`/`section_manager` for seksjonen. Automatisk Entra-medlemskap gir **aldri** manage-rettigheter, kun `hasAnyTeamRole`.
 - `canManageApplication(user, devTeamIds)` — true for admin eller `product_owner`/`tech_lead` på minst ett av applikasjonens team. `requireApplicationManagementAccess(user, appId)` henter applikasjonens team-ID-er og håndhever den samme regelen for lasting og endring av applikasjonsadministrasjonssiden.
+- Oracle-handlinger krever i tillegg instansens gruppetilgang. Aktive KISS-konfigurasjoner for instanser som ikke lenger finnes i Oracle-API-et, vises uten bevisdata og kan fjernes av brukere med administrasjonstilgang til applikasjonen. Unntaket gjelder bare fjerning, ikke bevisinnhenting, rapportvalg eller ny konfigurering.
 - `canManageSection(user, sectionId)` — kun `section_manager`/`tech_manager` for seksjonen.
 
 ## Ikke gjør

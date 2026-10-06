@@ -21,7 +21,9 @@ const {
 	getControlElements,
 	getTechnologyElementWithCounts,
 	addApplicationElement,
+	confirmApplicationElement,
 	getApplicationElements,
+	rejectApplicationElement,
 } = await import("~/db/queries/technology-elements.server")
 
 async function createApp(name: string) {
@@ -46,6 +48,19 @@ async function getAuditEntries(action: string, entityId: string) {
 		/* sql */ `SELECT action, performed_by FROM audit_log WHERE action = '${action}' AND entity_id = '${entityId}'`,
 	)
 	return r.rows as Array<{ action: string; performed_by: string }>
+}
+
+async function getAuditEntriesWithValues(action: string, entityId: string) {
+	const db = getTestDb()
+	const r = await db.execute(
+		/* sql */ `SELECT action, previous_value, new_value, performed_by FROM audit_log WHERE action = '${action}' AND entity_id = '${entityId}'`,
+	)
+	return r.rows as Array<{
+		action: string
+		previous_value: string | null
+		new_value: string | null
+		performed_by: string
+	}>
 }
 
 describe("technology-elements.server integration tests", () => {
@@ -307,6 +322,43 @@ describe("technology-elements.server integration tests", () => {
 	})
 
 	describe("SD6 audit logging", () => {
+		it("scopes application technology confirmations and rejections to the application", async () => {
+			const appId = await createApp("ScopedTechnologyApp")
+			const otherAppId = await createApp("OtherScopedTechnologyApp")
+			const element = await createTechnologyElement("Scoped", "scoped-tech-element", null, 0, "admin")
+			await addApplicationElement(appId, element.id, "alice")
+			const [link] = await getApplicationElements(appId)
+
+			await confirmApplicationElement(otherAppId, link.linkId, "bob")
+			await rejectApplicationElement(otherAppId, link.linkId, "Ikke relevant", "bob")
+
+			const [unchangedLink] = await getApplicationElements(appId)
+			expect(unchangedLink.confirmedAt).toBeNull()
+			expect(unchangedLink.rejectedAt).toBeNull()
+			expect(await getAuditEntries("technology_element_confirmed", link.linkId)).toHaveLength(0)
+			expect(await getAuditEntries("technology_element_rejected", link.linkId)).toHaveLength(0)
+		})
+
+		it("records JSON-encoded previous and new confirmation details", async () => {
+			const appId = await createApp("TechnologyAuditApp")
+			const element = await createTechnologyElement("Audit status", "audit-status-tech-element", null, 0, "admin")
+			await addApplicationElement(appId, element.id, "alice")
+			const [link] = await getApplicationElements(appId)
+
+			await rejectApplicationElement(appId, link.linkId, "Ikke relevant", "bob")
+			await confirmApplicationElement(appId, link.linkId, "carol")
+
+			const [rejection] = await getAuditEntriesWithValues("technology_element_rejected", link.linkId)
+			const [confirmation] = await getAuditEntriesWithValues("technology_element_confirmed", link.linkId)
+			expect(JSON.parse(rejection.previous_value ?? "{}").description).toBe("Ikke bekreftet")
+			expect(JSON.parse(rejection.new_value ?? "{}")).toMatchObject({
+				description: "Avvist: Ikke relevant",
+				rejectionReason: "Ikke relevant",
+			})
+			expect(JSON.parse(confirmation.previous_value ?? "{}").description).toBe("Avvist: Ikke relevant")
+			expect(JSON.parse(confirmation.new_value ?? "{}").description).toBe("Bekreftet")
+		})
+
 		it("addApplicationElement and removeApplicationElement write audit", async () => {
 			const { removeApplicationElement } = await import("~/db/queries/technology-elements.server")
 			const el = await createTechnologyElement("Audit", "audit-app-el", null, 0, "admin")

@@ -26,9 +26,11 @@ function FetchEvidenceButton({ instanceId }: { instanceId: string }) {
 export function OracleEvidenceSection({
 	oracleInstances,
 	availableOracleInstances,
+	unavailableOracleInstances,
 }: {
 	oracleInstances: OracleInstance[]
 	availableOracleInstances: Array<{ id: string; name: string }>
+	unavailableOracleInstances: Array<{ id: string; instanceId: string }>
 }) {
 	return (
 		<Box>
@@ -76,7 +78,12 @@ export function OracleEvidenceSection({
 									<Form method="post" style={{ display: "inline" }}>
 										<input type="hidden" name="intent" value="removeOracleInstance" />
 										<input type="hidden" name="instanceId" value={inst.instanceId} />
-										<Button variant="tertiary-neutral" size="xsmall" type="submit">
+										<Button
+											variant="tertiary-neutral"
+											size="xsmall"
+											type="submit"
+											aria-label={`Fjern Oracle-instans ${inst.instanceId.toUpperCase()}`}
+										>
 											Fjern
 										</Button>
 									</Form>
@@ -86,7 +93,36 @@ export function OracleEvidenceSection({
 					))}
 				</VStack>
 			) : (
-				<BodyLong>Ingen Oracle-instanser er konfigurert.</BodyLong>
+				unavailableOracleInstances.length === 0 && <BodyLong>Ingen Oracle-instanser er konfigurert.</BodyLong>
+			)}
+
+			{unavailableOracleInstances.length > 0 && (
+				<VStack gap="space-4">
+					{unavailableOracleInstances.map((inst) => (
+						<Box key={inst.id} borderWidth="1" borderColor="neutral-subtle" padding="space-8" borderRadius="8">
+							<VStack gap="space-4">
+								<Tag variant="warning" size="small">
+									{inst.instanceId.toUpperCase()}
+								</Tag>
+								<BodyShort size="small">
+									Instansen finnes ikke lenger i Oracle-oversikten. Konfigurasjonen kan fjernes.
+								</BodyShort>
+								<Form method="post">
+									<input type="hidden" name="intent" value="removeOracleInstance" />
+									<input type="hidden" name="instanceId" value={inst.instanceId} />
+									<Button
+										variant="tertiary-neutral"
+										size="xsmall"
+										type="submit"
+										aria-label={`Fjern Oracle-instans ${inst.instanceId.toUpperCase()}`}
+									>
+										Fjern
+									</Button>
+								</Form>
+							</VStack>
+						</Box>
+					))}
+				</VStack>
 			)}
 
 			{availableOracleInstances.length > 0 && (

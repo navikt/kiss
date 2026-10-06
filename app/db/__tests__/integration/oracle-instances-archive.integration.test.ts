@@ -192,7 +192,7 @@ describe("Oracle instances soft-delete integration tests", () => {
 		await removeOracleInstance(appId, "ORA-1", "remover")
 
 		// Forsøk på å endre includeInReport på arkivert rad — skal være no-op
-		await setIncludeInReport(appId, "ORA-1", false)
+		await setIncludeInReport(appId, "ORA-1", false, "reporter")
 
 		const db = getTestDb()
 		const rows = await db.execute(
@@ -202,6 +202,18 @@ describe("Oracle instances soft-delete integration tests", () => {
 		// Original verdi (true, default) skal være beholdt
 		expect((rows.rows[0] as { include_in_report: boolean }).include_in_report).toBe(true)
 		expect((rows.rows[0] as { archived_at: unknown }).archived_at).not.toBeNull()
+	})
+
+	it("audits changes to includeInReport in the same transaction", async () => {
+		const appId = await createTestApp("App report audit")
+		await configureOracleInstance(appId, "ORA-1", "creator")
+		await setIncludeInReport(appId, "ORA-1", false, "reporter")
+
+		const audit = await getAuditByEntity("application", appId)
+		const reportEntry = audit.find((entry) => entry.action === "oracle_instance_report_updated")
+		expect(reportEntry?.previous_value).toBe(JSON.stringify({ instanceId: "ORA-1", includeInReport: true }))
+		expect(reportEntry?.new_value).toBe(JSON.stringify({ instanceId: "ORA-1", includeInReport: false }))
+		expect(reportEntry?.performed_by).toBe("reporter")
 	})
 
 	it("transactional atomicity — both row update and audit log committed together", async () => {

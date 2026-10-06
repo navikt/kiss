@@ -54,6 +54,10 @@ export async function loader({ request, params }: LoaderArgs) {
 	const accessibleInstances = filterInstancesByAccess(allOracleInstances, authedUser.groups)
 	const accessibleInstanceIds = new Set(accessibleInstances.map((i) => i.id))
 	const filteredOracleInstances = oracleInstances.filter((i) => accessibleInstanceIds.has(i.instanceId))
+	const allInstanceIds = new Set(allOracleInstances.map((i) => i.id))
+	const unavailableOracleInstances = oracleInstances
+		.filter((i) => !allInstanceIds.has(i.instanceId))
+		.map((i) => ({ id: i.id, instanceId: i.instanceId }))
 
 	const relevantCandidates = [
 		...new Map(
@@ -94,6 +98,7 @@ export async function loader({ request, params }: LoaderArgs) {
 		availableElements: allElements.filter((e) => !appElements.some((ae) => ae.id === e.id)),
 		availableTeams,
 		oracleInstances: filteredOracleInstances,
+		unavailableOracleInstances,
 		availableOracleInstances,
 		oraclePersistence: detail.persistence
 			.filter((p) => p.type === "oracle")

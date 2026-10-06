@@ -25,6 +25,7 @@ import {
 	type PersistenceType,
 } from "../schema/applications"
 import { auditLog } from "../schema/audit"
+import { applicationOracleInstances } from "../schema/audit-evidence"
 import { devTeams, sectionEnvironments, sections } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 
@@ -1452,22 +1453,64 @@ export async function getAppsPersistence(applicationIds: string[], opts?: { incl
  * Link an Oracle persistence entry to an Oracle instance ID. Avviser endring
  * av arkiverte rader.
  */
-export async function linkPersistenceToOracleInstance(persistenceId: string, oracleInstanceId: string | null) {
-	const [existing] = await db
-		.select({ id: applicationPersistence.id, archivedAt: applicationPersistence.archivedAt })
-		.from(applicationPersistence)
-		.where(eq(applicationPersistence.id, persistenceId))
-		.limit(1)
-	if (!existing) {
-		throw new Response("Persistens-oppføring ikke funnet", { status: 404 })
-	}
-	if (existing.archivedAt) {
-		throw new Response("Kan ikke koble en arkivert database. Reaktiver oppføringen først.", { status: 403 })
-	}
-	await db
-		.update(applicationPersistence)
-		.set({ oracleInstanceId, updatedAt: new Date() })
-		.where(and(eq(applicationPersistence.id, persistenceId), isNull(applicationPersistence.archivedAt)))
+export async function linkPersistenceToOracleInstance(
+	persistenceId: string,
+	oracleInstanceId: string | null,
+	performedBy: string,
+) {
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select({
+				applicationId: applicationPersistence.applicationId,
+				oracleInstanceId: applicationPersistence.oracleInstanceId,
+				archivedAt: applicationPersistence.archivedAt,
+			})
+			.from(applicationPersistence)
+			.where(eq(applicationPersistence.id, persistenceId))
+			.for("update")
+			.limit(1)
+		if (!existing) throw new Response("Persistens-oppføring ikke funnet", { status: 404 })
+		if (existing.archivedAt) {
+			throw new Response("Kan ikke koble en arkivert database. Reaktiver oppføringen først.", { status: 403 })
+		}
+		if (existing.oracleInstanceId === oracleInstanceId) return
+		if (oracleInstanceId) {
+			const [instance] = await tx
+				.select({ id: applicationOracleInstances.id })
+				.from(applicationOracleInstances)
+				.where(
+					and(
+						eq(applicationOracleInstances.applicationId, existing.applicationId),
+						eq(applicationOracleInstances.instanceId, oracleInstanceId),
+						isNull(applicationOracleInstances.archivedAt),
+					),
+				)
+				.for("update")
+				.limit(1)
+			if (!instance) {
+				throw new Response("Oracle-instansen er ikke aktivt konfigurert for applikasjonen", { status: 409 })
+			}
+		}
+
+		const [updated] = await tx
+			.update(applicationPersistence)
+			.set({ oracleInstanceId, updatedAt: new Date() })
+			.where(and(eq(applicationPersistence.id, persistenceId), isNull(applicationPersistence.archivedAt)))
+			.returning({ id: applicationPersistence.id })
+		if (!updated) return
+
+		await writeAuditLog(
+			{
+				action: "persistence_updated",
+				entityType: "application_persistence",
+				entityId: persistenceId,
+				previousValue: JSON.stringify({ oracleInstanceId: existing.oracleInstanceId }),
+				newValue: JSON.stringify({ oracleInstanceId }),
+				performedBy,
+			},
+			tx,
+		)
+	})
 }
 
 /** Get a name map for a batch of application IDs. */
@@ -1580,79 +1623,153 @@ export async function getApplicationDetail(applicationId: string) {
 
 /** Link an application to a primary application. */
 export async function linkApplication(linkedId: string, primaryId: string, performedBy: string) {
-	const [linked] = await db
-		.select({ name: monitoredApplications.name })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, linkedId))
-		.limit(1)
-	const [primary] = await db
-		.select({ name: monitoredApplications.name })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, primaryId))
-		.limit(1)
+	if (linkedId === primaryId) {
+		throw new Response("En applikasjon kan ikke lenkes til seg selv", { status: 400 })
+	}
 
-	await db
-		.update(monitoredApplications)
-		.set({ primaryApplicationId: primaryId, updatedBy: performedBy, updatedAt: new Date() })
-		.where(eq(monitoredApplications.id, linkedId))
+	await db.transaction(async (tx) => {
+		const [primary] = await tx
+			.select({
+				name: monitoredApplications.name,
+				primaryApplicationId: monitoredApplications.primaryApplicationId,
+				archivedAt: monitoredApplications.archivedAt,
+			})
+			.from(monitoredApplications)
+			.where(eq(monitoredApplications.id, primaryId))
+			.for("share")
+			.limit(1)
+		const [linked] = await tx
+			.select({
+				name: monitoredApplications.name,
+				primaryApplicationId: monitoredApplications.primaryApplicationId,
+				archivedAt: monitoredApplications.archivedAt,
+			})
+			.from(monitoredApplications)
+			.where(eq(monitoredApplications.id, linkedId))
+			.for("update")
+			.limit(1)
 
-	await writeAuditLog({
-		action: "application_linked",
-		entityType: "monitored_application",
-		entityId: linkedId,
-		newValue: JSON.stringify({ primaryId, primaryName: primary?.name, linkedName: linked?.name }),
-		performedBy,
+		if (!linked || !primary) throw new Response("Applikasjon ikke funnet", { status: 404 })
+		if (linked.archivedAt || primary.archivedAt) {
+			throw new Response("Arkiverte applikasjoner kan ikke lenkes", { status: 409 })
+		}
+		if (linked.primaryApplicationId) {
+			throw new Response("Applikasjonen er allerede lenket til en hovedapplikasjon", { status: 409 })
+		}
+		const [linkedChild] = await tx
+			.select({ id: monitoredApplications.id })
+			.from(monitoredApplications)
+			.where(eq(monitoredApplications.primaryApplicationId, linkedId))
+			.limit(1)
+		if (linkedChild) {
+			throw new Response("En hovedapplikasjon med lenkede applikasjoner kan ikke lenkes videre", { status: 409 })
+		}
+		if (primary.primaryApplicationId) {
+			throw new Response("En lenket applikasjon kan ikke være hovedapplikasjon", { status: 409 })
+		}
+
+		const [updated] = await tx
+			.update(monitoredApplications)
+			.set({ primaryApplicationId: primaryId, updatedBy: performedBy, updatedAt: new Date() })
+			.where(
+				and(
+					eq(monitoredApplications.id, linkedId),
+					isNull(monitoredApplications.primaryApplicationId),
+					isNull(monitoredApplications.archivedAt),
+				),
+			)
+			.returning({ id: monitoredApplications.id })
+
+		if (!updated) throw new Response("Applikasjonen ble endret samtidig. Prøv igjen.", { status: 409 })
+
+		await writeAuditLog(
+			{
+				action: "application_linked",
+				entityType: "monitored_application",
+				entityId: linkedId,
+				previousValue: JSON.stringify({ primaryId: linked.primaryApplicationId }),
+				newValue: JSON.stringify({ primaryId, primaryName: primary.name, linkedName: linked.name }),
+				performedBy,
+			},
+			tx,
+		)
 	})
 }
 
 /** Unlink an application from its primary. */
-export async function unlinkApplication(applicationId: string, performedBy: string) {
-	const [app] = await db
-		.select({
-			name: monitoredApplications.name,
-			primaryApplicationId: monitoredApplications.primaryApplicationId,
-		})
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, applicationId))
-		.limit(1)
+export async function unlinkApplication(applicationId: string, expectedPrimaryId: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [app] = await tx
+			.select({
+				name: monitoredApplications.name,
+				primaryApplicationId: monitoredApplications.primaryApplicationId,
+			})
+			.from(monitoredApplications)
+			.where(eq(monitoredApplications.id, applicationId))
+			.for("update")
+			.limit(1)
+		if (!app) throw new Response("Applikasjon ikke funnet", { status: 404 })
+		if (app.primaryApplicationId !== expectedPrimaryId) {
+			throw new Response("Applikasjonen er ikke lenger lenket til denne hovedapplikasjonen", { status: 409 })
+		}
 
-	await db
-		.update(monitoredApplications)
-		.set({ primaryApplicationId: null, updatedBy: performedBy, updatedAt: new Date() })
-		.where(eq(monitoredApplications.id, applicationId))
+		const [updated] = await tx
+			.update(monitoredApplications)
+			.set({ primaryApplicationId: null, updatedBy: performedBy, updatedAt: new Date() })
+			.where(
+				and(
+					eq(monitoredApplications.id, applicationId),
+					eq(monitoredApplications.primaryApplicationId, expectedPrimaryId),
+				),
+			)
+			.returning({ id: monitoredApplications.id })
+		if (!updated) return
 
-	await writeAuditLog({
-		action: "application_unlinked",
-		entityType: "monitored_application",
-		entityId: applicationId,
-		previousValue: JSON.stringify({
-			primaryId: app?.primaryApplicationId,
-			appName: app?.name,
-		}),
-		performedBy,
+		await writeAuditLog(
+			{
+				action: "application_unlinked",
+				entityType: "monitored_application",
+				entityId: applicationId,
+				previousValue: JSON.stringify({
+					primaryId: app.primaryApplicationId,
+					appName: app.name,
+				}),
+				performedBy,
+			},
+			tx,
+		)
 	})
 }
 
 /** Rename an application. */
 export async function renameApplication(appId: string, newName: string, performedBy: string) {
-	const [app] = await db
-		.select({ name: monitoredApplications.name })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, appId))
-		.limit(1)
+	return db.transaction(async (tx) => {
+		const [app] = await tx
+			.select({ name: monitoredApplications.name })
+			.from(monitoredApplications)
+			.where(eq(monitoredApplications.id, appId))
+			.for("update")
+			.limit(1)
+		if (!app) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
-	await db
-		.update(monitoredApplications)
-		.set({ name: newName, updatedBy: performedBy, updatedAt: new Date() })
-		.where(eq(monitoredApplications.id, appId))
+		const [updated] = await tx
+			.update(monitoredApplications)
+			.set({ name: newName, updatedBy: performedBy, updatedAt: new Date() })
+			.where(eq(monitoredApplications.id, appId))
+			.returning({ id: monitoredApplications.id })
+		if (!updated) return
 
-	await writeAuditLog({
-		action: "application_renamed",
-		entityType: "monitored_application",
-		entityId: appId,
-		previousValue: JSON.stringify({ name: app?.name }),
-		newValue: JSON.stringify({ name: newName }),
-		performedBy,
+		await writeAuditLog(
+			{
+				action: "application_renamed",
+				entityType: "monitored_application",
+				entityId: appId,
+				previousValue: JSON.stringify({ name: app.name }),
+				newValue: JSON.stringify({ name: newName }),
+				performedBy,
+			},
+			tx,
+		)
 	})
 }
 
@@ -1661,19 +1778,49 @@ export async function renameApplication(appId: string, newName: string, performe
  *  - currentPrimaryId becomes a child of the new primary
  *  - All other children of currentPrimaryId are moved to point to newPrimaryId
  */
-export async function promoteToPrimary(newPrimaryId: string, currentPrimaryId: string, performedBy: string) {
-	const [newPrimary] = await db
-		.select({ name: monitoredApplications.name })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, newPrimaryId))
-		.limit(1)
-	const [currentPrimary] = await db
-		.select({ name: monitoredApplications.name })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, currentPrimaryId))
-		.limit(1)
-
+export async function promoteToPrimary(
+	newPrimaryId: string,
+	currentPrimaryId: string,
+	performedBy: string,
+	authorizedApplicationIds: string[],
+) {
 	await db.transaction(async (tx) => {
+		const [currentPrimary] = await tx
+			.select({ name: monitoredApplications.name })
+			.from(monitoredApplications)
+			.where(eq(monitoredApplications.id, currentPrimaryId))
+			.for("update")
+			.limit(1)
+		const [newPrimary] = await tx
+			.select({
+				name: monitoredApplications.name,
+				primaryApplicationId: monitoredApplications.primaryApplicationId,
+				archivedAt: monitoredApplications.archivedAt,
+			})
+			.from(monitoredApplications)
+			.where(eq(monitoredApplications.id, newPrimaryId))
+			.for("update")
+			.limit(1)
+		if (
+			!currentPrimary ||
+			!newPrimary ||
+			newPrimary.archivedAt ||
+			newPrimary.primaryApplicationId !== currentPrimaryId
+		) {
+			throw new Response("Applikasjonen er ikke lenger lenket til denne hovedapplikasjonen", { status: 409 })
+		}
+
+		const affectedChildren = await tx
+			.select({ id: monitoredApplications.id })
+			.from(monitoredApplications)
+			.where(eq(monitoredApplications.primaryApplicationId, currentPrimaryId))
+			.orderBy(monitoredApplications.id)
+			.for("update")
+		const authorizedIds = new Set(authorizedApplicationIds)
+		if (!authorizedIds.has(currentPrimaryId) || affectedChildren.some((child) => !authorizedIds.has(child.id))) {
+			throw new Response("Tilgang mangler til en applikasjon i gruppen", { status: 403 })
+		}
+
 		// Promote the new primary: clear its primaryApplicationId
 		await tx
 			.update(monitoredApplications)
@@ -1691,21 +1838,23 @@ export async function promoteToPrimary(newPrimaryId: string, currentPrimaryId: s
 			.update(monitoredApplications)
 			.set({ primaryApplicationId: newPrimaryId, updatedBy: performedBy, updatedAt: new Date() })
 			.where(eq(monitoredApplications.id, currentPrimaryId))
-	})
-
-	await writeAuditLog({
-		action: "application_primary_changed",
-		entityType: "monitored_application",
-		entityId: newPrimaryId,
-		previousValue: JSON.stringify({
-			primaryId: currentPrimaryId,
-			primaryName: currentPrimary?.name,
-		}),
-		newValue: JSON.stringify({
-			primaryId: newPrimaryId,
-			primaryName: newPrimary?.name,
-		}),
-		performedBy,
+		await writeAuditLog(
+			{
+				action: "application_primary_changed",
+				entityType: "monitored_application",
+				entityId: newPrimaryId,
+				previousValue: JSON.stringify({
+					primaryId: currentPrimaryId,
+					primaryName: currentPrimary.name,
+				}),
+				newValue: JSON.stringify({
+					primaryId: newPrimaryId,
+					primaryName: newPrimary.name,
+				}),
+				performedBy,
+			},
+			tx,
+		)
 	})
 }
 
