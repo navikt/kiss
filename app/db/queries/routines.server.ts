@@ -2193,11 +2193,8 @@ export async function completeReview(reviewId: string, performedBy: string) {
 		}
 	}
 
-	// Atomisk: activity-complete + status UPDATE i samme tx.
-	// Audit + compliance-sync hopper over
-	// hvis status-UPDATE matchet 0 rader (samtidig completion-race).
 	const uploadedGithubPdfPaths: string[] = []
-	let result: { statusChanged: boolean; newStatus: "completed" | "needs_follow_up" }
+	let result: { newStatus: "completed" | "needs_follow_up" }
 	try {
 		result = await db.transaction(async (tx) => {
 			// Fullfør alle ventende aktiviteter innenfor tx slik at de rolles
@@ -2232,9 +2229,8 @@ export async function completeReview(reviewId: string, performedBy: string) {
 				.where(and(eq(routineReviews.id, reviewId), eq(routineReviews.status, "draft")))
 				.returning({ id: routineReviews.id })
 
-			// Status endret seg mellom pre-check og UPDATE (samtidig completeReview)
-			// → hopp over audit; en annen request har allerede skrevet completion.
-			if (updated.length === 0) return { statusChanged: false, newStatus }
+			if (updated.length === 0)
+				throw new Response("Gjennomgangen ble endret samtidig av en annen operasjon. Prøv igjen.", { status: 409 })
 
 			await writeAuditLog(
 				{
@@ -2246,7 +2242,7 @@ export async function completeReview(reviewId: string, performedBy: string) {
 				},
 				tx,
 			)
-			return { statusChanged: true, newStatus }
+			return { newStatus }
 		})
 	} catch (err) {
 		if (uploadedGithubPdfPaths.length > 0) {
@@ -2260,7 +2256,7 @@ export async function completeReview(reviewId: string, performedBy: string) {
 	// en stor batch-operasjon. Kjør kun hvis review faktisk ble `completed`
 	// (ikke `needs_follow_up`); compliance-syncen skal trigges senere
 	// av recomputeReviewStatus() når alle oppfølgingspunkter er adressert.
-	if (result.statusChanged && result.newStatus === "completed") {
+	if (result.newStatus === "completed") {
 		if (existing.applicationId) {
 			const { syncApplicationControls } = await import("./application-controls.server")
 			await syncApplicationControls(existing.applicationId, performedBy)
