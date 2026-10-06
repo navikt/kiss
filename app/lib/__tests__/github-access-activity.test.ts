@@ -93,6 +93,7 @@ function selectResult(rows: unknown[]) {
 		innerJoin: () => query,
 		where: () => query,
 		limit: () => query,
+		for: () => query,
 	})
 	return query
 }

@@ -299,6 +299,7 @@ export async function patchGithubAccessActivity(
 				.select({ status: routineReviewActivities.status, stagedData: routineReviewActivities.stagedData })
 				.from(routineReviewActivities)
 				.where(eq(routineReviewActivities.id, activityId))
+				.for("update")
 				.limit(1)
 
 			if (!activity) throw new Error(`Fant ikke review-aktivitet ${activityId}`)
