@@ -20,7 +20,6 @@ import { type GitHubUserLookupResult, lookupGitHubUsers } from "~/lib/nda-github
 import { sanitizeFilename } from "~/lib/sanitize-filename"
 import { getStorageProvider } from "~/lib/storage/index.server"
 import { db } from "../connection.server"
-import { monitoredApplications } from "../schema/applications"
 import { githubAccessAssessments } from "../schema/github-access"
 import {
 	routineReviewActivities,
@@ -36,17 +35,22 @@ export async function buildGithubAccessSeedResult(
 	applicationId: string,
 	executor: DbExecutor = db,
 ): Promise<{ stagedData: GithubAccessStagedData; snapshot: GithubAccessSnapshot }> {
-	const [app] = await executor
-		.select({ gitRepository: monitoredApplications.gitRepository })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, applicationId))
-		.limit(1)
-	if (!app?.gitRepository) {
-		throw new Response("Applikasjonen mangler et konfigurert Github-repo", { status: 400 })
-	}
-
 	const seedInputs = await executor.execute(sql`
 SELECT
+  (SELECT COALESCE(
+      NULLIF(trim(ma.git_repository), ''),
+      (
+        SELECT ae.git_repository
+        FROM application_environments ae
+        WHERE ae.application_id = ma.id
+          AND ae.git_repository IS NOT NULL
+          AND trim(ae.git_repository) != ''
+        ORDER BY ae.discovered_at ASC
+        LIMIT 1
+      )
+    )
+   FROM monitored_applications ma WHERE ma.id = ${applicationId}) AS "gitRepository",
+  (SELECT s.last_success_at FROM github_access_sync_status s WHERE s.application_id = ${applicationId}) AS "lastSuccessfulSyncAt",
   (SELECT COALESCE(json_agg(json_build_object(
       'id', t.id, 'teamSlug', t.team_slug, 'teamName', t.team_name,
       'permission', t.permission, 'syncedAt', t.synced_at
@@ -70,10 +74,24 @@ SELECT
 `)
 
 	const seedRow = seedInputs.rows[0] as {
+		gitRepository: string | null
+		lastSuccessfulSyncAt: string | null
 		teams: Array<{ id: string; teamSlug: string; teamName: string; permission: string; syncedAt: string }>
 		members: Array<{ repoTeamId: string; username: string; role: string; syncedAt: string }>
 		collaborators: Array<{ username: string; permission: string; syncedAt: string }>
 		assessments: Array<{ username: string; lastKnownPermission: string | null }>
+	}
+
+	const gitRepository = seedRow.gitRepository?.trim() || null
+	if (!gitRepository) {
+		throw new Response("Applikasjonen mangler et konfigurert Github-repo", { status: 400 })
+	}
+
+	if (!seedRow.lastSuccessfulSyncAt) {
+		throw new Response(
+			"Dette repoet har ikke blitt synkronisert mot Github ennå. Vent til neste synkronisering er fullført før gjennomgangen kan startes.",
+			{ status: 400 },
+		)
 	}
 
 	const membersByRepoTeamId = new Map<string, Array<{ username: string; role: string; syncedAt: string }>>()
@@ -144,7 +162,11 @@ SELECT
 		...collaboratorRows.map((c) => c.syncedAt),
 	]
 	const dataSyncedAt =
-		syncedTimestamps.length > 0 ? new Date(Math.max(...syncedTimestamps.map((d) => d.getTime()))).toISOString() : null
+		syncedTimestamps.length > 0
+			? new Date(Math.max(...syncedTimestamps.map((d) => d.getTime()))).toISOString()
+			: seedRow.lastSuccessfulSyncAt
+				? new Date(seedRow.lastSuccessfulSyncAt).toISOString()
+				: null
 
 	const activeSubjects: GithubAccessSubject[] = userAccess.map((u) => {
 		const prior = assessmentByUsername.get(u.username) ?? null
@@ -193,7 +215,7 @@ SELECT
 		schemaVersion: GITHUB_ACCESS_STAGED_DATA_SCHEMA_VERSION,
 		seededAt,
 		dataSyncedAt,
-		gitRepository: app.gitRepository,
+		gitRepository,
 		subjects,
 		confirmedBy: null,
 		confirmedAt: null,
@@ -447,10 +469,12 @@ export async function commitGithubAccessActivity(
 			status: routineReviewActivities.status,
 			stagedData: routineReviewActivities.stagedData,
 			applicationId: routineReviews.applicationId,
+			reviewStatus: routineReviews.status,
 		})
 		.from(routineReviewActivities)
 		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
 		.where(eq(routineReviewActivities.id, activityId))
+		.for("update")
 		.limit(1)
 
 	if (!activity) throw new Error(`Fant ikke review-aktivitet ${activityId}`)
@@ -458,6 +482,9 @@ export async function commitGithubAccessActivity(
 		throw new Response(`reviewId mismatch: forventet ${activity.reviewId}, fikk ${reviewId}`, { status: 400 })
 	}
 	if (activity.status !== "pending") throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+	if (activity.reviewStatus !== "draft") {
+		throw new Response("Gjennomgangen er ikke lenger redigerbar.", { status: 409 })
+	}
 	if (!activity.applicationId) throw new Response("Github-aktiviteten mangler applikasjon", { status: 400 })
 
 	let stagedData = activity.stagedData ? parseGithubAccessStagedData(activity.stagedData) : null
@@ -514,7 +541,8 @@ export async function commitGithubAccessActivity(
 		if (s.removalMarkedBy) reviewerNavIdents.add(s.removalMarkedBy)
 		if (s.permissionAdjustmentMarkedBy) reviewerNavIdents.add(s.permissionAdjustmentMarkedBy)
 	}
-	const nameByNavIdent = await getUserNamesByNavIdents(Array.from(reviewerNavIdents))
+	if (stagedData.confirmedBy) reviewerNavIdents.add(stagedData.confirmedBy)
+	const nameByNavIdent = await getUserNamesByNavIdents(Array.from(reviewerNavIdents), executor)
 
 	const storage = getStorageProvider()
 	const pdfBuffer = await buildGithubAccessReviewPdf(stagedData, {

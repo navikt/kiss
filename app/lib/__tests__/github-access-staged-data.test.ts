@@ -158,6 +158,12 @@ describe("github access staged data", () => {
 		expect(() => applyGithubAccessStagedDataPatch(parsed(), { ...adjustment, targetPermission: "" })).toThrow()
 	})
 
+	it("rejects an adjustment target equal to the subject's current permission", () => {
+		expect(() =>
+			applyGithubAccessStagedDataPatch(parsed(), { ...adjustment, targetPermission: subject.highestPermission }),
+		).toThrow()
+	})
+
 	it("rejects conflicting removal and adjustment decisions", () => {
 		expect(() =>
 			parseGithubAccessStagedData({

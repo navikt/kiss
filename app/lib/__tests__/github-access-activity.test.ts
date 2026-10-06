@@ -107,7 +107,9 @@ describe("github access activity", () => {
 		mocks.select.mockReset()
 		mocks.select.mockReturnValue(selectResult([]))
 		mocks.execute.mockReset()
-		mocks.execute.mockResolvedValue({ rows: [{ teams: [], members: [], collaborators: [], assessments: [] }] })
+		mocks.execute.mockResolvedValue({
+			rows: [{ lastSuccessfulSyncAt: timestamp, teams: [], members: [], collaborators: [], assessments: [] }],
+		})
 	})
 
 	function mockPatchData(stagedData: unknown, latestStagedData = stagedData) {
@@ -173,10 +175,11 @@ describe("github access activity", () => {
 	})
 
 	it("seeds subjects without any legacy justification fields", async () => {
-		mocks.select.mockReturnValueOnce(selectResult([{ gitRepository: "navikt/kiss" }]))
 		mocks.execute.mockResolvedValueOnce({
 			rows: [
 				{
+					gitRepository: "navikt/kiss",
+					lastSuccessfulSyncAt: timestamp,
 					teams: [],
 					members: [],
 					collaborators: [{ username: "glad-fjord", permission: "admin", syncedAt: timestamp }],
@@ -188,6 +191,73 @@ describe("github access activity", () => {
 		expect(stagedData).toMatchObject({ confirmedBy: null, confirmedAt: null })
 		expect(stagedData.subjects[0]).not.toHaveProperty("businessJustification")
 		expect(stagedData.subjects[0]).not.toHaveProperty("reviewedThisRound")
+	})
+
+	it("falls back to the recorded sync timestamp when a successful sync has no access rows", async () => {
+		mocks.execute.mockResolvedValueOnce({
+			rows: [
+				{
+					gitRepository: "navikt/kiss",
+					lastSuccessfulSyncAt: timestamp,
+					teams: [],
+					members: [],
+					collaborators: [],
+					assessments: [],
+				},
+			],
+		})
+		const { stagedData } = await buildGithubAccessSeedResult("app-1")
+		expect(stagedData.dataSyncedAt).toBe(timestamp)
+	})
+
+	it("normalizes a raw Postgres sync timestamp to ISO before validating staged data", async () => {
+		mocks.execute.mockResolvedValueOnce({
+			rows: [
+				{
+					gitRepository: "navikt/kiss",
+					lastSuccessfulSyncAt: "2026-09-02 00:00:00+00",
+					teams: [],
+					members: [],
+					collaborators: [],
+					assessments: [],
+				},
+			],
+		})
+		const { stagedData } = await buildGithubAccessSeedResult("app-1")
+		expect(stagedData.dataSyncedAt).toBe(timestamp)
+	})
+
+	it("rejects seeding when the repo has never been successfully synced", async () => {
+		mocks.execute.mockResolvedValueOnce({
+			rows: [
+				{
+					gitRepository: "navikt/kiss",
+					lastSuccessfulSyncAt: null,
+					teams: [],
+					members: [],
+					collaborators: [],
+					assessments: [],
+				},
+			],
+		})
+		await expect(buildGithubAccessSeedResult("app-1")).rejects.toMatchObject({ status: 400 })
+	})
+
+	it("rejects commit when the review is no longer in draft status", async () => {
+		mocks.select.mockReturnValueOnce(
+			selectResult([
+				{
+					reviewId: "review-1",
+					status: "pending",
+					stagedData: rawData,
+					applicationId: "app-1",
+					reviewStatus: "discarded",
+				},
+			]),
+		)
+		await expect(commitGithubAccessActivity("activity-1", "review-1", "Z990001", db)).rejects.toMatchObject({
+			status: 409,
+		})
 	})
 
 	it("creates follow-ups for decisions without reasons or live GitHub verification", async () => {
@@ -211,7 +281,9 @@ describe("github access activity", () => {
 			markedAt,
 		})
 		mocks.select.mockReturnValueOnce(
-			selectResult([{ reviewId: "review-1", status: "pending", stagedData: data, applicationId: "app-1" }]),
+			selectResult([
+				{ reviewId: "review-1", status: "pending", stagedData: data, applicationId: "app-1", reviewStatus: "draft" },
+			]),
 		)
 		mocks.select.mockReturnValueOnce(selectResult([]))
 		const snapshot = await commitGithubAccessActivity("activity-1", "review-1", "Z990001", db)
@@ -226,7 +298,9 @@ describe("github access activity", () => {
 
 	it("rejects commit when the review has not been confirmed", async () => {
 		mocks.select.mockReturnValueOnce(
-			selectResult([{ reviewId: "review-1", status: "pending", stagedData: rawData, applicationId: "app-1" }]),
+			selectResult([
+				{ reviewId: "review-1", status: "pending", stagedData: rawData, applicationId: "app-1", reviewStatus: "draft" },
+			]),
 		)
 		await expect(commitGithubAccessActivity("activity-1", "review-1", "Z990001", db)).rejects.toMatchObject({
 			status: 400,
@@ -241,7 +315,9 @@ describe("github access activity", () => {
 			confirmedAt: timestamp,
 		})
 		mocks.select.mockReturnValueOnce(
-			selectResult([{ reviewId: "review-1", status: "pending", stagedData: data, applicationId: "app-1" }]),
+			selectResult([
+				{ reviewId: "review-1", status: "pending", stagedData: data, applicationId: "app-1", reviewStatus: "draft" },
+			]),
 		)
 		mocks.select.mockReturnValueOnce(selectResult([]))
 		await commitGithubAccessActivity("activity-1", "review-1", "Z990001", db)

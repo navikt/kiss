@@ -52,6 +52,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		if (s.removalMarkedBy) reviewerNavIdents.add(s.removalMarkedBy)
 		if (s.permissionAdjustmentMarkedBy) reviewerNavIdents.add(s.permissionAdjustmentMarkedBy)
 	}
+	if (stagedData.confirmedBy) reviewerNavIdents.add(stagedData.confirmedBy)
 	const nameByNavIdent = await getUserNamesByNavIdents(Array.from(reviewerNavIdents))
 
 	const pdfBuffer = await buildGithubAccessReviewPdf(stagedData, {

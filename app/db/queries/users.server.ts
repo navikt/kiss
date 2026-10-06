@@ -328,11 +328,14 @@ export async function getTeamMemberRoleById(roleId: string, teamId: string): Pro
 	return row ? { role: row.role as UserRole } : null
 }
 
-export async function getUserNamesByNavIdents(navIdents: string[]): Promise<Map<string, string>> {
+export async function getUserNamesByNavIdents(
+	navIdents: string[],
+	executor: DbExecutor = db,
+): Promise<Map<string, string>> {
 	const unique = [...new Set(navIdents.filter(Boolean).map((i) => i.trim().toUpperCase()))]
 	if (unique.length === 0) return new Map()
 
-	const rows = await db
+	const rows = await executor
 		.select({ navIdent: users.navIdent, name: users.name })
 		.from(users)
 		.where(inArray(sql`upper(${users.navIdent})`, unique))

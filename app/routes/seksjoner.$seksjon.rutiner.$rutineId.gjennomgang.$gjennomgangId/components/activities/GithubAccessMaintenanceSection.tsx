@@ -7,6 +7,7 @@ import {
 	Button,
 	Detail,
 	Dialog,
+	Heading,
 	HStack,
 	Select,
 	Table,
@@ -26,6 +27,21 @@ import type { ActionResult, ActivityProp } from "../shared"
 export type GithubAccessSubjectWithIdentity = GithubAccessSubject & {
 	displayName?: string | null
 	navIdent?: string | null
+}
+
+export type GithubAccessAuditLogEntry = {
+	id: string
+	action: string
+	previousValue: string | null
+	newValue: string | null
+	performedBy: string
+	performedByName?: string | null
+	performedAt: string
+}
+
+const githubAuditActionLabels: Record<string, string> = {
+	review_activity_seeded: "Gjennomgang forhåndsutfylt",
+	review_activity_github_access_patched: "Tilgang endret",
 }
 
 function SubjectIdentity({ subject }: { subject: GithubAccessSubjectWithIdentity }) {
@@ -262,6 +278,7 @@ export function GithubAccessMaintenanceSection({
 	confirmedBy,
 	confirmedAt,
 	confirmedByName,
+	auditLog,
 	isDraft,
 }: {
 	activity: ActivityProp
@@ -271,6 +288,7 @@ export function GithubAccessMaintenanceSection({
 	confirmedBy?: string | null
 	confirmedAt?: string | null
 	confirmedByName?: string | null
+	auditLog?: GithubAccessAuditLogEntry[]
 	isDraft: boolean
 }) {
 	const reviewFetcher = useFetcher<ActionResult>()
@@ -492,6 +510,47 @@ export function GithubAccessMaintenanceSection({
 						)}
 					</VStack>
 				</Box>
+			)}
+
+			{auditLog && auditLog.length > 0 && (
+				<VStack gap="space-4">
+					<Heading size="small" level="4">
+						Endringslogg ({auditLog.length})
+					</Heading>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+					<section className="table-scroll" tabIndex={0} aria-label="Endringslogg for Github-tilgangsgjennomgang">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Tidspunkt</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Handling</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Detaljer</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Utført av</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{auditLog.map((entry) => (
+									<Table.Row key={entry.id}>
+										<Table.DataCell>{formatDateTimeOslo(entry.performedAt)}</Table.DataCell>
+										<Table.DataCell>
+											<Tag variant="info" size="xsmall">
+												{githubAuditActionLabels[entry.action] ?? entry.action}
+											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>
+											{entry.previousValue != null && entry.newValue != null
+												? `«${entry.previousValue}» → «${entry.newValue}»`
+												: (entry.newValue ?? entry.previousValue ?? "–")}
+										</Table.DataCell>
+										<Table.DataCell>
+											<UserDisplayName navIdent={entry.performedBy} name={entry.performedByName} />
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
+				</VStack>
 			)}
 		</VStack>
 	)

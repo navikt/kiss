@@ -2,6 +2,7 @@ import { Alert, BodyLong, BodyShort, Box, Heading, HStack, Tag, VStack } from "@
 import { useCallback, useMemo } from "react"
 import { data, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { getAuditLogForEntities } from "~/db/queries/audit.server"
 import {
 	addFollowUpPoint,
 	addReviewLink,
@@ -356,6 +357,15 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 			confirmedAt: string | null
 			confirmedByName?: string | null
 		} | null
+		githubAuditLog: Array<{
+			id: string
+			action: string
+			previousValue: string | null
+			newValue: string | null
+			performedBy: string
+			performedByName?: string | null
+			performedAt: string
+		}>
 		activityStepsData: Array<{
 			stepId: string
 			title: string
@@ -664,6 +674,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 				rpaMaintenanceData: null,
 				oracleRoleCriticalityData: null,
 				githubAccessData: null,
+				githubAuditLog: [],
 				activityStepsData: null,
 				evidenceProviderType,
 				evidenceLoadError,
@@ -689,6 +700,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 			rpaMaintenanceData: actRpaMaintenanceData,
 			oracleRoleCriticalityData: actOracleRoleCriticalityData,
 			githubAccessData: actGithubAccessData,
+			githubAuditLog: [],
 			activityStepsData: actManualActivityData,
 			evidenceProviderType,
 		})
@@ -707,6 +719,32 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 					? (githubConfirmerNames.get(a.githubAccessData.confirmedBy.trim().toUpperCase()) ?? null)
 					: null,
 			}
+		}
+	}
+
+	const githubAccessActivityIds = activitiesWithEvidence
+		.filter((a) => a.type === "github_access_maintenance" && a.githubAccessData)
+		.map((a) => a.id)
+	if (githubAccessActivityIds.length > 0) {
+		const auditEntries = await getAuditLogForEntities("routine_review_activity", githubAccessActivityIds)
+		const performerNames = await getUserNamesByNavIdents(auditEntries.map((e) => e.performedBy))
+		const entriesByActivity = new Map<string, typeof auditEntries>()
+		for (const entry of auditEntries) {
+			const arr = entriesByActivity.get(entry.entityId) ?? []
+			arr.push(entry)
+			entriesByActivity.set(entry.entityId, arr)
+		}
+		for (const a of activitiesWithEvidence) {
+			if (a.type !== "github_access_maintenance") continue
+			a.githubAuditLog = (entriesByActivity.get(a.id) ?? []).map((entry) => ({
+				id: entry.id,
+				action: entry.action,
+				previousValue: entry.previousValue,
+				newValue: entry.newValue,
+				performedBy: entry.performedBy,
+				performedByName: performerNames.get(entry.performedBy.trim().toUpperCase()) ?? null,
+				performedAt: entry.performedAt.toISOString(),
+			}))
 		}
 	}
 
@@ -1902,6 +1940,7 @@ export default function GjennomgangDetalj() {
 						confirmedBy={activity.githubAccessData.confirmedBy}
 						confirmedAt={activity.githubAccessData.confirmedAt}
 						confirmedByName={activity.githubAccessData.confirmedByName}
+						auditLog={activity.githubAuditLog}
 						isDraft={isDraft}
 					/>
 				)

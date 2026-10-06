@@ -244,6 +244,11 @@ export function applyGithubAccessStagedDataPatch(
 		if (existing.isGone) {
 			throw new Error(`Kan ikke markere en allerede fjernet bruker ${patch.username} for tilgangsjustering`)
 		}
+		if (patch.targetPermission === existing.highestPermission) {
+			throw new Error(
+				`Målnivået "${patch.targetPermission}" er det samme som gjeldende tilgangsnivå for ${patch.username}`,
+			)
+		}
 		subjects[index] = {
 			...existing,
 			permissionAdjustmentRequested: true,

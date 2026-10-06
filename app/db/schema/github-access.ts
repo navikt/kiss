@@ -53,6 +53,17 @@ export const githubRepoCollaborators = pgTable(
 	],
 )
 
+export const githubAccessSyncStatus = pgTable("github_access_sync_status", {
+	applicationId: uuid("application_id")
+		.primaryKey()
+		.references(() => monitoredApplications.id, { onDelete: "cascade" }),
+	lastSuccessAt: timestamp("last_success_at", { withTimezone: true }).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	createdBy: text("created_by").notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	updatedBy: text("updated_by").notNull(),
+})
+
 export const githubAccessAssessments = pgTable(
 	"github_access_assessments",
 	{

@@ -1,7 +1,12 @@
 import { eq, sql } from "drizzle-orm"
 import { db } from "../db/connection.server"
 import { writeAuditLog } from "../db/queries/audit.server"
-import { githubRepoCollaborators, githubRepoTeamMembers, githubRepoTeams } from "../db/schema/github-access"
+import {
+	githubAccessSyncStatus,
+	githubRepoCollaborators,
+	githubRepoTeamMembers,
+	githubRepoTeams,
+} from "../db/schema/github-access"
 import {
 	type GitHubCollaborator,
 	type GitHubTeam,
@@ -237,6 +242,33 @@ async function syncAppAccess(appId: string, gitRepository: string, performedBy: 
 		result.collaboratorsAdded = collabResult.added
 		result.collaboratorsRemoved = collabResult.removed
 		result.collaboratorsUpdated = collabResult.updated
+
+		const [existingSyncStatus] = await tx
+			.select({ lastSuccessAt: githubAccessSyncStatus.lastSuccessAt })
+			.from(githubAccessSyncStatus)
+			.where(eq(githubAccessSyncStatus.applicationId, appId))
+		const newSuccessAt = new Date()
+		await tx
+			.insert(githubAccessSyncStatus)
+			.values({ applicationId: appId, lastSuccessAt: newSuccessAt, createdBy: performedBy, updatedBy: performedBy })
+			.onConflictDoUpdate({
+				target: githubAccessSyncStatus.applicationId,
+				set: { lastSuccessAt: newSuccessAt, updatedBy: performedBy, updatedAt: newSuccessAt },
+			})
+		await writeAuditLog(
+			{
+				action: "github_access_sync_status_recorded",
+				entityType: "monitored_application",
+				entityId: appId,
+				previousValue: existingSyncStatus
+					? JSON.stringify({ lastSuccessAt: existingSyncStatus.lastSuccessAt })
+					: undefined,
+				newValue: JSON.stringify({ lastSuccessAt: newSuccessAt }),
+				metadata: { gitRepository },
+				performedBy,
+			},
+			tx,
+		)
 
 		return result
 	})

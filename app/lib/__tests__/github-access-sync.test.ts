@@ -52,6 +52,7 @@ vi.mock("~/db/schema/github-access", () => ({
 		username: "username",
 		permission: "permission",
 	},
+	githubAccessSyncStatus: { applicationId: "application_id", lastSuccessAt: "last_success_at" },
 }))
 
 const { runGitHubAccessSync, parseGitRepository } = await import("~/lib/github-access-sync.server")
@@ -142,6 +143,7 @@ describe("runGitHubAccessSync", () => {
 				insert: () => ({
 					values: () => ({
 						returning: () => Promise.resolve([{ id: "new-team-id" }]),
+						onConflictDoUpdate: () => Promise.resolve(undefined),
 					}),
 				}),
 				delete: () => ({
@@ -218,6 +220,7 @@ describe("runGitHubAccessSync", () => {
 				insert: () => ({
 					values: () => ({
 						returning: () => Promise.resolve([{ id: "new-team-id" }]),
+						onConflictDoUpdate: () => Promise.resolve(undefined),
 					}),
 				}),
 				update: mockUpdate,
@@ -237,6 +240,51 @@ describe("runGitHubAccessSync", () => {
 		expect(mockWriteAuditLog).toHaveBeenCalledWith(
 			expect.objectContaining({
 				action: "github_access_team_permission_changed",
+				entityId: "app-1",
+			}),
+			expect.anything(),
+		)
+	})
+
+	it("audits the sync-status upsert on every successful sync", async () => {
+		mockIsConfigured.mockReturnValue(true)
+		mockWithAdvisoryLock.mockImplementation(async (_name: string, fn: () => Promise<unknown>) => fn())
+
+		mockDbExecute.mockResolvedValueOnce({
+			rows: [{ id: "app-1", git_repository: "navikt/pen" }],
+		})
+
+		mockGetRepoTeams.mockResolvedValue([])
+		mockGetRepoCollaborators.mockResolvedValue([])
+		mockGetTeamMembers.mockResolvedValue([])
+
+		const { writeAuditLog: mockWriteAuditLog } = await import("~/db/queries/audit.server")
+
+		mockDbTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+			const mockTx = {
+				select: () => ({
+					from: () => ({
+						where: () => Promise.resolve([]),
+					}),
+				}),
+				insert: () => ({
+					values: () => ({
+						returning: () => Promise.resolve([{ id: "new-team-id" }]),
+						onConflictDoUpdate: () => Promise.resolve(undefined),
+					}),
+				}),
+				delete: () => ({
+					where: () => Promise.resolve(),
+				}),
+			}
+			return fn(mockTx)
+		})
+
+		await runGitHubAccessSync()
+
+		expect(mockWriteAuditLog).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "github_access_sync_status_recorded",
 				entityId: "app-1",
 			}),
 			expect.anything(),

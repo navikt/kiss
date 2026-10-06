@@ -48,6 +48,7 @@ export function buildGithubAccessReviewPdf(
 		const activeSubjects = data.subjects.filter(
 			(s) => !s.isGone && !s.markedForRemoval && !s.permissionAdjustmentRequested,
 		)
+		const reviewedSubjects = data.subjects.filter((s) => !s.isGone)
 		const goneSubjects = data.subjects.filter((s) => s.isGone)
 
 		doc.fontSize(16).fillColor(blue).text("Periodisk gjennomgang av tilganger – GitHub", { align: "left" })
@@ -58,16 +59,20 @@ export function buildGithubAccessReviewPdf(
 		doc.moveDown(0.3)
 		doc.fontSize(9).fillColor(gray)
 		doc.text(`Repo: ${data.gitRepository}`)
-		const participantsText =
-			params.participants && params.participants.length > 0
-				? params.participants.map((p) => formatUserDisplayName(p.userIdent, p.userName)).join(", ")
-				: identLabel(params.performedBy)
-		doc.text(`Godkjent av: ${participantsText}`)
+		if (params.participants && params.participants.length > 0) {
+			const participantsText = params.participants.map((p) => formatUserDisplayName(p.userIdent, p.userName)).join(", ")
+			doc.text(`Deltakere i gjennomgangen: ${participantsText}`)
+		}
+		doc.text(
+			data.confirmedBy && data.confirmedAt
+				? `Bekreftet av: ${identLabel(data.confirmedBy)} (${formatDateTimeOslo(data.confirmedAt)})`
+				: "Bekreftet av: Ikke bekreftet ennå",
+		)
 		doc.text(`Dato: ${dateOnly(generatedAt)}`)
 		doc.moveDown(0.6)
 
 		doc.fontSize(10).fillColor(dark)
-		doc.text(`Personer med tilgang gjennomgått: ${activeSubjects.length}`)
+		doc.text(`Personer med tilgang gjennomgått: ${reviewedSubjects.length}`)
 		doc.text(`Antall tilganger merket for fjerning i denne gjennomgangen: ${removedDuringReview.length}`)
 		doc.text(`Antall tilgangsnivå merket for justering i denne gjennomgangen: ${adjustedDuringReview.length}`)
 		doc.text(`Antall som har fått tilgangen fjernet siden forrige gjennomgang: ${goneSubjects.length}`)
