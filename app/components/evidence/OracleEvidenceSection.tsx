@@ -1,4 +1,4 @@
-import { ExternalLinkIcon } from "@navikt/aksel-icons"
+import { CheckmarkCircleFillIcon, ExternalLinkIcon } from "@navikt/aksel-icons"
 import {
 	Link as AkselLink,
 	Alert,
@@ -227,6 +227,13 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft, p
 				</Alert>
 			)}
 
+			{!preview && isDraft && isPending && downloads.length > 0 && (
+				<HStack gap="space-2" align="center" role="status">
+					<CheckmarkCircleFillIcon fontSize="1.25rem" color="var(--ax-text-action-success)" aria-hidden />
+					<BodyShort size="small">{downloads.length} bevis registrert for denne aktiviteten.</BodyShort>
+				</HStack>
+			)}
+
 			{configuredInstances.length > 0 && (
 				<VStack gap="space-4">
 					<HStack gap="space-4" align="end">
@@ -308,6 +315,16 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft, p
 					{evidenceStatus && filteredEvidenceTypes.length > 0 && (
 						<VStack gap="space-2">
 							<BodyShort size="small">{config.statusTableDescription}</BodyShort>
+							{!preview &&
+								isDraft &&
+								isPending &&
+								downloads.length === 0 &&
+								filteredEvidenceTypes.some((et) => et.canDownload) && (
+									<Alert variant="info" size="small">
+										Bevis er ikke registrert for denne aktiviteten ennå. Klikk «Registrer som bevis» i tabellen under
+										for å registrere bevis for gjennomgangen.
+									</Alert>
+								)}
 							<EvidenceStatusTable
 								evidenceTypes={filteredEvidenceTypes}
 								showActions={!preview && isDraft && isPending}

@@ -58,7 +58,7 @@ export function EvidenceStatusTable({ evidenceTypes, showActions, isDownloading,
 												loading={isDownloading}
 												disabled={!et.canDownload || isDownloading}
 											>
-												Hent {fmt}
+												Registrer {fmt.toUpperCase()} som bevis
 											</Button>
 										))}
 									</HStack>
