@@ -38,11 +38,13 @@ function buildConflictMessage(
 	return "Det finnes allerede en aktiv gjennomgang for denne rutinen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny."
 }
 
-export async function loader({ params, url }: Route.LoaderArgs) {
+export async function loader({ params, url, request }: Route.LoaderArgs) {
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) {
 		throw data({ message: "Mangler parametere" }, { status: 400 })
 	}
+
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) {
@@ -97,7 +99,15 @@ export async function loader({ params, url }: Route.LoaderArgs) {
 		}
 	}
 
-	return data({ section, routine, apps, oracleInstancesByAppId, hasOracleActivity, loaderConflictError })
+	return data({
+		section,
+		routine,
+		apps,
+		oracleInstancesByAppId,
+		hasOracleActivity,
+		loaderConflictError,
+		currentUser: { navIdent: authedUser.navIdent, name: authedUser.name },
+	})
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -212,7 +222,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function NyGjennomgang() {
-	const { routine, apps, oracleInstancesByAppId, hasOracleActivity, loaderConflictError } =
+	const { routine, apps, oracleInstancesByAppId, hasOracleActivity, loaderConflictError, currentUser } =
 		useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const conflictError = actionData && "conflictError" in actionData ? actionData.conflictError : loaderConflictError
@@ -333,6 +343,7 @@ export default function NyGjennomgang() {
 						name="participants"
 						label="Deltakere"
 						description="Søk på navn eller e-post for å legge til personer. Du kan også skrive inn en NAV-ident direkte."
+						defaultParticipants={[{ navIdent: currentUser.navIdent, displayName: currentUser.name }]}
 					/>
 
 					{conflictError && (
