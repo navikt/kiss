@@ -232,7 +232,12 @@ export function applyGithubAccessStagedDataPatch(
 			removalMarkedBy: null,
 			removalMarkedAt: null,
 		}
-		return parseGithubAccessStagedData({ ...parsed, subjects, confirmedBy: null, confirmedAt: null })
+		const shouldClearConfirmation = existing.markedForRemoval
+		return parseGithubAccessStagedData({
+			...parsed,
+			subjects,
+			...(shouldClearConfirmation && { confirmedBy: null, confirmedAt: null }),
+		})
 	}
 
 	if (patch.op === "mark-for-adjustment") {
@@ -260,7 +265,12 @@ export function applyGithubAccessStagedDataPatch(
 			permissionAdjustmentMarkedBy: null,
 			permissionAdjustmentMarkedAt: null,
 		}
-		return parseGithubAccessStagedData({ ...parsed, subjects, confirmedBy: null, confirmedAt: null })
+		const shouldClearConfirmation = existing.permissionAdjustmentRequested
+		return parseGithubAccessStagedData({
+			...parsed,
+			subjects,
+			...(shouldClearConfirmation && { confirmedBy: null, confirmedAt: null }),
+		})
 	}
 
 	patch satisfies never

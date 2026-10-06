@@ -50,12 +50,20 @@ export async function buildGithubAccessSeedResult(
 		throw new Response("Applikasjonen mangler et konfigurert Github-repo", { status: 400 })
 	}
 
-	const [teamRows, memberRows, collaboratorRows, assessmentRows] = await Promise.all([
-		executor.select().from(githubRepoTeams).where(eq(githubRepoTeams.applicationId, applicationId)),
+	const [teamMemberRows, collaboratorRows, assessmentRows] = await Promise.all([
 		executor
-			.select()
-			.from(githubRepoTeamMembers)
-			.innerJoin(githubRepoTeams, eq(githubRepoTeamMembers.repoTeamId, githubRepoTeams.id))
+			.select({
+				teamId: githubRepoTeams.id,
+				teamSlug: githubRepoTeams.teamSlug,
+				teamName: githubRepoTeams.teamName,
+				permission: githubRepoTeams.permission,
+				syncedAt: githubRepoTeams.syncedAt,
+				memberUsername: githubRepoTeamMembers.username,
+				memberRole: githubRepoTeamMembers.role,
+				memberSyncedAt: githubRepoTeamMembers.syncedAt,
+			})
+			.from(githubRepoTeams)
+			.leftJoin(githubRepoTeamMembers, eq(githubRepoTeamMembers.repoTeamId, githubRepoTeams.id))
 			.where(eq(githubRepoTeams.applicationId, applicationId)),
 		executor.select().from(githubRepoCollaborators).where(eq(githubRepoCollaborators.applicationId, applicationId)),
 		executor
@@ -67,18 +75,31 @@ export async function buildGithubAccessSeedResult(
 			.where(and(eq(githubAccessAssessments.applicationId, applicationId), isNull(githubAccessAssessments.archivedAt))),
 	])
 
+	const teamsById = new Map<string, { teamSlug: string; teamName: string; permission: string; syncedAt: Date }>()
 	const membersByTeamId = new Map<string, Array<{ username: string; role: string }>>()
-	for (const row of memberRows) {
-		const list = membersByTeamId.get(row.github_repo_team_members.repoTeamId) ?? []
-		list.push({ username: row.github_repo_team_members.username, role: row.github_repo_team_members.role })
-		membersByTeamId.set(row.github_repo_team_members.repoTeamId, list)
+	const memberSyncedTimestamps: Date[] = []
+	for (const row of teamMemberRows) {
+		if (!teamsById.has(row.teamId)) {
+			teamsById.set(row.teamId, {
+				teamSlug: row.teamSlug,
+				teamName: row.teamName,
+				permission: row.permission,
+				syncedAt: row.syncedAt,
+			})
+		}
+		if (row.memberUsername) {
+			const list = membersByTeamId.get(row.teamId) ?? []
+			list.push({ username: row.memberUsername, role: row.memberRole ?? "member" })
+			membersByTeamId.set(row.teamId, list)
+			if (row.memberSyncedAt) memberSyncedTimestamps.push(row.memberSyncedAt)
+		}
 	}
 
-	const teamsWithMembers = teamRows.map((team) => ({
+	const teamsWithMembers = Array.from(teamsById.entries()).map(([teamId, team]) => ({
 		teamSlug: team.teamSlug,
 		teamName: team.teamName,
 		permission: team.permission,
-		members: membersByTeamId.get(team.id) ?? [],
+		members: membersByTeamId.get(teamId) ?? [],
 	}))
 
 	const userAccess = computeGithubUserAccess(
@@ -91,8 +112,8 @@ export async function buildGithubAccessSeedResult(
 	const seededAt = new Date().toISOString()
 
 	const syncedTimestamps: Date[] = [
-		...teamRows.map((t) => t.syncedAt),
-		...memberRows.map((m) => m.github_repo_team_members.syncedAt),
+		...Array.from(teamsById.values()).map((t) => t.syncedAt),
+		...memberSyncedTimestamps,
 		...collaboratorRows.map((c) => c.syncedAt),
 	]
 	const dataSyncedAt =
@@ -273,7 +294,11 @@ export async function patchGithubAccessActivity(
 	const lockResult = await withAdvisoryLock(lockName, async () => {
 		return db.transaction(async (tx) => {
 			const [activity] = await tx
-				.select({ status: routineReviewActivities.status, stagedData: routineReviewActivities.stagedData })
+				.select({
+					status: routineReviewActivities.status,
+					stagedData: routineReviewActivities.stagedData,
+					reviewId: routineReviewActivities.reviewId,
+				})
 				.from(routineReviewActivities)
 				.where(eq(routineReviewActivities.id, activityId))
 				.for("update")
@@ -281,6 +306,16 @@ export async function patchGithubAccessActivity(
 
 			if (!activity) throw new Error(`Fant ikke review-aktivitet ${activityId}`)
 			if (activity.status !== "pending") throw new Response("Kan ikke endre en fullført aktivitet", { status: 409 })
+
+			const [review] = await tx
+				.select({ status: routineReviews.status })
+				.from(routineReviews)
+				.where(eq(routineReviews.id, activity.reviewId))
+				.for("update")
+				.limit(1)
+			if (!review || review.status !== "draft") {
+				throw new Response("Gjennomgangen er ikke lenger redigerbar.", { status: 409 })
+			}
 
 			let stagedData = activity.stagedData ? parseGithubAccessStagedData(activity.stagedData) : null
 			let seededInThisCall = false

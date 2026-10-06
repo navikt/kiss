@@ -91,6 +91,7 @@ function selectResult(rows: unknown[]) {
 	const query = Object.assign(Promise.resolve(rows), {
 		from: () => query,
 		innerJoin: () => query,
+		leftJoin: () => query,
 		where: () => query,
 		limit: () => query,
 		for: () => query,
@@ -117,7 +118,10 @@ describe("github access activity", () => {
 				},
 			]),
 		)
-		mocks.select.mockReturnValueOnce(selectResult([{ status: "pending", stagedData: latestStagedData }]))
+		mocks.select.mockReturnValueOnce(
+			selectResult([{ status: "pending", stagedData: latestStagedData, reviewId: "review-1" }]),
+		)
+		mocks.select.mockReturnValueOnce(selectResult([{ status: "draft" }]))
 	}
 
 	it("applies mark-for-removal with a date-only markedAt and audits the change", async () => {
@@ -167,7 +171,6 @@ describe("github access activity", () => {
 	it("seeds subjects without any legacy justification fields", async () => {
 		for (const rows of [
 			[{ gitRepository: "navikt/kiss" }],
-			[],
 			[],
 			[{ username: "glad-fjord", permission: "admin", syncedAt: new Date(timestamp) }],
 			[{ username: "glad-fjord", lastKnownPermission: "admin" }],
