@@ -64,3 +64,34 @@ export const githubRepoCollaborators = pgTable(
 		index("idx_github_repo_collaborators_app").on(t.applicationId),
 	],
 )
+
+/**
+ * Husker hvilke brukernavn som hadde GitHub-tilgang til en applikasjon ved forrige fullførte
+ * periodiske gjennomgang (`github_access_maintenance`-aktiviteten). Brukes utelukkende til å
+ * beregne `isNew`/`isGone` ved seeding av neste runde — lagrer ikke lenger begrunnelse eller
+ * andre vurderinger (gjennomgangen bekreftes nå samlet, se `confirmedAt` i staged_data).
+ *
+ * Rader for personer som ikke lenger har tilgang beholdes (vises som «fjernet siden forrige
+ * gjennomgang» i aktiviteten) inntil de eventuelt fjernes manuelt — dette gir sporbarhet på
+ * hvem som tidligere hadde tilgang.
+ */
+export const githubAccessAssessments = pgTable(
+	"github_access_assessments",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		applicationId: uuid("application_id")
+			.notNull()
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
+		username: text("username").notNull(),
+		/** Siste kjente tilgangsnivå — brukes til å vise «siste kjente tilgang» etter at personen er fjernet. */
+		lastKnownPermission: text("last_known_permission"),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		createdBy: text("created_by").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedBy: text("updated_by").notNull(),
+	},
+	(t) => [
+		unique("uq_github_access_assessments_app_user").on(t.applicationId, t.username),
+		index("idx_github_access_assessments_app").on(t.applicationId),
+	],
+)

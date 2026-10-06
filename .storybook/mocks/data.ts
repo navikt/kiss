@@ -1688,6 +1688,29 @@ export function mockGjennomgangDetaljData(overrides?: {
 			resolvedBy: "Z990001",
 			attachments: [],
 		},
+		{
+			id: "fup-4",
+			text: "Fjern GitHub-tilgang for @sluttet-utvikler",
+			// Preutfylt automatisk av commitGithubAccessActivity ved fjerning i Github-tilgangsgjennomgangen:
+			// reviewers begrunnelse + fast veiledningstekst fra rutinens "Manglende tjenstlig behov"-avsnitt.
+			description:
+				"Sluttet i teamet 2026-08-15 og har ikke lenger tjenstlig behov for tilgang til repoet.\n\n" +
+				"Veiledning fra rutinen: Dersom en bruker har hatt tilgang med kritikalitet HØY eller SVÆRT HØY " +
+				"uten tjenstlig behov, skal rettigheten umiddelbart fjernes. Alle brukerens handlinger i den " +
+				"aktuelle perioden skal gjennomgås av produktleder i samråd med teknisk egnet personell. Det " +
+				"skal vurderes om rollen kan ha blitt utnyttet i perioden hvor det ikke lengre fantes et " +
+				"tjenstlig behov. Risikovurderingen skal dokumenteres i gjennomgangen av denne rutinen. Det " +
+				"dokumenteres i form av et vedlegg som legges ved.",
+			resolution: null as string | null,
+			status: "needs_follow_up" as const,
+			createdBy: "Z990001",
+			createdAt: "2026-03-01T10:45:00Z",
+			updatedBy: "Z990001",
+			updatedAt: "2026-03-01T10:45:00Z",
+			resolvedAt: null as string | null,
+			resolvedBy: null as string | null,
+			attachments: [],
+		},
 	]
 
 	const followUpPoints =

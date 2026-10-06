@@ -187,6 +187,7 @@ export const auditLogActionEnum = [
 	"review_activity_entra_change",
 	"review_activity_rpa_patched",
 	"review_activity_oracle_role_criticality_patched",
+	"review_activity_github_access_patched",
 	"review_activity_checklist_step_toggled",
 	"routine_checklist_step_created",
 	"routine_checklist_step_updated",

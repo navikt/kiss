@@ -5,6 +5,14 @@ export function compliancePercent(implemented: number, partial: number, total: n
 	return denominator > 0 ? Math.round(((implemented + partial * 0.5) / denominator) * 100) : 0
 }
 
+/** "Navn (Z990001)" når reelt navn finnes, ellers bare nav-identen. Delt formatering brukt av
+ *  `UserDisplayName` (UI) og PDF-rapportene (`github-access-pdf.server.ts`) — samme konvensjon
+ *  overalt hvor et nav-ident vises sammen med et oppslått visningsnavn. */
+export function formatUserDisplayName(navIdent: string, name: string | null | undefined): string {
+	const trimmedName = name?.trim()
+	return trimmedName ? `${trimmedName} (${navIdent})` : navIdent
+}
+
 /** Create a URL-friendly slug from Norwegian text. */
 export function slugify(text: string) {
 	return text

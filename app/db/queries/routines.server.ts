@@ -95,6 +95,7 @@ import { syncApplicationControls } from "./application-controls.server"
 import { writeAuditLog } from "./audit.server"
 import { getOracleInstancesForApp } from "./audit-evidence.server"
 import { getEvidenceDownloadsForActivities, getEvidenceDownloadsForActivity } from "./evidence-downloads.server"
+import { commitGithubAccessActivity, seedGithubAccessActivity } from "./github-access-activity.server"
 import {
 	getAppAuthIntegrations,
 	getExcludedEnvironments,
@@ -2141,6 +2142,14 @@ export async function completeReview(reviewId: string, performedBy: string) {
 		) {
 			await seedOracleRoleCriticalityActivity(activity.id, existing.applicationId, performedBy)
 		}
+		if (
+			activity.status === "pending" &&
+			activity.type === "github_access_maintenance" &&
+			existing.applicationId &&
+			!activity.stagedData
+		) {
+			await seedGithubAccessActivity(activity.id, performedBy)
+		}
 	}
 
 	// Atomisk: activity-complete + status UPDATE i samme tx.
@@ -2291,18 +2300,59 @@ export async function getRoutineArchivedStatusByReviewId(
  * til `needs_follow_up` (og motsatt: når alle punkter er adressert
  * triggers `recomputeReviewStatus` til `completed`).
  */
+/**
+ * Inserter selve oppfølgingspunkt-raden + audit-loggen på den oppgitte executoren, uten noen
+ * status-sjekk eller egen transaksjon. Brukes internt av `addFollowUpPoint` (som legger til
+ * status-vakten og sin egen transaksjon rundt dette) OG av aktivitets-commit-funksjoner (f.eks.
+ * `commitGithubAccessActivity`) som allerede kjører inne i en transaksjon der review-status er
+ * garantert `draft` (de kalles kun fra `completeReviewActivity`/`completeReview`, FØR review-status
+ * settes til completed/needs_follow_up).
+ */
+export async function addFollowUpPointRow(
+	tx: DbExecutor,
+	params: { reviewId: string; text: string; description?: string | null; performedBy: string },
+) {
+	const { reviewId, text, description, performedBy } = params
+	const trimmed = text.trim()
+	if (!trimmed) {
+		throw new Error("Oppfølgingspunkt kan ikke være tomt")
+	}
+	const trimmedDescription = description?.trim() || null
+
+	const [row] = await tx
+		.insert(routineReviewFollowUpPoints)
+		.values({
+			reviewId,
+			text: trimmed,
+			description: trimmedDescription,
+			status: "needs_follow_up",
+			createdBy: performedBy,
+			updatedBy: performedBy,
+		})
+		.returning()
+
+	await writeAuditLog(
+		{
+			action: "review_follow_up_added",
+			entityType: "review_follow_up_point",
+			entityId: row.id,
+			newValue: trimmed,
+			metadata: { reviewId },
+			performedBy,
+		},
+		tx,
+	)
+
+	return row
+}
+
 export async function addFollowUpPoint(params: {
 	reviewId: string
 	text: string
 	description?: string | null
 	performedBy: string
 }) {
-	const { reviewId, text, description, performedBy } = params
-	const trimmed = text.trim()
-	if (!trimmed) {
-		throw new Response("Oppfølgingspunkt kan ikke være tomt", { status: 400 })
-	}
-	const trimmedDescription = description?.trim() || null
+	const { reviewId } = params
 
 	const inserted = await db.transaction(async (tx) => {
 		const [snapshot] = await tx
@@ -2319,31 +2369,12 @@ export async function addFollowUpPoint(params: {
 			throw new Response("Oppfølgingspunkter kan bare legges til mens gjennomgangen er i utkast.", { status: 409 })
 		}
 
-		const [row] = await tx
-			.insert(routineReviewFollowUpPoints)
-			.values({
-				reviewId,
-				text: trimmed,
-				description: trimmedDescription,
-				status: "needs_follow_up",
-				createdBy: performedBy,
-				updatedBy: performedBy,
-			})
-			.returning()
-
-		await writeAuditLog(
-			{
-				action: "review_follow_up_added",
-				entityType: "review_follow_up_point",
-				entityId: row.id,
-				newValue: trimmed,
-				metadata: { reviewId },
-				performedBy,
-			},
-			tx,
-		)
-
-		return row
+		try {
+			return await addFollowUpPointRow(tx, params)
+		} catch (err) {
+			if (err instanceof Error) throw new Response(err.message, { status: 400 })
+			throw err
+		}
 	})
 
 	return inserted
@@ -6517,6 +6548,46 @@ export async function completeReviewActivity(
 		const result = await withAdvisoryLock(lockName, async () => {
 			const run = async (exec: DbExecutor) => {
 				const snapshot = await completeRpaReviewActivity(activityId, activity.reviewId, performedBy, exec)
+
+				const [updated] = await exec
+					.update(routineReviewActivities)
+					.set({ status: "completed", snapshotAfter: snapshot, completedAt: new Date() })
+					.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))
+					.returning()
+
+				if (!updated) {
+					throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+				}
+
+				await writeAuditLog(
+					{
+						action: "review_activity_completed",
+						entityType: "routine_review_activity",
+						entityId: activityId,
+						performedBy,
+					},
+					exec,
+				)
+
+				return updated
+			}
+
+			return tx ? run(tx) : db.transaction(run)
+		})
+
+		if (result === null) {
+			throw new Response("Gjennomgangen er låst av en annen operasjon. Prøv igjen.", { status: 409 })
+		}
+
+		return result
+	}
+
+	// Use the github_access_maintenance commit path for activities with an application.
+	if (activity.type === "github_access_maintenance" && activity.applicationId !== null) {
+		const lockName = `github_access_maintenance-activity-${activityId}`
+		const result = await withAdvisoryLock(lockName, async () => {
+			const run = async (exec: DbExecutor) => {
+				const snapshot = await commitGithubAccessActivity(activityId, activity.reviewId, performedBy, exec)
 
 				const [updated] = await exec
 					.update(routineReviewActivities)
