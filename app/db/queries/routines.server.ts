@@ -1,5 +1,9 @@
 import { and, desc, eq, inArray, isNotNull, isNull, ne, or, type SQL, sql } from "drizzle-orm"
-import { getEvidenceTypesForActivity, getProviderTypeForActivity } from "../../lib/activity-types"
+import {
+	activityRequiresApplication,
+	getEvidenceTypesForActivity,
+	getProviderTypeForActivity,
+} from "../../lib/activity-types"
 import {
 	applyEntraStagedDataPatch,
 	ENTRA_STAGED_DATA_ACTIVITY_TYPE,
@@ -1885,6 +1889,42 @@ export async function createReview(params: {
 			throw new Response("Kan ikke opprette gjennomgang for en rutine som ikke er godkjent", {
 				status: 400,
 			})
+
+		const activeLinks = await tx
+			.select({ activityType: routineActivityLinks.activityType })
+			.from(routineActivityLinks)
+			.where(and(eq(routineActivityLinks.routineId, params.routineId), isNull(routineActivityLinks.archivedAt)))
+		const activeLinkTypes = activeLinks.map((link) => link.activityType)
+
+		if (!params.applicationId) {
+			if (activeLinkTypes.some(activityRequiresApplication))
+				throw new Response("Denne rutinen krever at en applikasjon velges", { status: 400 })
+		} else {
+			const exclusiveTypes = activeLinkTypes.filter((t) => CROSS_ROUTINE_EXCLUSIVE_ACTIVITY_TYPES.includes(t))
+			if (exclusiveTypes.length > 0) {
+				await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`cross-routine-review-${params.applicationId}`}))`)
+				const [crossRoutineConflict] = await tx
+					.select({ reviewId: routineReviews.id })
+					.from(routineReviews)
+					.innerJoin(routines, eq(routines.id, routineReviews.routineId))
+					.innerJoin(
+						routineActivityLinks,
+						and(eq(routineActivityLinks.routineId, routines.id), isNull(routineActivityLinks.archivedAt)),
+					)
+					.where(
+						and(
+							eq(routineReviews.applicationId, params.applicationId),
+							inArray(routineReviews.status, ["draft", "needs_follow_up"] as ReviewStatus[]),
+							inArray(routineActivityLinks.activityType, exclusiveTypes),
+						),
+					)
+					.limit(1)
+				if (crossRoutineConflict)
+					throw new Response("Det finnes allerede en aktiv gjennomgang med denne aktivitetstypen for applikasjonen", {
+						status: 409,
+					})
+			}
+		}
 
 		const [review] = await tx
 			.insert(routineReviews)
@@ -8167,16 +8207,20 @@ export async function findActiveReviewConflict(
 
 	const [crossRoutineConflict] = await db
 		.select({
-			activityType: routineReviewActivities.type,
+			activityType: routineActivityLinks.activityType,
 			reviewId: routineReviews.id,
 		})
 		.from(routineReviews)
-		.innerJoin(routineReviewActivities, eq(routineReviewActivities.reviewId, routineReviews.id))
+		.innerJoin(routines, eq(routines.id, routineReviews.routineId))
+		.innerJoin(
+			routineActivityLinks,
+			and(eq(routineActivityLinks.routineId, routines.id), isNull(routineActivityLinks.archivedAt)),
+		)
 		.where(
 			and(
 				appFilter,
 				inArray(routineReviews.status, ["draft", "needs_follow_up"] as ReviewStatus[]),
-				inArray(routineReviewActivities.type, exclusiveTypes),
+				inArray(routineActivityLinks.activityType, exclusiveTypes),
 			),
 		)
 		.limit(1)

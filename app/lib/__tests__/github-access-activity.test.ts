@@ -3,6 +3,7 @@ import { applyGithubAccessStagedDataPatch, parseGithubAccessStagedData } from "~
 
 const mocks = vi.hoisted(() => ({
 	select: vi.fn(),
+	execute: vi.fn(),
 	updateValues: vi.fn(),
 	insertValues: vi.fn(),
 	audit: vi.fn(),
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("~/db/connection.server", () => {
 	const executor = {
 		select: mocks.select,
+		execute: mocks.execute,
 		update: () => ({
 			set: (values: unknown) => {
 				mocks.updateValues(values)
@@ -104,6 +106,8 @@ describe("github access activity", () => {
 		vi.clearAllMocks()
 		mocks.select.mockReset()
 		mocks.select.mockReturnValue(selectResult([]))
+		mocks.execute.mockReset()
+		mocks.execute.mockResolvedValue({ rows: [{ teams: [], members: [], collaborators: [], assessments: [] }] })
 	})
 
 	function mockPatchData(stagedData: unknown, latestStagedData = stagedData) {
@@ -169,14 +173,17 @@ describe("github access activity", () => {
 	})
 
 	it("seeds subjects without any legacy justification fields", async () => {
-		for (const rows of [
-			[{ gitRepository: "navikt/kiss" }],
-			[],
-			[{ username: "glad-fjord", permission: "admin", syncedAt: new Date(timestamp) }],
-			[{ username: "glad-fjord", lastKnownPermission: "admin" }],
-		]) {
-			mocks.select.mockReturnValueOnce(selectResult(rows))
-		}
+		mocks.select.mockReturnValueOnce(selectResult([{ gitRepository: "navikt/kiss" }]))
+		mocks.execute.mockResolvedValueOnce({
+			rows: [
+				{
+					teams: [],
+					members: [],
+					collaborators: [{ username: "glad-fjord", permission: "admin", syncedAt: timestamp }],
+					assessments: [{ username: "glad-fjord", lastKnownPermission: "admin" }],
+				},
+			],
+		})
 		const { stagedData } = await buildGithubAccessSeedResult("app-1")
 		expect(stagedData).toMatchObject({ confirmedBy: null, confirmedAt: null })
 		expect(stagedData.subjects[0]).not.toHaveProperty("businessJustification")

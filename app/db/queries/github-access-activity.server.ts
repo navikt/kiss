@@ -21,12 +21,7 @@ import { sanitizeFilename } from "~/lib/sanitize-filename"
 import { getStorageProvider } from "~/lib/storage/index.server"
 import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
-import {
-	githubAccessAssessments,
-	githubRepoCollaborators,
-	githubRepoTeamMembers,
-	githubRepoTeams,
-} from "../schema/github-access"
+import { githubAccessAssessments } from "../schema/github-access"
 import {
 	routineReviewActivities,
 	routineReviewAttachments,
@@ -50,30 +45,62 @@ export async function buildGithubAccessSeedResult(
 		throw new Response("Applikasjonen mangler et konfigurert Github-repo", { status: 400 })
 	}
 
-	const [teamMemberRows, collaboratorRows, assessmentRows] = await Promise.all([
-		executor
-			.select({
-				teamId: githubRepoTeams.id,
-				teamSlug: githubRepoTeams.teamSlug,
-				teamName: githubRepoTeams.teamName,
-				permission: githubRepoTeams.permission,
-				syncedAt: githubRepoTeams.syncedAt,
-				memberUsername: githubRepoTeamMembers.username,
-				memberRole: githubRepoTeamMembers.role,
-				memberSyncedAt: githubRepoTeamMembers.syncedAt,
-			})
-			.from(githubRepoTeams)
-			.leftJoin(githubRepoTeamMembers, eq(githubRepoTeamMembers.repoTeamId, githubRepoTeams.id))
-			.where(eq(githubRepoTeams.applicationId, applicationId)),
-		executor.select().from(githubRepoCollaborators).where(eq(githubRepoCollaborators.applicationId, applicationId)),
-		executor
-			.select({
-				username: githubAccessAssessments.username,
-				lastKnownPermission: githubAccessAssessments.lastKnownPermission,
-			})
-			.from(githubAccessAssessments)
-			.where(and(eq(githubAccessAssessments.applicationId, applicationId), isNull(githubAccessAssessments.archivedAt))),
-	])
+	const seedInputs = await executor.execute(sql`
+SELECT
+  (SELECT COALESCE(json_agg(json_build_object(
+      'id', t.id, 'teamSlug', t.team_slug, 'teamName', t.team_name,
+      'permission', t.permission, 'syncedAt', t.synced_at
+    )), '[]'::json)
+   FROM github_repo_teams t WHERE t.application_id = ${applicationId}) AS teams,
+  (SELECT COALESCE(json_agg(json_build_object(
+      'repoTeamId', tm.repo_team_id, 'username', tm.username, 'role', tm.role, 'syncedAt', tm.synced_at
+    )), '[]'::json)
+   FROM github_repo_team_members tm
+   JOIN github_repo_teams t2 ON tm.repo_team_id = t2.id
+   WHERE t2.application_id = ${applicationId}) AS members,
+  (SELECT COALESCE(json_agg(json_build_object(
+      'username', c.username, 'permission', c.permission, 'syncedAt', c.synced_at
+    )), '[]'::json)
+   FROM github_repo_collaborators c WHERE c.application_id = ${applicationId}) AS collaborators,
+  (SELECT COALESCE(json_agg(json_build_object(
+      'username', a.username, 'lastKnownPermission', a.last_known_permission
+    )), '[]'::json)
+   FROM github_access_assessments a
+   WHERE a.application_id = ${applicationId} AND a.archived_at IS NULL) AS assessments
+`)
+
+	const seedRow = seedInputs.rows[0] as {
+		teams: Array<{ id: string; teamSlug: string; teamName: string; permission: string; syncedAt: string }>
+		members: Array<{ repoTeamId: string; username: string; role: string; syncedAt: string }>
+		collaborators: Array<{ username: string; permission: string; syncedAt: string }>
+		assessments: Array<{ username: string; lastKnownPermission: string | null }>
+	}
+
+	const membersByRepoTeamId = new Map<string, Array<{ username: string; role: string; syncedAt: string }>>()
+	for (const member of seedRow.members) {
+		const list = membersByRepoTeamId.get(member.repoTeamId) ?? []
+		list.push(member)
+		membersByRepoTeamId.set(member.repoTeamId, list)
+	}
+	const teamMemberRows = seedRow.teams.flatMap((team) => {
+		const members = membersByRepoTeamId.get(team.id) ?? [null]
+		return members.map((member) => ({
+			teamId: team.id,
+			teamSlug: team.teamSlug,
+			teamName: team.teamName,
+			permission: team.permission,
+			syncedAt: new Date(team.syncedAt),
+			memberUsername: member?.username ?? null,
+			memberRole: member?.role ?? null,
+			memberSyncedAt: member ? new Date(member.syncedAt) : null,
+		}))
+	})
+	const collaboratorRows = seedRow.collaborators.map((c) => ({
+		username: c.username,
+		permission: c.permission,
+		syncedAt: new Date(c.syncedAt),
+	}))
+	const assessmentRows = seedRow.assessments
 
 	const teamsById = new Map<string, { teamSlug: string; teamName: string; permission: string; syncedAt: Date }>()
 	const membersByTeamId = new Map<string, Array<{ username: string; role: string }>>()
@@ -362,8 +389,10 @@ export async function patchGithubAccessActivity(
 			}
 
 			if (hasChanged) {
-				const username = "username" in patch ? patch.username : null
-				const patchedSubject = username ? updatedData.subjects.find((s) => s.username === username) : null
+				const username = "username" in patch ? normalizeGithubUsername(patch.username) : null
+				const patchedSubject = username
+					? updatedData.subjects.find((s) => normalizeGithubUsername(s.username) === username)
+					: null
 
 				await writeAuditLog(
 					{
@@ -551,22 +580,20 @@ export async function commitGithubAccessActivity(
 		}
 	}
 
+	const existingAssessments = await executor
+		.select({
+			id: githubAccessAssessments.id,
+			username: githubAccessAssessments.username,
+			lastKnownPermission: githubAccessAssessments.lastKnownPermission,
+			archivedAt: githubAccessAssessments.archivedAt,
+		})
+		.from(githubAccessAssessments)
+		.where(eq(githubAccessAssessments.applicationId, activity.applicationId))
+	const existingAssessmentByUsername = new Map(existingAssessments.map((a) => [normalizeGithubUsername(a.username), a]))
+
 	for (const subject of stagedData.subjects) {
 		const username = normalizeGithubUsername(subject.username)
-		const [existing] = await executor
-			.select({
-				id: githubAccessAssessments.id,
-				lastKnownPermission: githubAccessAssessments.lastKnownPermission,
-				archivedAt: githubAccessAssessments.archivedAt,
-			})
-			.from(githubAccessAssessments)
-			.where(
-				and(
-					eq(githubAccessAssessments.applicationId, activity.applicationId),
-					eq(githubAccessAssessments.username, username),
-				),
-			)
-			.limit(1)
+		const existing = existingAssessmentByUsername.get(username) ?? null
 		const previousValue = existing
 			? JSON.stringify({ username, lastKnownPermission: existing.lastKnownPermission, archivedAt: existing.archivedAt })
 			: null

@@ -128,3 +128,16 @@ export function getEvidenceTypesForActivity(activityType: string): string[] | nu
 	if (isDeploymentEvidenceActivityType(activityType)) return deploymentEvidenceTypesForActivity[activityType]
 	return null
 }
+
+/**
+ * Activity types that are inherently tied to a single application (their staged/persisted data
+ * is keyed by applicationId) and therefore cannot be used in a "Generell" (section-wide, no
+ * application) review.
+ */
+export const APPLICATION_REQUIRED_ACTIVITY_TYPES: RoutineActivityType[] = ["github_access_maintenance"]
+
+export function activityRequiresApplication(activityType: RoutineActivityType): boolean {
+	return (
+		APPLICATION_REQUIRED_ACTIVITY_TYPES.includes(activityType) || getProviderTypeForActivity(activityType) === "oracle"
+	)
+}
