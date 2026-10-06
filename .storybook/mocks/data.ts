@@ -1525,6 +1525,7 @@ export function mockNyGjennomgangData(overrides?: { isSectionRoutine?: boolean; 
 					{ id: "app-3", name: "pensjon-selvbetjening" },
 				],
 		loaderConflictError: overrides?.loaderConflictError ?? null,
+		currentUser: { navIdent: "Z990001", name: "Glad Fjord" },
 	}
 }
 
