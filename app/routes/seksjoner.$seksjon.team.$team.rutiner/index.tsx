@@ -88,6 +88,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 			sectionSlug: seksjon,
 			applicationId: (formData.get("applicationId") as string | null) || null,
 			navIdent: authedUser.navIdent,
+			userName: authedUser.name,
 		})
 		if (!result.ok) {
 			return data({ success: false, error: result.error, intent: "create-draft" }, { status: result.status })
