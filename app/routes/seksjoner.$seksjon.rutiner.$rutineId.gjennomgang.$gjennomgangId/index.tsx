@@ -52,6 +52,7 @@ import { renderMarkdown } from "~/lib/markdown.server"
 import { lookupGitHubUsers } from "~/lib/nda-github-users.server"
 import { parseOracleRoleCriticalitySnapshot, parseOracleRoleCriticalityStagedData } from "~/lib/oracle-role-staged-data"
 import { parseParticipantsFormValue } from "~/lib/participants"
+import { getDateOnlyOslo } from "~/lib/utils"
 import type { Route } from "./+types/index"
 import { EntraMaintenanceSection, type EntraStagedGroupsProp } from "./components/activities/EntraMaintenanceSection"
 import {
@@ -1407,7 +1408,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 					op: "mark-for-removal",
 					username,
 					markedBy: authedUser.navIdent,
-					markedAt: new Date().toISOString().slice(0, 10),
+					markedAt: getDateOnlyOslo(),
 				},
 				authedUser.navIdent,
 			)
@@ -1488,7 +1489,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 					username,
 					targetPermission,
 					markedBy: authedUser.navIdent,
-					markedAt: new Date().toISOString().slice(0, 10),
+					markedAt: getDateOnlyOslo(),
 				},
 				authedUser.navIdent,
 			)

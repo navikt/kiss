@@ -31,6 +31,7 @@ import {
 	toOracleRoleCriticalitySnapshot,
 } from "../../lib/oracle-role-staged-data"
 import { frequencyDays, type RoutineFrequency } from "../../lib/routine-frequencies"
+import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
 import { applicationControls } from "../schema/application-controls"
 import {
@@ -2155,54 +2156,69 @@ export async function completeReview(reviewId: string, performedBy: string) {
 	// Atomisk: activity-complete + status UPDATE i samme tx.
 	// Audit + compliance-sync hopper over
 	// hvis status-UPDATE matchet 0 rader (samtidig completion-race).
-	const result = await db.transaction(async (tx) => {
-		// Fullfør alle ventende aktiviteter innenfor tx slik at de rolles
-		// tilbake ved transaksjonsfeil (f.eks. statusvakt i UPDATE matchet 0 rader).
-		for (const activity of allActivities) {
-			if (activity.status === "pending") {
-				await completeReviewActivity(activity.id, null, performedBy, tx)
+	// Github-aktiviteter laster opp et PDF-revisjonsbevis til ekstern storage FØR attachment-raden
+	// settes inn i denne delte transaksjonen — et rollback her (f.eks. fordi en SENERE aktivitet i
+	// loopen feiler) ruller tilbake attachment-raden, men ikke selve den opplastede filen. Spor
+	// opplastede stier slik at de kan ryddes opp eksplisitt hvis transaksjonen feiler.
+	const uploadedGithubPdfPaths: string[] = []
+	let result: { statusChanged: boolean; newStatus: "completed" | "needs_follow_up" }
+	try {
+		result = await db.transaction(async (tx) => {
+			// Fullfør alle ventende aktiviteter innenfor tx slik at de rolles
+			// tilbake ved transaksjonsfeil (f.eks. statusvakt i UPDATE matchet 0 rader).
+			for (const activity of allActivities) {
+				if (activity.status === "pending") {
+					await completeReviewActivity(activity.id, null, performedBy, tx, uploadedGithubPdfPaths)
+				}
 			}
-		}
 
-		// Hvis det finnes uadresserte oppfølgingspunkter blir status
-		// `needs_follow_up` heller enn `completed`. Når alle punktene
-		// senere markeres som fullført/ikke relevant flyttes status til
-		// `completed` av `updateFollowUpPointStatus`, som re-evaluerer
-		// gjennomgangsstatusen basert på gjenværende uadresserte punkter.
-		const unresolvedFollowUps = await tx
-			.select({ id: routineReviewFollowUpPoints.id })
-			.from(routineReviewFollowUpPoints)
-			.where(
-				and(
-					eq(routineReviewFollowUpPoints.reviewId, reviewId),
-					eq(routineReviewFollowUpPoints.status, "needs_follow_up"),
-				),
+			// Hvis det finnes uadresserte oppfølgingspunkter blir status
+			// `needs_follow_up` heller enn `completed`. Når alle punktene
+			// senere markeres som fullført/ikke relevant flyttes status til
+			// `completed` av `updateFollowUpPointStatus`, som re-evaluerer
+			// gjennomgangsstatusen basert på gjenværende uadresserte punkter.
+			const unresolvedFollowUps = await tx
+				.select({ id: routineReviewFollowUpPoints.id })
+				.from(routineReviewFollowUpPoints)
+				.where(
+					and(
+						eq(routineReviewFollowUpPoints.reviewId, reviewId),
+						eq(routineReviewFollowUpPoints.status, "needs_follow_up"),
+					),
+				)
+				.limit(1)
+			const newStatus: "completed" | "needs_follow_up" =
+				unresolvedFollowUps.length > 0 ? "needs_follow_up" : "completed"
+
+			const updated = await tx
+				.update(routineReviews)
+				.set({ status: newStatus })
+				.where(and(eq(routineReviews.id, reviewId), eq(routineReviews.status, "draft")))
+				.returning({ id: routineReviews.id })
+
+			// Status endret seg mellom pre-check og UPDATE (samtidig completeReview)
+			// → hopp over audit; en annen request har allerede skrevet completion.
+			if (updated.length === 0) return { statusChanged: false, newStatus }
+
+			await writeAuditLog(
+				{
+					action: "routine_review_completed",
+					entityType: "routine_review",
+					entityId: reviewId,
+					newValue: newStatus,
+					performedBy,
+				},
+				tx,
 			)
-			.limit(1)
-		const newStatus: "completed" | "needs_follow_up" = unresolvedFollowUps.length > 0 ? "needs_follow_up" : "completed"
-
-		const updated = await tx
-			.update(routineReviews)
-			.set({ status: newStatus })
-			.where(and(eq(routineReviews.id, reviewId), eq(routineReviews.status, "draft")))
-			.returning({ id: routineReviews.id })
-
-		// Status endret seg mellom pre-check og UPDATE (samtidig completeReview)
-		// → hopp over audit; en annen request har allerede skrevet completion.
-		if (updated.length === 0) return { statusChanged: false, newStatus }
-
-		await writeAuditLog(
-			{
-				action: "routine_review_completed",
-				entityType: "routine_review",
-				entityId: reviewId,
-				newValue: newStatus,
-				performedBy,
-			},
-			tx,
-		)
-		return { statusChanged: true, newStatus }
-	})
+			return { statusChanged: true, newStatus }
+		})
+	} catch (err) {
+		if (uploadedGithubPdfPaths.length > 0) {
+			const storage = getStorageProvider()
+			await Promise.all(uploadedGithubPdfPaths.map((path) => storage.delete(path).catch(() => {})))
+		}
+		throw err
+	}
 
 	// Sync materialiserte compliance-kontroller — utenfor tx fordi det er
 	// en stor batch-operasjon. Kjør kun hvis review faktisk ble `completed`
@@ -2369,12 +2385,10 @@ export async function addFollowUpPoint(params: {
 			throw new Response("Oppfølgingspunkter kan bare legges til mens gjennomgangen er i utkast.", { status: 409 })
 		}
 
-		try {
-			return await addFollowUpPointRow(tx, params)
-		} catch (err) {
-			if (err instanceof Error) throw new Response(err.message, { status: 400 })
-			throw err
+		if (!params.text.trim()) {
+			throw new Response("Oppfølgingspunkt kan ikke være tomt", { status: 400 })
 		}
+		return await addFollowUpPointRow(tx, params)
 	})
 
 	return inserted
@@ -6456,6 +6470,10 @@ export async function completeReviewActivity(
 	snapshotAfter: EntraGroupSnapshot | null,
 	performedBy: string,
 	tx?: DbExecutor,
+	/** Callers running multiple activities in one shared transaction (`completeReview()`) pass an
+	 *  array here to track any GitHub PDF paths uploaded to storage, so they can be deleted if a
+	 *  LATER activity in the same transaction fails and rolls back this activity's attachment row. */
+	uploadedPaths?: string[],
 ) {
 	const [activity] = await (tx ?? db)
 		.select({
@@ -6582,12 +6600,16 @@ export async function completeReviewActivity(
 		return result
 	}
 
-	// Use the github_access_maintenance commit path for activities with an application.
-	if (activity.type === "github_access_maintenance" && activity.applicationId !== null) {
+	// Use the github_access_maintenance commit path regardless of applicationId — the
+	// missing-application guard inside commitGithubAccessActivity must reject completion
+	// rather than letting a Generell-review activity silently fall through to runGeneric.
+	if (activity.type === "github_access_maintenance") {
 		const lockName = `github_access_maintenance-activity-${activityId}`
 		const result = await withAdvisoryLock(lockName, async () => {
 			const run = async (exec: DbExecutor) => {
-				const snapshot = await commitGithubAccessActivity(activityId, activity.reviewId, performedBy, exec)
+				const snapshot = await commitGithubAccessActivity(activityId, activity.reviewId, performedBy, exec, (path) =>
+					uploadedPaths?.push(path),
+				)
 
 				const [updated] = await exec
 					.update(routineReviewActivities)

@@ -32,6 +32,7 @@ import {
 	routineReviewAttachments,
 	routineReviewParticipants,
 	routineReviews,
+	routines,
 } from "../schema/routines"
 import type { DbExecutor } from "./audit.server"
 import { writeAuditLog } from "./audit.server"
@@ -74,7 +75,7 @@ export async function buildGithubAccessSeedResult(
 				lastKnownPermission: githubAccessAssessments.lastKnownPermission,
 			})
 			.from(githubAccessAssessments)
-			.where(eq(githubAccessAssessments.applicationId, applicationId)),
+			.where(and(eq(githubAccessAssessments.applicationId, applicationId), isNull(githubAccessAssessments.archivedAt))),
 	])
 
 	const membersByTeamId = new Map<string, Array<{ username: string; role: string }>>()
@@ -264,15 +265,20 @@ export async function patchGithubAccessActivity(
 			stagedData: routineReviewActivities.stagedData,
 			applicationId: routineReviews.applicationId,
 			reviewStatus: routineReviews.status,
+			routineArchivedAt: routines.archivedAt,
 		})
 		.from(routineReviewActivities)
 		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
+		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 		.where(eq(routineReviewActivities.id, activityId))
 		.limit(1)
 
 	if (!precheck) throw new Error(`Fant ikke review-aktivitet ${activityId}`)
 	if (precheck.type !== "github_access_maintenance") {
 		throw new Error(`Aktivitet ${activityId} er ikke Github-tilgangsgjennomgang`)
+	}
+	if (precheck.routineArchivedAt) {
+		throw new Response("Kan ikke endre vurderinger på en arkivert rutine.", { status: 403 })
 	}
 	if (precheck.reviewStatus !== "draft") throw new Response("Gjennomgangen er ikke lenger redigerbar.", { status: 409 })
 	if (precheck.status !== "pending") throw new Response("Kan ikke endre en fullført aktivitet", { status: 409 })
@@ -402,7 +408,11 @@ const REMOVAL_FOLLOW_UP_GUIDANCE =
  * "Fullfør gjennomgang" button), the upload does happen while that transaction is open — accepted
  * here as a pragmatic tradeoff since the PDF is small and the upload is a single fast HTTP call,
  * unlike Entra/RPA's potentially large external API calls which are pre-seeded outside the tx.
- * If the subsequent attachment-row insert fails, the uploaded object is deleted.
+ * If the subsequent attachment-row insert fails, the uploaded object is deleted immediately.
+ * If a LATER activity in the same shared transaction (`completeReview()`) fails and rolls back
+ * this attachment insert too, that alone can't clean up the already-uploaded file — callers that
+ * run multiple activities in one transaction must track `onUploaded` paths themselves and delete
+ * them on rollback (see `completeReview()`).
  *
  * Must be called from within an advisory lock (see completeReviewActivity's github branch).
  */
@@ -411,6 +421,7 @@ export async function commitGithubAccessActivity(
 	reviewId: string,
 	performedBy: string,
 	executor: DbExecutor,
+	onUploaded?: (path: string) => void,
 ): Promise<GithubAccessSnapshot> {
 	const [activity] = await executor
 		.select({
@@ -506,6 +517,10 @@ export async function commitGithubAccessActivity(
 	const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
 	const bucketPath = `github-access-review/${activityId}/${timestamp}-${safeRepo}.pdf`
 	const uploadResult = await storage.upload(bucketPath, pdfBuffer, { contentType: "application/pdf" })
+	// Report the uploaded path immediately so a caller running multiple activities in one shared
+	// transaction (completeReview()) can clean it up if a LATER activity fails and rolls back this
+	// attachment insert too — the try/catch below only covers failures from this call onwards.
+	onUploaded?.(uploadResult.path)
 
 	try {
 		const [attachment] = await executor
@@ -558,7 +573,7 @@ export async function commitGithubAccessActivity(
 			await addFollowUpPointRow(executor, {
 				reviewId,
 				text: `Juster GitHub-tilgang for @${subject.username} fra "${subject.highestPermission}" til "${subject.targetPermission}"`,
-				description: null,
+				description: `Juster GitHub-tilgangsnivået for @${subject.username} fra "${subject.highestPermission}" til "${subject.targetPermission}" i repoet. KISS bekrefter ikke endringen mot GitHub — merk punktet som fullført når justeringen er gjennomført.`,
 				performedBy,
 			})
 		}
@@ -567,8 +582,35 @@ export async function commitGithubAccessActivity(
 	// Husk hvilke brukernavn som hadde tilgang i DENNE runden, slik at neste runde kan beregne
 	// isNew/isGone riktig — se JSDoc på githubAccessAssessments. Ingen vurderingstekst lagres lenger.
 	for (const subject of stagedData.subjects) {
-		if (subject.isGone) continue
-		await executor
+		if (subject.isGone) {
+			// Arkiver baseline-raden slik at personen kun vises som «fjernet siden forrige
+			// gjennomgang» i DENNE aktiviteten, ikke i alle fremtidige runder.
+			const [archived] = await executor
+				.update(githubAccessAssessments)
+				.set({ archivedAt: new Date(), archivedBy: performedBy, updatedBy: performedBy, updatedAt: new Date() })
+				.where(
+					and(
+						eq(githubAccessAssessments.applicationId, activity.applicationId),
+						eq(githubAccessAssessments.username, subject.username),
+					),
+				)
+				.returning({ id: githubAccessAssessments.id })
+			if (archived) {
+				await writeAuditLog(
+					{
+						action: "github_access_assessment_saved",
+						entityType: "github_access_assessment",
+						entityId: archived.id,
+						newValue: JSON.stringify({ username: subject.username, archived: true }),
+						metadata: { applicationId: activity.applicationId, reviewId, activityId },
+						performedBy,
+					},
+					executor,
+				)
+			}
+			continue
+		}
+		const [upserted] = await executor
 			.insert(githubAccessAssessments)
 			.values({
 				applicationId: activity.applicationId,
@@ -581,10 +623,26 @@ export async function commitGithubAccessActivity(
 				target: [githubAccessAssessments.applicationId, githubAccessAssessments.username],
 				set: {
 					lastKnownPermission: subject.highestPermission,
+					// Reaktiver raden hvis personen hadde mistet og nå har fått tilgangen igjen
+					// (den unike nøkkelen tillater kun én rad per person, så vi gjenbruker den).
+					archivedAt: null,
+					archivedBy: null,
 					updatedBy: performedBy,
 					updatedAt: new Date(),
 				},
 			})
+			.returning({ id: githubAccessAssessments.id })
+		await writeAuditLog(
+			{
+				action: "github_access_assessment_saved",
+				entityType: "github_access_assessment",
+				entityId: upserted.id,
+				newValue: JSON.stringify({ username: subject.username, lastKnownPermission: subject.highestPermission }),
+				metadata: { applicationId: activity.applicationId, reviewId, activityId },
+				performedBy,
+			},
+			executor,
+		)
 	}
 
 	return toGithubAccessSnapshot(stagedData)

@@ -50,7 +50,8 @@ export function buildGithubAccessReviewPdf(
 		doc.on("error", reject)
 
 		const generatedAt = params.generatedAt ?? new Date()
-		const dateOnly = (d: Date) => d.toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })
+		const dateOnly = (d: Date) =>
+			d.toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Oslo" })
 		const githubUserLookups =
 			params.githubUserLookups ?? new Map<string, { displayName: string | null; navIdent: string | null }>()
 		const userLabel = (username: string) => {

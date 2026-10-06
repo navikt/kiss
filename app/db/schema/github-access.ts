@@ -71,9 +71,13 @@ export const githubRepoCollaborators = pgTable(
  * beregne `isNew`/`isGone` ved seeding av neste runde — lagrer ikke lenger begrunnelse eller
  * andre vurderinger (gjennomgangen bekreftes nå samlet, se `confirmedAt` i staged_data).
  *
- * Rader for personer som ikke lenger har tilgang beholdes (vises som «fjernet siden forrige
- * gjennomgang» i aktiviteten) inntil de eventuelt fjernes manuelt — dette gir sporbarhet på
- * hvem som tidligere hadde tilgang.
+ * Rader for personer som ikke lenger har tilgang arkiveres (`archivedAt`) ved commit av
+ * aktiviteten der de først oppdages som borte — de vises som «fjernet siden forrige
+ * gjennomgang» KUN i den ene aktiviteten, ikke i alle påfølgende runder. Dette gir sporbarhet
+ * på hvem som tidligere hadde tilgang uten å forurense senere rundes isNew/isGone-beregning.
+ * Returnerer tilgangen personen igjen, reaktiveres samme rad (archivedAt settes til null) i
+ * stedet for å opprette en ny — den unike nøkkelen (applicationId, username) tillater kun én
+ * rad per person uansett.
  */
 export const githubAccessAssessments = pgTable(
 	"github_access_assessments",
@@ -85,6 +89,8 @@ export const githubAccessAssessments = pgTable(
 		username: text("username").notNull(),
 		/** Siste kjente tilgangsnivå — brukes til å vise «siste kjente tilgang» etter at personen er fjernet. */
 		lastKnownPermission: text("last_known_permission"),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 		createdBy: text("created_by").notNull(),
 		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

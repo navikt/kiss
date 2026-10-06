@@ -275,6 +275,7 @@ export const auditLogActionEnum = [
 	"github_access_team_member_added",
 	"github_access_team_member_removed",
 	"github_access_team_member_role_changed",
+	"github_access_assessment_saved",
 	// RPA-brukervurderinger
 	"rpa_user_assessment_saved",
 ] as const

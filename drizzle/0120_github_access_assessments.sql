@@ -3,6 +3,8 @@ CREATE TABLE IF NOT EXISTS github_access_assessments (
 	application_id UUID NOT NULL REFERENCES monitored_applications(id) ON DELETE RESTRICT,
 	username TEXT NOT NULL,
 	last_known_permission TEXT,
+	archived_at TIMESTAMP WITH TIME ZONE,
+	archived_by TEXT,
 	created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
 	created_by TEXT NOT NULL,
 	updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),

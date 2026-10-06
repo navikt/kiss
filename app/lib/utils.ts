@@ -52,3 +52,20 @@ export function formatDateTimeOslo(value: string | Date): string {
 		timeZone: "Europe/Oslo",
 	})
 }
+
+/**
+ * Dagens dato (YYYY-MM-DD) i Europe/Oslo-tidssone — IKKE `new Date().toISOString().slice(0, 10)`,
+ * som bruker UTC og dermed kan registrere "i går" for handlinger rett etter midnatt norsk tid.
+ */
+export function getDateOnlyOslo(date: Date = new Date()): string {
+	const parts = new Intl.DateTimeFormat("sv-SE", {
+		timeZone: "Europe/Oslo",
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+	}).formatToParts(date)
+	const year = parts.find((p) => p.type === "year")?.value
+	const month = parts.find((p) => p.type === "month")?.value
+	const day = parts.find((p) => p.type === "day")?.value
+	return `${year}-${month}-${day}`
+}

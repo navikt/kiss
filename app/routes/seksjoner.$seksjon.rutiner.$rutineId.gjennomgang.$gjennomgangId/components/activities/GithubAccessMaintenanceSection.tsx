@@ -1,6 +1,7 @@
 import { CheckmarkCircleIcon, MenuElipsisVerticalIcon, PencilIcon, XMarkOctagonIcon } from "@navikt/aksel-icons"
 import {
 	ActionMenu,
+	Alert,
 	BodyShort,
 	Box,
 	Button,
@@ -20,7 +21,7 @@ import type { GithubAccessSubject } from "~/lib/github-access-staged-data"
 import { githubAccessPermissionValues } from "~/lib/github-access-staged-data"
 import { githubProfileUrl } from "~/lib/github-user-access"
 import { formatDateTimeOslo } from "~/lib/utils"
-import type { ActivityProp } from "../shared"
+import type { ActionResult, ActivityProp } from "../shared"
 
 /** GithubAccessSubject beriket med visningsnavn/nav-ident fra NDAs Github-brukeroppslag
  *  (loader-only enrichment — lagres ikke i staged_data, se index.tsx). */
@@ -285,7 +286,7 @@ export function GithubAccessMaintenanceSection({
 	confirmedByName?: string | null
 	isDraft: boolean
 }) {
-	const reviewFetcher = useFetcher()
+	const reviewFetcher = useFetcher<ActionResult>()
 	const isPending = activity.status === "pending"
 	const canEdit = isDraft && isPending
 
@@ -322,6 +323,12 @@ export function GithubAccessMaintenanceSection({
 					Repo: <span style={{ fontFamily: "monospace" }}>{gitRepository}</span>
 				</Detail>
 			</HStack>
+
+			{reviewFetcher.data?.success === false && (
+				<Alert variant="error" size="small">
+					{reviewFetcher.data.error ?? "Noe gikk galt. Prøv igjen."}
+				</Alert>
+			)}
 
 			{(isPending ? confirmedAt !== null : true) && (
 				<HStack gap="space-4" align="center">

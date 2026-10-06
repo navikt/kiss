@@ -5,7 +5,7 @@ import { getReviewActivityByType, getReviewScope } from "~/db/queries/routines.s
 import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import { routineReviewParticipants } from "~/db/schema/routines"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireReviewAccess } from "~/lib/authorization.server"
+import { requireReviewReadAccess } from "~/lib/authorization.server"
 import { buildGithubAccessReviewPdf } from "~/lib/github-access-pdf.server"
 import { parseGithubAccessStagedData } from "~/lib/github-access-staged-data"
 import { logger } from "~/lib/logger.server"
@@ -28,7 +28,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 	const scope = await getReviewScope(gjennomgangId)
 	if (!scope) throw new Response("Fant ikke gjennomgang", { status: 404 })
-	await requireReviewAccess(authedUser, scope)
+	await requireReviewReadAccess(authedUser, scope)
 	if (!scope.applicationId) throw new Response("Gjennomgangen mangler applikasjon", { status: 400 })
 
 	const activity = await getReviewActivityByType(gjennomgangId, "github_access_maintenance")

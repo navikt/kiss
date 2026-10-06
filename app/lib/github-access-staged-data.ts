@@ -140,7 +140,7 @@ const githubAccessSubjectSchema = z
 		removalMarkedBy: z.string().min(1).nullable(),
 		removalMarkedAt: dateOnlySchema,
 		permissionAdjustmentRequested: z.boolean(),
-		targetPermission: z.string().min(1).nullable(),
+		targetPermission: z.enum(githubAccessPermissionValues).nullable(),
 		permissionAdjustmentMarkedBy: z.string().min(1).nullable(),
 		permissionAdjustmentMarkedAt: dateOnlySchema,
 	})
@@ -265,7 +265,9 @@ export function applyGithubAccessStagedDataPatch(
 			removalMarkedBy: null,
 			removalMarkedAt: null,
 		}
-		return parseGithubAccessStagedData({ ...parsed, subjects })
+		// Angring etter at listen er bekreftet gjenåpner personen for aktiv tilgang uten at
+		// reviewer har sett denne konkrete tilstanden — krev ny bekreftelse av hele listen.
+		return parseGithubAccessStagedData({ ...parsed, subjects, confirmedBy: null, confirmedAt: null })
 	}
 
 	if (patch.op === "mark-for-adjustment") {
@@ -294,7 +296,9 @@ export function applyGithubAccessStagedDataPatch(
 			permissionAdjustmentMarkedBy: null,
 			permissionAdjustmentMarkedAt: null,
 		}
-		return parseGithubAccessStagedData({ ...parsed, subjects })
+		// Angring etter at listen er bekreftet gjenåpner personen for aktiv tilgang uten at
+		// reviewer har sett denne konkrete tilstanden — krev ny bekreftelse av hele listen.
+		return parseGithubAccessStagedData({ ...parsed, subjects, confirmedBy: null, confirmedAt: null })
 	}
 
 	patch satisfies never

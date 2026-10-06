@@ -14,14 +14,20 @@ vi.mock("~/db/connection.server", () => {
 		update: () => ({
 			set: (values: unknown) => {
 				mocks.updateValues(values)
-				return { where: vi.fn().mockResolvedValue(undefined) }
+				return {
+					where: vi.fn().mockReturnValue({
+						returning: vi.fn().mockResolvedValue([{ id: "assessment-1" }]),
+					}),
+				}
 			},
 		}),
 		insert: () => ({
 			values: (values: unknown) => {
 				mocks.insertValues(values)
 				return {
-					onConflictDoUpdate: vi.fn().mockResolvedValue(undefined),
+					onConflictDoUpdate: vi.fn().mockReturnValue({
+						returning: vi.fn().mockResolvedValue([{ id: "assessment-1" }]),
+					}),
 					returning: vi.fn().mockResolvedValue([{ id: "attachment-1", fileName: "evidence.pdf" }]),
 				}
 			},
@@ -201,7 +207,7 @@ describe("github access activity", () => {
 		expect(mocks.followUp.mock.calls[0][1]).toMatchObject({ text: "Fjern GitHub-tilgang for @glad-fjord" })
 		expect(mocks.followUp.mock.calls[1][1]).toMatchObject({
 			text: 'Juster GitHub-tilgang for @rask-elv fra "admin" til "push"',
-			description: null,
+			description: expect.stringContaining('fra "admin" til "push"'),
 		})
 		expect(snapshot.subjects.every((s) => !("businessJustification" in s))).toBe(true)
 	})
