@@ -1862,8 +1862,9 @@ export async function createReview(params: {
 	routineSnapshotPath: string | null
 	reviewedAt: Date
 	createdBy: string
-	participants: Array<{ userIdent: string; userName: string | null }>
+	participants?: Array<{ userIdent: string; userName: string | null }>
 }) {
+	const participants = params.participants ?? [{ userIdent: params.createdBy, userName: null }]
 	// Atomisk: hele lookup → guard → INSERT-kjeden kjøres i tx med
 	// FOR SHARE-lås på routine-raden, så samtidig archiveRoutine() blokkeres
 	// til vår tx er ferdig (lukker TOCTOU mellom guard og INSERT).
@@ -1898,11 +1899,11 @@ export async function createReview(params: {
 			.returning()
 
 		let insertedCount = 0
-		if (params.participants.length > 0) {
+		if (participants.length > 0) {
 			const insertedParticipants = await tx
 				.insert(routineReviewParticipants)
 				.values(
-					params.participants.map((p) => ({
+					participants.map((p) => ({
 						reviewId: review.id,
 						userIdent: p.userIdent,
 						userName: p.userName,
