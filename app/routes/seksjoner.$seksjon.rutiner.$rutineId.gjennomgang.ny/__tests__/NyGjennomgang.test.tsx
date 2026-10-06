@@ -35,6 +35,8 @@ function getParticipantsHiddenInput() {
 describe("NyGjennomgang", () => {
 	it("forhåndsutfyller innlogget bruker som deltaker", async () => {
 		renderPage()
+		// Venter til ruten er hydrert (loaderen i createRoutesStub kjører asynkront).
+		await screen.findByRole("button", { name: /^Glad Fjord \(Z990001\)/ })
 		const hidden = getParticipantsHiddenInput()
 		expect(hidden).not.toBeNull()
 		const participants = JSON.parse(hidden.value) as Array<{ navIdent: string; displayName: string | null }>
