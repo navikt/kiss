@@ -137,7 +137,5 @@ export function getEvidenceTypesForActivity(activityType: string): string[] | nu
 export const APPLICATION_REQUIRED_ACTIVITY_TYPES: RoutineActivityType[] = ["github_access_maintenance"]
 
 export function activityRequiresApplication(activityType: RoutineActivityType): boolean {
-	return (
-		APPLICATION_REQUIRED_ACTIVITY_TYPES.includes(activityType) || getProviderTypeForActivity(activityType) === "oracle"
-	)
+	return APPLICATION_REQUIRED_ACTIVITY_TYPES.includes(activityType)
 }

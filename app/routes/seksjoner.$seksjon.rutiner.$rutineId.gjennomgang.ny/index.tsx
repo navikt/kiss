@@ -75,7 +75,7 @@ export async function loader({ params, url }: Route.LoaderArgs) {
 	// Determine provider type from activity links
 	const activityTypes = activityLinks.map((l) => l.activityType)
 	const hasOracleActivity = activityTypes.some((t) => getProviderTypeForActivity(t) === "oracle")
-	const requiresApplication = activityTypes.some(activityRequiresApplication)
+	const requiresApplication = hasOracleActivity || activityTypes.some(activityRequiresApplication)
 	const oracleInstancesByAppId: Record<string, string[]> = {}
 	if (hasOracleActivity && routine.isSectionRoutine !== 1) {
 		const { getOracleInstancesForApps } = await import("~/db/queries/audit-evidence.server")
