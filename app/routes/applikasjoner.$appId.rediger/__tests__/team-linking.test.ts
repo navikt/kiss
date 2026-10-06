@@ -7,8 +7,9 @@ vi.mock("~/lib/auth.server", () => ({
 	requireAuthenticatedUser: (...args: unknown[]) => mockRequireAuthenticatedUser(...args),
 }))
 
+const mockRequireApplicationManagementAccess = vi.fn()
 vi.mock("~/lib/authorization.server", () => ({
-	requireAdmin: vi.fn(),
+	requireApplicationManagementAccess: (...args: unknown[]) => mockRequireApplicationManagementAccess(...args),
 	isAdmin: vi.fn(() => true),
 }))
 
@@ -21,11 +22,14 @@ vi.mock("~/db/queries/applications.server", () => ({
 	unlinkAppFromTeam: mockUnlinkAppFromTeam,
 }))
 
+const mockGetApplicationDetail = vi.fn()
+const mockLinkApplication = vi.fn()
+const mockUnlinkApplication = vi.fn()
 vi.mock("~/db/queries/nais.server", () => ({
 	findLinkCandidates: vi.fn(),
-	getApplicationDetail: vi.fn(),
-	linkApplication: vi.fn(),
-	unlinkApplication: vi.fn(),
+	getApplicationDetail: (...args: unknown[]) => mockGetApplicationDetail(...args),
+	linkApplication: (...args: unknown[]) => mockLinkApplication(...args),
+	unlinkApplication: (...args: unknown[]) => mockUnlinkApplication(...args),
 }))
 
 vi.mock("~/db/queries/technology-elements.server", () => ({
@@ -79,6 +83,44 @@ describe("applikasjoner.$appId.detaljer action – team linking", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
 		mockRequireAuthenticatedUser.mockResolvedValue({ navIdent: "Z123456" })
+	})
+
+	it("requires management access to both applications when linking them", async () => {
+		const formData = new FormData()
+		formData.set("intent", "link")
+		formData.set("linkedId", "app-2")
+
+		const result = (await callAction(formData)) as Response
+
+		expect(mockRequireApplicationManagementAccess).toHaveBeenNthCalledWith(1, { navIdent: "Z123456" }, "app-1")
+		expect(mockRequireApplicationManagementAccess).toHaveBeenNthCalledWith(2, { navIdent: "Z123456" }, "app-2")
+		expect(mockLinkApplication).toHaveBeenCalledWith("app-2", "app-1", "Z123456")
+		expect(result.headers.get("Location")).toBe("/applikasjoner/app-1/rediger")
+	})
+
+	it("does not unlink an application that is not linked to the current app", async () => {
+		mockGetApplicationDetail.mockResolvedValueOnce({ linkedApps: [] })
+		const formData = new FormData()
+		formData.set("intent", "unlink")
+		formData.set("unlinkId", "app-2")
+
+		await expect(callAction(formData)).rejects.toMatchObject({ status: 403 })
+
+		expect(mockUnlinkApplication).not.toHaveBeenCalled()
+		expect(mockRequireApplicationManagementAccess).toHaveBeenCalledTimes(1)
+	})
+
+	it("requires management access to the linked app before unlinking it", async () => {
+		mockGetApplicationDetail.mockResolvedValueOnce({ linkedApps: [{ id: "app-2" }] })
+		const formData = new FormData()
+		formData.set("intent", "unlink")
+		formData.set("unlinkId", "app-2")
+
+		const result = (await callAction(formData)) as Response
+
+		expect(mockRequireApplicationManagementAccess).toHaveBeenNthCalledWith(2, { navIdent: "Z123456" }, "app-2")
+		expect(mockUnlinkApplication).toHaveBeenCalledWith("app-2", "Z123456")
+		expect(result.headers.get("Location")).toBe("/applikasjoner/app-1/rediger")
 	})
 
 	it("links a team to an application", async () => {

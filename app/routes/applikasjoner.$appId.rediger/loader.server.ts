@@ -5,7 +5,7 @@ import { findLinkCandidates, getApplicationDetail, getLinkCandidatesForSection }
 import { getAllTechnologyElements, getApplicationElements } from "~/db/queries/technology-elements.server"
 import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireAdmin } from "~/lib/authorization.server"
+import { requireApplicationManagementAccess } from "~/lib/authorization.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
 import { getOracleInstances } from "~/lib/oracle-revisjon.server"
 import type { Route } from "./+types/index"
@@ -22,7 +22,7 @@ export async function loader({ request, params }: LoaderArgs) {
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 
 	const authedUser = await requireAuthenticatedUser(request)
-	requireAdmin(authedUser)
+	await requireApplicationManagementAccess(authedUser, appId)
 
 	const breadcrumbCtx = await (async () => {
 		if (params.seksjon && params.team) {

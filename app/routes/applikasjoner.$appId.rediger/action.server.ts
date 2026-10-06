@@ -8,6 +8,7 @@ import {
 } from "~/db/queries/audit-evidence.server"
 import {
 	archiveApplication,
+	getApplicationDetail,
 	linkApplication,
 	promoteToPrimary,
 	renameApplication,
@@ -21,7 +22,7 @@ import {
 	removeApplicationElement,
 } from "~/db/queries/technology-elements.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireAdmin } from "~/lib/authorization.server"
+import { requireApplicationManagementAccess } from "~/lib/authorization.server"
 import { getAuditEvidence, getAuditEvidenceExcel } from "~/lib/oracle-revisjon.server"
 import type { Route } from "./+types/index"
 
@@ -34,12 +35,10 @@ export async function action({ params, request, url }: Route.ActionArgs) {
 	const appBase = idx !== -1 ? url.pathname.slice(0, idx + marker.length) : `/applikasjoner/${appId}`
 
 	const authedUser = await requireAuthenticatedUser(request)
-	requireAdmin(authedUser)
+	await requireApplicationManagementAccess(authedUser, appId)
 
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
-	// Audit-handlinger fra denne ruten skal alltid spores på innlogget admin
-	// (ikke "system"), siden alle intents her er manuelle bruker-mutasjoner.
 	const performer = authedUser.navIdent
 
 	if (intent === "archive") {
@@ -54,19 +53,35 @@ export async function action({ params, request, url }: Route.ActionArgs) {
 	} else if (intent === "promoteToPrimary") {
 		const newPrimaryId = formData.get("newPrimaryId") as string
 		if (!newPrimaryId) throw new Response("Mangler newPrimaryId", { status: 400 })
+		const detail = await getApplicationDetail(appId)
+		if (!detail?.linkedApps.some((app) => app.id === newPrimaryId)) {
+			throw new Response("Applikasjonen er ikke lenket til denne hovedapplikasjonen", { status: 403 })
+		}
+		await requireApplicationManagementAccess(authedUser, newPrimaryId)
 		await promoteToPrimary(newPrimaryId, appId, performer)
 		return redirect(`/applikasjoner/${newPrimaryId}/rediger`)
 	} else if (intent === "promoteThis") {
 		const currentPrimaryId = formData.get("currentPrimaryId") as string
 		if (!currentPrimaryId) throw new Response("Mangler currentPrimaryId", { status: 400 })
+		const detail = await getApplicationDetail(appId)
+		if (detail?.primaryApp?.id !== currentPrimaryId) {
+			throw new Response("Applikasjonen er ikke lenket til denne hovedapplikasjonen", { status: 403 })
+		}
+		await requireApplicationManagementAccess(authedUser, currentPrimaryId)
 		await promoteToPrimary(appId, currentPrimaryId, performer)
 	} else if (intent === "link") {
 		const linkedId = formData.get("linkedId") as string
 		if (!linkedId) throw new Response("Mangler linkedId", { status: 400 })
+		await requireApplicationManagementAccess(authedUser, linkedId)
 		await linkApplication(linkedId, appId, performer)
 	} else if (intent === "unlink") {
 		const unlinkId = formData.get("unlinkId") as string
 		if (!unlinkId) throw new Response("Mangler unlinkId", { status: 400 })
+		const detail = await getApplicationDetail(appId)
+		if (!detail?.linkedApps.some((app) => app.id === unlinkId)) {
+			throw new Response("Applikasjonen er ikke lenket til denne hovedapplikasjonen", { status: 403 })
+		}
+		await requireApplicationManagementAccess(authedUser, unlinkId)
 		await unlinkApplication(unlinkId, performer)
 	} else if (intent === "addElement") {
 		const elementId = formData.get("elementId") as string
