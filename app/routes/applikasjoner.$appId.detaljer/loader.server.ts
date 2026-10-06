@@ -31,7 +31,14 @@ import { getApplicationElements } from "~/db/queries/technology-elements.server"
 import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import type { GroupCriticality } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import { canAccessAppReports, hasAnyTeamRole, hasRole, isAdmin } from "~/lib/authorization.server"
+import {
+	canAccessAppReports,
+	canManageApplication,
+	hasAnyTeamRole,
+	hasReviewReadAccess,
+	hasRole,
+	isAdmin,
+} from "~/lib/authorization.server"
 import { computeAutoCompliance } from "~/lib/auto-compliance"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { logger } from "~/lib/logger.server"
@@ -341,6 +348,23 @@ export async function loader({ request, params }: LoaderArgs) {
 		}
 	}
 
+	const readableReviewIds = new Set(
+		user
+			? (
+					await Promise.all(
+						completedReviews.map(async (r) => {
+							const canRead = await hasReviewReadAccess(
+								user,
+								{ applicationId: r.applicationId, sectionId: r.sectionId ?? "" },
+								appScopeIds.devTeamIds,
+							)
+							return canRead ? r.id : null
+						}),
+					)
+				).filter((id): id is string => id !== null)
+			: [],
+	)
+
 	return data({
 		...breadcrumbCtx,
 		app: detail.app,
@@ -385,6 +409,7 @@ export async function loader({ request, params }: LoaderArgs) {
 		completedReviews: completedReviews.map((r) => ({
 			...r,
 			createdByName: reviewerNames.get(r.createdBy.trim().toUpperCase()) ?? null,
+			canRead: readableReviewIds.has(r.id),
 			followUpPoints: r.followUpPoints.map((p) => ({
 				...p,
 				createdByName: reviewerNames.get(p.createdBy.trim().toUpperCase()) ?? null,
@@ -397,6 +422,7 @@ export async function loader({ request, params }: LoaderArgs) {
 		})),
 		sectionSlugMap,
 		canAdmin: user ? isAdmin(user) : false,
+		canManageApp: user ? canManageApplication(user, appScopeIds.devTeamIds) : false,
 		// Positivt tilgangsflagg: admin og teammedlemmer uten revisor-rolle kan starte/fortsette gjennomganger.
 		// buildEffectiveAuth undertrykker revisor-rollen for effektive admins (admin-modus aktiv),
 		// så !hasRole(user, "auditor") er false kun for rene revisorer — ikke for admins med admin-modus på.

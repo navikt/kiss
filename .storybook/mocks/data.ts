@@ -586,6 +586,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 				status: "needs_follow_up" as const,
 				createdBy: "Z990001",
 				sectionId: "s-01",
+				canRead: true,
 				participants: [{ confirmedAt: "2026-03-01T11:00:00Z" }],
 				followUpPoints: [
 					{
@@ -625,6 +626,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 				status: "completed" as const,
 				createdBy: "Z990001",
 				sectionId: "s-01",
+				canRead: true,
 				participants: [{ confirmedAt: "2026-03-15T09:30:00Z" }, { confirmedAt: null }],
 				followUpPoints: [],
 			},
@@ -637,6 +639,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 				status: "discarded" as const,
 				createdBy: "Z990001",
 				sectionId: "s-01",
+				canRead: true,
 				participants: [],
 				followUpPoints: [],
 			},
@@ -1522,6 +1525,7 @@ export function mockNyGjennomgangData(overrides?: { isSectionRoutine?: boolean; 
 					{ id: "app-3", name: "pensjon-selvbetjening" },
 				],
 		loaderConflictError: overrides?.loaderConflictError ?? null,
+		currentUser: { navIdent: "Z990001", name: "Glad Fjord" },
 	}
 }
 
@@ -2724,6 +2728,7 @@ export function mockTeamRutinerData() {
 		sectionSlugMap: { "seksjon-1": "pensjon-og-ufore" },
 		sectionRoutines,
 		appRoutines,
+		economySystemAppIds: ["app-1"],
 	}
 }
 
@@ -2736,6 +2741,7 @@ export function mockTeamRutinerEmptyData() {
 		sectionSlugMap: { "seksjon-1": "pensjon-og-ufore" },
 		sectionRoutines: [],
 		appRoutines: [],
+		economySystemAppIds: [],
 	}
 }
 

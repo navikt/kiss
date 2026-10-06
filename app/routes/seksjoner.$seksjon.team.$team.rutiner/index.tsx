@@ -1,10 +1,11 @@
-import { Alert, BodyShort, Box, Button, Heading, HStack, Select, Table, VStack } from "@navikt/ds-react"
+import { Alert, BodyShort, Box, Button, Checkbox, Heading, HStack, Select, Table, VStack } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
 import { data, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { RoutineStatusTag } from "~/components/RoutineStatusTag"
+import { getEconomyClassifications } from "~/db/queries/economy-classification.server"
 import { getSectionBySlug, getSections, getTeamBySlug, getTeamIncompleteRoutines } from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { createDraftReview } from "~/lib/create-draft-review.server"
@@ -48,6 +49,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 	const appRoutines = result.deadlines.filter((d) => !d.isSectionRoutine)
 
+	const appIds = [...new Set(appRoutines.map((d) => d.applicationId))]
+	const economyClassifications = await getEconomyClassifications(appIds)
+	const economySystemAppIds = appIds.filter((id) => economyClassifications.get(id)?.isEconomySystem)
+
 	return data({
 		seksjon,
 		seksjonName: section.name,
@@ -56,6 +61,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		sectionRoutines,
 		appRoutines,
 		sectionSlugMap,
+		economySystemAppIds,
 	})
 }
 
@@ -82,6 +88,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 			sectionSlug: seksjon,
 			applicationId: (formData.get("applicationId") as string | null) || null,
 			navIdent: authedUser.navIdent,
+			userName: authedUser.name,
 		})
 		if (!result.ok) {
 			return data({ success: false, error: result.error, intent: "create-draft" }, { status: result.status })
@@ -111,8 +118,9 @@ function routineStatusKey(dl: {
 }
 
 export default function TeamUgjennomforteRutiner() {
-	const { seksjon, seksjonName, team, teamName, sectionRoutines, appRoutines, sectionSlugMap } =
+	const { seksjon, seksjonName, team, teamName, sectionRoutines, appRoutines, sectionSlugMap, economySystemAppIds } =
 		useLoaderData<typeof loader>()
+	const economySystemAppIdSet = useMemo(() => new Set(economySystemAppIds), [economySystemAppIds])
 	const actionData = useActionData<typeof action>()
 	const createDraftError =
 		actionData && "error" in actionData && "intent" in actionData && actionData.intent === "create-draft"
@@ -131,6 +139,7 @@ export default function TeamUgjennomforteRutiner() {
 	const [appPageSize, setAppPageSize] = useState(25)
 	const [appActionFilter, setAppActionFilter] = useState<ActionFilter>("alle")
 	const [sectionActionFilter, setSectionActionFilter] = useState<ActionFilter>("alle")
+	const [onlyEconomySystems, setOnlyEconomySystems] = useState(false)
 
 	const handleAppSort = (sortKey: string | undefined) => {
 		if (!sortKey) return
@@ -234,7 +243,11 @@ export default function TeamUgjennomforteRutiner() {
 		return true
 	}
 
-	const filteredAppRoutines = sortedAppRoutines.filter((dl) => matchesActionFilter(appActionFilter, dl.draftReviewId))
+	const filteredAppRoutines = sortedAppRoutines.filter(
+		(dl) =>
+			matchesActionFilter(appActionFilter, dl.draftReviewId) &&
+			(!onlyEconomySystems || economySystemAppIdSet.has(dl.applicationId)),
+	)
 	const filteredSectionRoutines = sortedSectionRoutines.filter((dl) =>
 		matchesActionFilter(sectionActionFilter, dl.draftReviewId),
 	)
@@ -297,7 +310,14 @@ export default function TeamUgjennomforteRutiner() {
 				</Table.DataCell>
 				{opts.showApp && (
 					<Table.DataCell>
-						<Link to={appLink}>{dl.applicationName}</Link>
+						<HStack gap="space-2" align="center">
+							<Link to={appLink}>{dl.applicationName}</Link>
+							{economySystemAppIdSet.has(dl.applicationId) && (
+								<span role="img" aria-label="Klassifisert som økonomisystem" title="Klassifisert som økonomisystem">
+									💰
+								</span>
+							)}
+						</HStack>
 					</Table.DataCell>
 				)}
 				<Table.DataCell align="left">{renderRoutineAction(dl)}</Table.DataCell>
@@ -358,12 +378,23 @@ export default function TeamUgjennomforteRutiner() {
 							<Heading size="medium" level="3">
 								Applikasjonsrutiner
 							</Heading>
+							<Checkbox
+								checked={onlyEconomySystems}
+								onChange={(e) => {
+									setOnlyEconomySystems(e.target.checked)
+									setAppPage(1)
+								}}
+							>
+								Kun økonomiapplikasjoner
+							</Checkbox>
 							<HStack justify="space-between" align="end" wrap>
 								<BodyShort size="small" textColor="subtle">
 									Viser {filteredAppRoutines.length === 0 ? 0 : (currentFilteredAppPage - 1) * appPageSize + 1}–
 									{Math.min(currentFilteredAppPage * appPageSize, filteredAppRoutines.length)} av{" "}
 									{filteredAppRoutines.length}
-									{appActionFilter !== "alle" ? ` (filtrert fra ${sortedAppRoutines.length})` : ""}
+									{appActionFilter !== "alle" || onlyEconomySystems
+										? ` (filtrert fra ${sortedAppRoutines.length})`
+										: ""}
 								</BodyShort>
 								<HStack gap="space-4" align="end">
 									<Select

@@ -34,6 +34,7 @@ export async function action({ request, params, url }: Route.ActionArgs) {
 			sectionSlug,
 			applicationId: appId,
 			navIdent: authedUser.navIdent,
+			userName: authedUser.name,
 		})
 		if (!result.ok) {
 			return data(

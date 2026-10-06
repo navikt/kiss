@@ -690,6 +690,43 @@ describe("Routines integration tests", () => {
 			expect(participantResult.rows).toHaveLength(2)
 		})
 
+		it("should default to the creator as participant when participants is omitted", async () => {
+			const sectionId = await createTestSection("Security", "security")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Pen Test Default Participant",
+				description: null,
+				frequency: "annually",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+
+			await markRoutineApproved(routine.id)
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: null,
+				title: "Q2 Review",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date("2024-06-15"),
+				createdBy: "Z990001",
+			})
+
+			const db = getTestDb()
+			const participantResult = await db.execute(
+				/* sql */ `SELECT user_ident FROM routine_review_participants WHERE review_id = '${review.id}'`,
+			)
+			expect(participantResult.rows).toHaveLength(1)
+			expect(participantResult.rows[0]).toMatchObject({ user_ident: "Z990001" })
+		})
+
 		it("should confirm participation", async () => {
 			const sectionId = await createTestSection("Security", "security")
 

@@ -212,17 +212,47 @@ export async function getOracleInstancesForApps(appIds: string[]): Promise<Recor
 	return grouped
 }
 
-export async function setIncludeInReport(appId: string, instanceId: string, include: boolean) {
-	await db
-		.update(applicationOracleInstances)
-		.set({ includeInReport: include })
-		.where(
-			and(
-				eq(applicationOracleInstances.applicationId, appId),
-				eq(applicationOracleInstances.instanceId, instanceId),
-				isNull(applicationOracleInstances.archivedAt),
-			),
+export async function setIncludeInReport(appId: string, instanceId: string, include: boolean, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select({ includeInReport: applicationOracleInstances.includeInReport })
+			.from(applicationOracleInstances)
+			.where(
+				and(
+					eq(applicationOracleInstances.applicationId, appId),
+					eq(applicationOracleInstances.instanceId, instanceId),
+					isNull(applicationOracleInstances.archivedAt),
+				),
+			)
+			.for("update")
+			.limit(1)
+		if (!existing || existing.includeInReport === include) return
+
+		const [updated] = await tx
+			.update(applicationOracleInstances)
+			.set({ includeInReport: include })
+			.where(
+				and(
+					eq(applicationOracleInstances.applicationId, appId),
+					eq(applicationOracleInstances.instanceId, instanceId),
+					isNull(applicationOracleInstances.archivedAt),
+				),
+			)
+			.returning({ id: applicationOracleInstances.id })
+		if (!updated) return
+
+		await writeAuditLog(
+			{
+				action: "oracle_instance_report_updated",
+				entityType: "application",
+				entityId: appId,
+				previousValue: JSON.stringify({ instanceId, includeInReport: existing.includeInReport }),
+				newValue: JSON.stringify({ instanceId, includeInReport: include }),
+				performedBy,
+			},
+			tx,
 		)
+	})
 }
 
 // ─── Snapshot Storage ─────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import { buildEffectiveAuth, isAdminSuppressed } from "../auth.server"
 import {
 	canAccessAppReports,
 	canApproveRoutine,
+	canManageApplication,
 	canManageTeam,
 	hasAnySectionRole,
 	hasAnyTeamRole,
@@ -13,6 +14,7 @@ import {
 	hasRoleForSection,
 	isActualAdmin,
 	isAdmin,
+	requireApplicationManagementAccess,
 	requireAppMembership,
 	requireReviewAccess,
 	requireReviewReadAccess,
@@ -149,6 +151,56 @@ describe("canManageTeam", () => {
 			dbRoles: [{ role: "section_manager", sectionId: "other-section", devTeamId: null, devTeamSectionId: null }],
 		})
 		expect(canManageTeam(user, devTeamId, "section-xyz")).toBe(false)
+	})
+})
+
+describe("canManageApplication", () => {
+	const devTeamIds = ["team-abc", "team-def"]
+
+	it.each(["product_owner", "tech_lead"] as const)("allows %s for an application team", (role) => {
+		const user = makeUser({
+			dbRoles: [{ role, sectionId: null, devTeamId: "team-def", devTeamSectionId: null }],
+		})
+		expect(canManageApplication(user, devTeamIds)).toBe(true)
+	})
+
+	it("allows an admin even if the application has no team", () => {
+		const user = makeUser({ roles: new Set(["admin"]) })
+		expect(canManageApplication(user, [])).toBe(true)
+	})
+
+	it("does not allow roles outside the application's teams or Entra-only members", () => {
+		const unrelatedManager = makeUser({
+			dbRoles: [{ role: "tech_lead", sectionId: null, devTeamId: "other-team", devTeamSectionId: null }],
+		})
+		const entraMember = makeUser({ entraTeamIds: ["team-abc"] })
+		expect(canManageApplication(unrelatedManager, devTeamIds)).toBe(false)
+		expect(canManageApplication(entraMember, devTeamIds)).toBe(false)
+	})
+})
+
+describe("requireApplicationManagementAccess", () => {
+	beforeEach(() => mockGetAppScopeIds.mockReset())
+
+	it("checks management roles against the application's team scopes", async () => {
+		mockGetAppScopeIds.mockResolvedValueOnce({ devTeamIds: ["team-abc"], sectionIds: [] })
+		const user = makeUser({
+			dbRoles: [{ role: "product_owner", sectionId: null, devTeamId: "team-abc", devTeamSectionId: null }],
+		})
+		await expect(requireApplicationManagementAccess(user, "app-1")).resolves.toBeUndefined()
+		expect(mockGetAppScopeIds).toHaveBeenCalledWith("app-1")
+	})
+
+	it("rejects users without a management role for the application's teams", async () => {
+		mockGetAppScopeIds.mockResolvedValueOnce({ devTeamIds: ["team-abc"], sectionIds: [] })
+		await expect(requireApplicationManagementAccess(makeUser(), "app-1")).rejects.toMatchObject({ status: 403 })
+	})
+
+	it("does not query application scope for admins", async () => {
+		await expect(
+			requireApplicationManagementAccess(makeUser({ roles: new Set(["admin"]) }), "app-1"),
+		).resolves.toBeUndefined()
+		expect(mockGetAppScopeIds).not.toHaveBeenCalled()
 	})
 })
 

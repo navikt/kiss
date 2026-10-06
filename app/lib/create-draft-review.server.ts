@@ -48,8 +48,9 @@ export async function createDraftReview(params: {
 	sectionSlug: string | null
 	applicationId: string | null
 	navIdent: string
+	userName?: string | null
 }): Promise<CreateDraftReviewResult> {
-	const { routineId, sectionSlug, applicationId, navIdent } = params
+	const { routineId, sectionSlug, applicationId, navIdent, userName } = params
 
 	if (!routineId) return { ok: false, error: "Mangler rutine-ID", status: 400 }
 	if (!isValidUuid(routineId)) return { ok: false, error: "Ugyldig rutine-ID-format", status: 400 }
@@ -105,7 +106,7 @@ export async function createDraftReview(params: {
 			routineSnapshotPath: null,
 			reviewedAt: now,
 			createdBy: navIdent,
-			participants: [],
+			participants: [{ userIdent: navIdent, userName: userName ?? null }],
 		})
 		return { ok: true, reviewId: review.id, routineId, sectionSlug }
 	} catch (err) {

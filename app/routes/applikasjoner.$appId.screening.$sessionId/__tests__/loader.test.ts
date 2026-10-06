@@ -27,6 +27,11 @@ vi.mock("~/db/queries/screening.server", () => ({
 	getScreeningQuestionsByIds: (ids: string[]) => mockGetScreeningQuestionsByIds(ids),
 }))
 
+const mockGetTeamMembersForApp = vi.fn()
+vi.mock("~/db/queries/applications.server", () => ({
+	getTeamMembersForApp: (...args: unknown[]) => mockGetTeamMembersForApp(...args),
+}))
+
 const mockGetApplicationDetail = vi.fn()
 vi.mock("~/db/queries/nais.server", () => ({
 	getApplicationDetail: (...args: unknown[]) => mockGetApplicationDetail(...args),
@@ -72,6 +77,21 @@ describe("screening session loader", () => {
 		vi.clearAllMocks()
 		mockRequireAuthenticatedUser.mockResolvedValue(fakeUser)
 		mockGetStagedOperations.mockResolvedValue([])
+	})
+
+	describe("authentication", () => {
+		it("throws 401 when user is not authenticated", async () => {
+			mockRequireAuthenticatedUser.mockRejectedValue(new Response("Ikke autentisert", { status: 401 }))
+
+			try {
+				await callLoader()
+				expect.fail("should have thrown")
+			} catch (e) {
+				expect(e).toBeInstanceOf(Response)
+				expect((e as Response).status).toBe(401)
+			}
+			expect(mockGetScreeningSession).not.toHaveBeenCalled()
+		})
 	})
 
 	describe("parameter validation", () => {
@@ -164,6 +184,9 @@ describe("screening session loader", () => {
 			})
 			mockGetScreeningDataForApp.mockResolvedValue({ questions: [], sectionIds: [] })
 			mockGetApplicationDetail.mockResolvedValue({ app: { name: "test-app" }, authIntegrations: [] })
+			mockGetTeamMembersForApp.mockResolvedValue([
+				{ teamName: "Team A", members: [{ navIdent: "Z990001", name: "Glad Fjord" }] },
+			])
 
 			const result = await callLoader()
 
@@ -171,6 +194,29 @@ describe("screening session loader", () => {
 			const payload = "data" in result ? (result as { data: Record<string, unknown> }).data : result
 			expect(payload).toHaveProperty("session")
 			expect(payload).toHaveProperty("appName", "test-app")
+			expect(payload).toHaveProperty("teamMembers", [
+				{ teamName: "Team A", members: [{ navIdent: "Z990001", name: "Glad Fjord" }] },
+			])
+			expect(mockGetTeamMembersForApp).toHaveBeenCalledWith("app-1")
+		})
+
+		it("does not fail the loader when getTeamMembersForApp rejects", async () => {
+			mockGetScreeningSession.mockResolvedValue({
+				id: "session-1",
+				applicationId: "app-1",
+				status: "draft",
+				title: "Test screening",
+				participants: [],
+				answers: [],
+			})
+			mockGetScreeningDataForApp.mockResolvedValue({ questions: [], sectionIds: [] })
+			mockGetApplicationDetail.mockResolvedValue({ app: { name: "test-app" }, authIntegrations: [] })
+			mockGetTeamMembersForApp.mockRejectedValue(new Error("boom"))
+
+			const result = await callLoader()
+
+			const payload = "data" in result ? (result as { data: Record<string, unknown> }).data : result
+			expect(payload).toHaveProperty("teamMembers", [])
 		})
 
 		it("uses snapshot questions for completed sessions instead of live questions", async () => {
@@ -225,6 +271,7 @@ describe("screening session loader", () => {
 			// Should only contain the snapshot question, not the live question
 			expect(screening.map((q) => q.id)).toEqual(["q-snap-1"])
 			expect(screening.map((q) => q.id)).not.toContain("q-live-1")
+			expect(mockGetTeamMembersForApp).not.toHaveBeenCalled()
 		})
 	})
 })

@@ -67,6 +67,7 @@ export default function ApplikasjonDetalj() {
 		applicationDocuments,
 		sectionSlugMap,
 		canAdmin,
+		canManageApp,
 		canManageReviews,
 		canAccessReports,
 		knownApps,
@@ -140,7 +141,7 @@ export default function ApplikasjonDetalj() {
 					<Heading size="xlarge" level="2">
 						{app.name}
 					</Heading>
-					{canAdmin && (
+					{canManageApp && (
 						<Button as={Link} to={`${appBase}/rediger`} variant="tertiary" size="small">
 							Administrer
 						</Button>

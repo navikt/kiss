@@ -14,6 +14,7 @@ export default function ScreeningSession() {
 	const {
 		appName,
 		session,
+		teamMembers,
 		screening,
 		persistence,
 		rulesetOptions,
@@ -73,6 +74,12 @@ export default function ScreeningSession() {
 									navIdent: p.userIdent,
 									displayName: p.userName,
 								}))}
+								quickAddOptions={teamMembers.flatMap((team) =>
+									team.members.map((member) => ({
+										navIdent: member.navIdent,
+										displayName: member.name,
+									})),
+								)}
 							/>
 						</VStack>
 					}
