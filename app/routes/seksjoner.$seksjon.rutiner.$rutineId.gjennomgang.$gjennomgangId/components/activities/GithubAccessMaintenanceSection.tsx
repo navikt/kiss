@@ -23,16 +23,11 @@ import { githubProfileUrl } from "~/lib/github-user-access"
 import { formatDateTimeOslo } from "~/lib/utils"
 import type { ActionResult, ActivityProp } from "../shared"
 
-/** GithubAccessSubject beriket med visningsnavn/nav-ident fra NDAs Github-brukeroppslag
- *  (loader-only enrichment — lagres ikke i staged_data, se index.tsx). */
 export type GithubAccessSubjectWithIdentity = GithubAccessSubject & {
 	displayName?: string | null
 	navIdent?: string | null
 }
 
-/** Viser reelt navn (fra NDAs Github-brukeroppslag) som primær identifikator, med lenke til
- *  GitHub-profilen. Faller tilbake til kun GitHub-brukernavnet dersom oppslaget mangler/feilet.
- *  GitHub-brukernavn og nav-ident vises i stedet i den utvidede raden, se `SubjectIdentityDetails`. */
 function SubjectIdentity({ subject }: { subject: GithubAccessSubjectWithIdentity }) {
 	const displayName = subject.displayName?.trim() || null
 	return (
@@ -42,8 +37,6 @@ function SubjectIdentity({ subject }: { subject: GithubAccessSubjectWithIdentity
 	)
 }
 
-/** GitHub-brukernavn og nav-ident, vist i den utvidede raden. Kun relevant å vise når vi faktisk
- *  viser et reelt navn i selve raden (`SubjectIdentity`) — ellers er brukernavnet allerede synlig. */
 function SubjectIdentityDetails({ subject }: { subject: GithubAccessSubjectWithIdentity }) {
 	const displayName = subject.displayName?.trim() || null
 	const navIdent = subject.navIdent?.trim() || null
@@ -61,8 +54,6 @@ function SubjectIdentityDetails({ subject }: { subject: GithubAccessSubjectWithI
 	)
 }
 
-/** Kompakt variant av `SubjectIdentityDetails` for tabeller uten utvidbare rader (f.eks.
- *  "Fjernet siden forrige gjennomgang") — vises alltid rett under navnet, ikke skjult bak en klikk. */
 function SubjectIdentityInline({ subject }: { subject: GithubAccessSubjectWithIdentity }) {
 	const displayName = subject.displayName?.trim() || null
 	const navIdent = subject.navIdent?.trim() || null
@@ -94,7 +85,6 @@ function AccessSourceDetails({ subject }: { subject: GithubAccessSubject }) {
 	)
 }
 
-/** Kompakt oppsummering av tilgangskilde(r) for tabellkolonnen — full detalj vises i utvidet rad. */
 function AccessSourceSummary({ subject }: { subject: GithubAccessSubject }) {
 	const maxVisibleTeams = 2
 	const visibleTeams = subject.viaTeams.slice(0, maxVisibleTeams)
@@ -121,9 +111,6 @@ function AccessSourceSummary({ subject }: { subject: GithubAccessSubject }) {
 	)
 }
 
-/** Handlinger for én person: tilgjengelig via "Handlinger"-kolonnen (ActionMenu), ikke lenger
- *  skjult bak å utvide raden. Juster/Fjern krever ekstra input (nytt nivå/bekreftelse), og vises
- *  derfor i en Dialog i stedet for som direkte ett-klikks menyvalg. */
 function SubjectActions({
 	subject,
 	onMarkForRemoval,

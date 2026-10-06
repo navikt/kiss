@@ -2156,10 +2156,6 @@ export async function completeReview(reviewId: string, performedBy: string) {
 	// Atomisk: activity-complete + status UPDATE i samme tx.
 	// Audit + compliance-sync hopper over
 	// hvis status-UPDATE matchet 0 rader (samtidig completion-race).
-	// Github-aktiviteter laster opp et PDF-revisjonsbevis til ekstern storage FØR attachment-raden
-	// settes inn i denne delte transaksjonen — et rollback her (f.eks. fordi en SENERE aktivitet i
-	// loopen feiler) ruller tilbake attachment-raden, men ikke selve den opplastede filen. Spor
-	// opplastede stier slik at de kan ryddes opp eksplisitt hvis transaksjonen feiler.
 	const uploadedGithubPdfPaths: string[] = []
 	let result: { statusChanged: boolean; newStatus: "completed" | "needs_follow_up" }
 	try {
@@ -2315,14 +2311,6 @@ export async function getRoutineArchivedStatusByReviewId(
  * man legger til på en allerede `completed` review settes statusen tilbake
  * til `needs_follow_up` (og motsatt: når alle punkter er adressert
  * triggers `recomputeReviewStatus` til `completed`).
- */
-/**
- * Inserter selve oppfølgingspunkt-raden + audit-loggen på den oppgitte executoren, uten noen
- * status-sjekk eller egen transaksjon. Brukes internt av `addFollowUpPoint` (som legger til
- * status-vakten og sin egen transaksjon rundt dette) OG av aktivitets-commit-funksjoner (f.eks.
- * `commitGithubAccessActivity`) som allerede kjører inne i en transaksjon der review-status er
- * garantert `draft` (de kalles kun fra `completeReviewActivity`/`completeReview`, FØR review-status
- * settes til completed/needs_follow_up).
  */
 export async function addFollowUpPointRow(
 	tx: DbExecutor,
@@ -6470,9 +6458,6 @@ export async function completeReviewActivity(
 	snapshotAfter: EntraGroupSnapshot | null,
 	performedBy: string,
 	tx?: DbExecutor,
-	/** Callers running multiple activities in one shared transaction (`completeReview()`) pass an
-	 *  array here to track any GitHub PDF paths uploaded to storage, so they can be deleted if a
-	 *  LATER activity in the same transaction fails and rolls back this activity's attachment row. */
 	uploadedPaths?: string[],
 ) {
 	const [activity] = await (tx ?? db)
@@ -6600,9 +6585,6 @@ export async function completeReviewActivity(
 		return result
 	}
 
-	// Use the github_access_maintenance commit path regardless of applicationId — the
-	// missing-application guard inside commitGithubAccessActivity must reject completion
-	// rather than letting a Generell-review activity silently fall through to runGeneric.
 	if (activity.type === "github_access_maintenance") {
 		const lockName = `github_access_maintenance-activity-${activityId}`
 		const result = await withAdvisoryLock(lockName, async () => {
@@ -8126,6 +8108,8 @@ export async function hasReviewActivityType(reviewId: string, type: RoutineActiv
 	return result.length > 0
 }
 
+const CROSS_ROUTINE_EXCLUSIVE_ACTIVITY_TYPES: RoutineActivityType[] = ["github_access_maintenance"]
+
 /**
  * Sjekker om det finnes en aktiv gjennomgang (status 'draft' eller 'needs_follow_up') for
  * samme applicationId og minst én av de oppgitte aktivitetstypene.
@@ -8176,7 +8160,28 @@ export async function findActiveReviewConflict(
 		)
 		.limit(1)
 
-	return conflict ?? null
+	if (conflict) return conflict
+
+	const exclusiveTypes = activityTypes.filter((t) => CROSS_ROUTINE_EXCLUSIVE_ACTIVITY_TYPES.includes(t))
+	if (exclusiveTypes.length === 0 || applicationId === null) return null
+
+	const [crossRoutineConflict] = await db
+		.select({
+			activityType: routineReviewActivities.type,
+			reviewId: routineReviews.id,
+		})
+		.from(routineReviews)
+		.innerJoin(routineReviewActivities, eq(routineReviewActivities.reviewId, routineReviews.id))
+		.where(
+			and(
+				appFilter,
+				inArray(routineReviews.status, ["draft", "needs_follow_up"] as ReviewStatus[]),
+				inArray(routineReviewActivities.type, exclusiveTypes),
+			),
+		)
+		.limit(1)
+
+	return crossRoutineConflict ?? null
 }
 
 // ─── Follow-up Reviews for Section ───────────────────────────────────────────

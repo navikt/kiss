@@ -88,7 +88,6 @@ describe("GitHub access PDF", () => {
 		expect(texts.filter((t) => typeof t === "string" && t.startsWith("Godkjent av:"))).toHaveLength(1)
 		expect(texts).not.toContain(`Deltakere i gjennomgangen: Glad Fjord (Z990010), Rask Elv (Z990011)`)
 		expect(texts).toContain(`Dato: ${expectedDateLabel}`)
-		// Dato-only marks must render with the same date-only convention, not a time-of-day value.
 		expect(texts).toContain(expectedDateLabel)
 		expect(texts.join("\n")).not.toMatch(/Tjenstlig behov|Kompenserende|Begrunnelse for|Historisk/)
 		expect(texts.join("\n")).not.toContain("KISS utfører eller bekrefter ikke endringene i GitHub")

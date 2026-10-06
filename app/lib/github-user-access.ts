@@ -1,11 +1,3 @@
-/**
- * Delt logikk for å regne ut hvem som har GitHub-tilgang til et repo og hvorfor
- * (direkte collaborator-tilgang og/eller via team-medlemskap), samt å rangere
- * tilgangsnivåer. Brukes både av applikasjonens "GitHub-tilganger"-fane og av
- * `github_access_maintenance`-aktiviteten i periodiske gjennomganger — holdes her
- * som client-safe (ingen DB-import) slik at begge kan dele samme kilde til sannhet.
- */
-
 export interface GithubTeamMember {
 	username: string
 	role: string
@@ -36,8 +28,6 @@ export function highestGithubPermission(permissions: string[]): string {
 	return permissions[0] ?? "unknown"
 }
 
-/** Aksel `Tag`-varianter per tilgangsnivå — brukt av `GithubPermissionTag` (`app/components/`),
- *  delt mellom "GitHub-tilganger"-fanen og `github_access_maintenance`-aktiviteten. */
 export const GITHUB_PERMISSION_TAG_VARIANTS: Record<string, "warning" | "error" | "success" | "info" | "neutral"> = {
 	admin: "error",
 	maintain: "warning",
@@ -50,6 +40,10 @@ export const GITHUB_PERMISSION_TAG_VARIANTS: Record<string, "warning" | "error" 
 
 export function githubProfileUrl(username: string): string {
 	return `https://github.com/${username}`
+}
+
+export function normalizeGithubUsername(username: string): string {
+	return username.trim().toLowerCase()
 }
 
 export interface GithubUserAccess {
@@ -68,6 +62,7 @@ export function computeGithubUserAccess(
 	const map = new Map<
 		string,
 		{
+			username: string
 			displayName: string | null
 			navIdent: string | null
 			permissions: string[]
@@ -77,7 +72,9 @@ export function computeGithubUserAccess(
 	>()
 
 	for (const collab of collaborators) {
-		map.set(collab.username, {
+		const key = normalizeGithubUsername(collab.username)
+		map.set(key, {
+			username: key,
 			displayName: collab.displayName ?? null,
 			navIdent: collab.navIdent ?? null,
 			permissions: [collab.permission],
@@ -88,7 +85,9 @@ export function computeGithubUserAccess(
 
 	for (const team of teams) {
 		for (const member of team.members) {
-			const entry = map.get(member.username) ?? {
+			const key = normalizeGithubUsername(member.username)
+			const entry = map.get(key) ?? {
+				username: key,
 				displayName: member.displayName ?? null,
 				navIdent: member.navIdent ?? null,
 				permissions: [],
@@ -99,13 +98,13 @@ export function computeGithubUserAccess(
 			entry.navIdent ??= member.navIdent ?? null
 			entry.permissions.push(team.permission)
 			entry.viaTeams.push({ teamSlug: team.teamSlug, teamName: team.teamName, permission: team.permission })
-			map.set(member.username, entry)
+			map.set(key, entry)
 		}
 	}
 
-	return Array.from(map.entries())
-		.map(([username, data]) => ({
-			username,
+	return Array.from(map.values())
+		.map((data) => ({
+			username: data.username,
 			displayName: data.displayName,
 			navIdent: data.navIdent,
 			highestPermission: highestGithubPermission(data.permissions),
@@ -113,7 +112,6 @@ export function computeGithubUserAccess(
 			viaTeams: data.viaTeams,
 		}))
 		.sort((a, b) => {
-			// Ukjente permissions (indexOf = -1) sorteres sist, ikke først
 			const aIdx = GITHUB_PERMISSION_ORDER.indexOf(a.highestPermission)
 			const bIdx = GITHUB_PERMISSION_ORDER.indexOf(b.highestPermission)
 			const aOrder = aIdx === -1 ? GITHUB_PERMISSION_ORDER.length : aIdx

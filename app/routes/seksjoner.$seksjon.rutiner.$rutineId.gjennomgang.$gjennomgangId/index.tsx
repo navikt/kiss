@@ -596,8 +596,6 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 					actGithubAccessData = stagedData
 				}
 
-				// Berik med visningsnavn/nav-ident fra NDAs Github-brukeroppslag — kun for visning,
-				// lagres ikke i staged_data. Feiler oppslaget, vises brukernavn alene som fallback.
 				if (actGithubAccessData && actGithubAccessData.subjects.length > 0) {
 					try {
 						const lookups = await lookupGitHubUsers(
@@ -696,9 +694,6 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 		})
 	}
 
-	// Berik "Bekreftet av"-visningen på GitHub-tilgangsaktiviteten med reelt navn — samme mønster
-	// som resten av siden bruker for oppfølgingspunkter (userNames/nameFor over), men gjøres som et
-	// eget oppslag siden confirmedBy-identene først er kjent etter at aktivitetene er bygget.
 	const githubConfirmerIdents = activitiesWithEvidence
 		.map((a) => a.githubAccessData?.confirmedBy)
 		.filter((v): v is string => !!v)
@@ -1790,10 +1785,6 @@ export default function GjennomgangDetalj() {
 				}
 			}
 
-			// Forretningsinvariant: gjennomgangen må være bekreftet samlet (confirmedAt) FØR
-			// gjennomgangen kan fullføres — speiler isGithubAccessReviewComplete() i
-			// github-access-staged-data.ts, som håndheves i query-laget ved commit. Sjekkes også her
-			// slik at "Fullfør gjennomgang"-knappen kan blokkeres tidlig.
 			if (activity.type === "github_access_maintenance" && activity.status === "pending" && activity.githubAccessData) {
 				if (!activity.githubAccessData.confirmedAt) {
 					violations.push({

@@ -1,10 +1,6 @@
 import { index, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
 import { monitoredApplications } from "./applications"
 
-/**
- * GitHub-team som har tilgang til et repositorium.
- * Synkroniseres daglig fra GitHub API.
- */
 export const githubRepoTeams = pgTable(
 	"github_repo_teams",
 	{
@@ -14,7 +10,7 @@ export const githubRepoTeams = pgTable(
 			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		teamSlug: text("team_slug").notNull(),
 		teamName: text("team_name").notNull(),
-		permission: text("permission").notNull(), // admin, maintain, push, triage, pull
+		permission: text("permission").notNull(),
 		syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
 	},
 	(t) => [
@@ -23,10 +19,6 @@ export const githubRepoTeams = pgTable(
 	],
 )
 
-/**
- * Medlemmer av GitHub-team (hentet transitivt).
- * Oppdateres ved hver synkronisering.
- */
 export const githubRepoTeamMembers = pgTable(
 	"github_repo_team_members",
 	{
@@ -35,7 +27,7 @@ export const githubRepoTeamMembers = pgTable(
 			.notNull()
 			.references(() => githubRepoTeams.id, { onDelete: "cascade" }),
 		username: text("username").notNull(),
-		role: text("role").notNull(), // maintainer, member
+		role: text("role").notNull(),
 		syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
 	},
 	(t) => [
@@ -44,10 +36,6 @@ export const githubRepoTeamMembers = pgTable(
 	],
 )
 
-/**
- * Individuelle collaborators med direkte tilgang til repoet (uten team).
- * Synkroniseres daglig fra GitHub API.
- */
 export const githubRepoCollaborators = pgTable(
 	"github_repo_collaborators",
 	{
@@ -56,7 +44,7 @@ export const githubRepoCollaborators = pgTable(
 			.notNull()
 			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		username: text("username").notNull(),
-		permission: text("permission").notNull(), // admin, maintain, write, triage, read
+		permission: text("permission").notNull(),
 		syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
 	},
 	(t) => [
@@ -65,20 +53,6 @@ export const githubRepoCollaborators = pgTable(
 	],
 )
 
-/**
- * Husker hvilke brukernavn som hadde GitHub-tilgang til en applikasjon ved forrige fullførte
- * periodiske gjennomgang (`github_access_maintenance`-aktiviteten). Brukes utelukkende til å
- * beregne `isNew`/`isGone` ved seeding av neste runde — lagrer ikke lenger begrunnelse eller
- * andre vurderinger (gjennomgangen bekreftes nå samlet, se `confirmedAt` i staged_data).
- *
- * Rader for personer som ikke lenger har tilgang arkiveres (`archivedAt`) ved commit av
- * aktiviteten der de først oppdages som borte — de vises som «fjernet siden forrige
- * gjennomgang» KUN i den ene aktiviteten, ikke i alle påfølgende runder. Dette gir sporbarhet
- * på hvem som tidligere hadde tilgang uten å forurense senere rundes isNew/isGone-beregning.
- * Returnerer tilgangen personen igjen, reaktiveres samme rad (archivedAt settes til null) i
- * stedet for å opprette en ny — den unike nøkkelen (applicationId, username) tillater kun én
- * rad per person uansett.
- */
 export const githubAccessAssessments = pgTable(
 	"github_access_assessments",
 	{
@@ -87,7 +61,6 @@ export const githubAccessAssessments = pgTable(
 			.notNull()
 			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		username: text("username").notNull(),
-		/** Siste kjente tilgangsnivå — brukes til å vise «siste kjente tilgang» etter at personen er fjernet. */
 		lastKnownPermission: text("last_known_permission"),
 		archivedAt: timestamp("archived_at", { withTimezone: true }),
 		archivedBy: text("archived_by"),

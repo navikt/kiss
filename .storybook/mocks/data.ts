@@ -1691,8 +1691,6 @@ export function mockGjennomgangDetaljData(overrides?: {
 		{
 			id: "fup-4",
 			text: "Fjern GitHub-tilgang for @sluttet-utvikler",
-			// Preutfylt automatisk av commitGithubAccessActivity ved fjerning i Github-tilgangsgjennomgangen:
-			// reviewers begrunnelse + fast veiledningstekst fra rutinens "Manglende tjenstlig behov"-avsnitt.
 			description:
 				"Sluttet i teamet 2026-08-15 og har ikke lenger tjenstlig behov for tilgang til repoet.\n\n" +
 				"Veiledning fra rutinen: Dersom en bruker har hatt tilgang med kritikalitet HØY eller SVÆRT HØY " +

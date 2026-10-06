@@ -102,6 +102,7 @@ describe("github access activity", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
 		mocks.select.mockReset()
+		mocks.select.mockReturnValue(selectResult([]))
 	})
 
 	function mockPatchData(stagedData: unknown, latestStagedData = stagedData) {

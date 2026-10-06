@@ -5,9 +5,6 @@ export function compliancePercent(implemented: number, partial: number, total: n
 	return denominator > 0 ? Math.round(((implemented + partial * 0.5) / denominator) * 100) : 0
 }
 
-/** "Navn (Z990001)" når reelt navn finnes, ellers bare nav-identen. Delt formatering brukt av
- *  `UserDisplayName` (UI) og PDF-rapportene (`github-access-pdf.server.ts`) — samme konvensjon
- *  overalt hvor et nav-ident vises sammen med et oppslått visningsnavn. */
 export function formatUserDisplayName(navIdent: string, name: string | null | undefined): string {
 	const trimmedName = name?.trim()
 	return trimmedName ? `${trimmedName} (${navIdent})` : navIdent
@@ -53,10 +50,6 @@ export function formatDateTimeOslo(value: string | Date): string {
 	})
 }
 
-/**
- * Dagens dato (YYYY-MM-DD) i Europe/Oslo-tidssone — IKKE `new Date().toISOString().slice(0, 10)`,
- * som bruker UTC og dermed kan registrere "i går" for handlinger rett etter midnatt norsk tid.
- */
 export function getDateOnlyOslo(date: Date = new Date()): string {
 	const parts = new Intl.DateTimeFormat("sv-SE", {
 		timeZone: "Europe/Oslo",

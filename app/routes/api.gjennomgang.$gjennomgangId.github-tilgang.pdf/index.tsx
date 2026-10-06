@@ -13,13 +13,6 @@ import { type GitHubUserLookupResult, lookupGitHubUsers } from "~/lib/nda-github
 import { sanitizeFilename } from "~/lib/sanitize-filename"
 import type { Route } from "./+types/index"
 
-/**
- * Forhåndsvisning (utkast) av PDF-revisjonsbeviset for en GitHub-tilgangsgjennomgang — bygges
- * fra gjeldende (ikke nødvendigvis fullførte) staged_data, uten å skrive noe til databasen.
- * Merkes tydelig som "UTKAST" i selve dokumentet (se `isDraft` i buildGithubAccessReviewPdf).
- * Det faktiske revisjonsbeviset genereres og legges ved som vanlig når aktiviteten fullføres
- * (se `commitGithubAccessActivity`).
- */
 export async function loader({ request, params }: Route.LoaderArgs) {
 	const { gjennomgangId } = params
 	if (!gjennomgangId) throw new Response("Mangler gjennomgang-ID", { status: 400 })

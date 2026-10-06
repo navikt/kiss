@@ -7,9 +7,6 @@ import {
 } from "../components/activities/GithubAccessMaintenanceSection"
 import type { ActivityProp } from "../components/shared"
 
-// GithubAccessMaintenanceSection bruker useFetcher (React Router), som krever en
-// router-kontekst i Storybook. createRoutesStub gir en minimal stub-router rundt
-// komponenten, uten å måtte montere hele gjennomgangs-wizarden.
 function withRouterStub(children: React.ReactNode) {
 	const Stub = createRoutesStub([
 		{
@@ -124,8 +121,6 @@ const subjects: GithubAccessSubjectWithIdentity[] = [
 	},
 ]
 
-/** Full gjennomgang under arbeid med nye, uberørte og tidligere personer med tilgang — ingen
- *  er ennå merket for fjerning/justering, og gjennomgangen er ikke bekreftet. */
 export const PagaendeGjennomgang: Story = {
 	name: "Pågående gjennomgang (ikke bekreftet)",
 	args: {
@@ -139,7 +134,6 @@ export const PagaendeGjennomgang: Story = {
 	},
 }
 
-/** Reviewer har bekreftet at hele listen er gjennomgått — aktiviteten kan fullføres. */
 export const Bekreftet: Story = {
 	name: "Bekreftet (klar for fullføring)",
 	args: {
@@ -154,7 +148,6 @@ export const Bekreftet: Story = {
 	},
 }
 
-/** Fullført aktivitet — skrivebeskyttet visning av forrige rundes bekreftelse. */
 export const FullfortAktivitet: Story = {
 	name: "Fullført aktivitet (read-only)",
 	args: {
@@ -169,7 +162,6 @@ export const FullfortAktivitet: Story = {
 	},
 }
 
-/** Ingen tilganger å vise (repo uten synkroniserte data ennå). */
 export const IngenTilganger: Story = {
 	name: "Ingen tilganger",
 	args: {
@@ -183,13 +175,6 @@ export const IngenTilganger: Story = {
 	},
 }
 
-/**
- * Demonstrerer "merk for fjerning"-flyten: én person er allerede merket for fjerning i denne
- * runden, og de resterende venter på ordinær gjennomgang — der reviewer kan
- * velge "Fjern tilgang" i Handlinger-menyen som alternativ til å la tilgangen stå.
- * Ved fullføring av gjennomgangen opprettes automatisk et preutfylt oppfølgingspunkt for denne
- * fjerningen — KISS bekrefter ikke lenger dette mot GitHub. Gjennomgangen er ikke bekreftet ennå.
- */
 export const MerketForFjerning: Story = {
 	name: "Merket for fjerning (oppfølgingspunkt opprettes ved fullføring)",
 	args: {
@@ -221,14 +206,6 @@ export const MerketForFjerning: Story = {
 	},
 }
 
-/**
- * Demonstrerer "merk for justering av tilgangsnivå"-flyten: én person er allerede merket for
- * justering i denne runden (fra admin til push), og de resterende venter på
- * ordinær gjennomgang — der reviewer kan velge "Juster tilgang" i Handlinger-menyen som
- * alternativ til å la tilgangen stå eller fjerne den. Ved fullføring av gjennomgangen opprettes
- * automatisk et preutfylt oppfølgingspunkt for justeringen — KISS bekrefter ikke lenger dette mot
- * GitHub.
- */
 export const MerketForJustering: Story = {
 	name: "Merket for justering av tilgangsnivå (oppfølgingspunkt opprettes ved fullføring)",
 	args: {
@@ -300,10 +277,6 @@ const manySubjects: GithubAccessSubject[] = NAMES.map((username, i) => ({
 	permissionAdjustmentMarkedAt: null,
 }))
 
-/**
- * Lang liste (20 personer) — for å demonstrere scroll/ytelse og den samlede
- * "Bekreft tjenstlig behov for alle"-handlingen uten per-person godkjenning.
- */
 export const LangListe: Story = {
 	name: "Lang liste — samlet bekreftelse",
 	args: {

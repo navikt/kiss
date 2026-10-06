@@ -9,35 +9,14 @@ const red = "#c30000"
 
 type PdfDoc = InstanceType<typeof PDFDocument>
 
-/**
- * Bygger et PDF-dokument som oppsummerer en GitHub-tilgangsgjennomgang: hvem som har
- * tilgang, hvor tilgangen kommer fra (direkte/team), og registrerte beslutninger (fjerning/justering).
- * Legges ved som revisjonsbevis
- * (`routine_review_attachments`, sourceType "automated") når aktiviteten fullføres.
- *
- * Kan også kalles på ikke-fullførte (draft) staged_data for å vise reviewer et utkast av
- * PDF-en før gjennomgangen fullføres — se `params.isDraft`.
- */
 export function buildGithubAccessReviewPdf(
 	data: GithubAccessStagedData,
 	params: {
-		/** Personen som teknisk klikket "Bekreft tjenstlig behov for alle" for denne aktiviteten —
-		 *  kun til internt/revisjonsformål, vises ikke lenger som egen "Godkjent av"-linje (se
-		 *  `participants`). */
 		performedBy: string
 		generatedAt?: Date
-		/** Vises som "UTKAST"-varsel øverst i dokumentet — brukes til forhåndsvisning før fullføring. */
 		isDraft?: boolean
-		/** Registrerte deltakere på rutinegjennomgangen (fra "Innledning"-steget). Vises som
-		 *  "Godkjent av"-linjen — gjennomgangen bekreftes i fellesskap av deltakerne, ikke av én
-		 *  enkeltperson. Faller tilbake til `performedBy` dersom listen er tom/ukjent. */
 		participants?: Array<{ userIdent: string; userName: string | null; confirmedAt: Date | string | null }>
-		/** Visningsnavn/nav-ident fra NDAs Github-brukeroppslag, nøkkel = GitHub-brukernavn. Kun for
-		 *  visning — feiler oppslaget vises brukernavnet alene. */
 		githubUserLookups?: Map<string, { displayName: string | null; navIdent: string | null }>
-		/** Reelt navn fra intern brukertabell, nøkkel = nav-ident i store bokstaver (som
-		 *  `getUserNamesByNavIdents`). Brukes til "Godkjent av"-linjen og "Registrert av"-kolonnen per
-		 *  rad — kun for visning, feiler oppslaget vises nav-identen alene. */
 		nameByNavIdent?: ReadonlyMap<string, string>
 	},
 ): Promise<Buffer> {
@@ -64,10 +43,6 @@ export function buildGithubAccessReviewPdf(
 			const name = nameByNavIdent.get(navIdent.trim().toUpperCase())
 			return formatUserDisplayName(navIdent, name)
 		}
-		// Merket for fjerning/justering i DENNE runden — reviewer har besluttet dette, og hver person
-		// får automatisk et preutfylt oppfølgingspunkt når gjennomgangen fullføres (se
-		// `commitGithubAccessActivity`). KISS gjør ikke lenger et nytt GitHub-kall for å bekrefte at
-		// endringen faktisk er utført — det spores i stedet via oppfølgingspunktet.
 		const removedDuringReview = data.subjects.filter((s) => s.markedForRemoval)
 		const adjustedDuringReview = data.subjects.filter((s) => s.permissionAdjustmentRequested)
 		const activeSubjects = data.subjects.filter(
@@ -101,8 +76,6 @@ export function buildGithubAccessReviewPdf(
 		doc.fontSize(9).fillColor(gray)
 		doc.text("Personer med tilgang er hentet automatisk fra GitHub (direkte tilgang og via team).")
 		doc.moveDown(0.3)
-		// Reflekterer tidspunktet for siste nattlige synkronisering av de underliggende Github-tabellene
-		// (dataSyncedAt) — det gjøres ikke lenger noe ferskt GitHub-oppslag ved fullføring av aktiviteten.
 		const lastCheckedAt = data.dataSyncedAt ? formatDateTimeOslo(data.dataSyncedAt) : null
 		doc.text(
 			lastCheckedAt
@@ -145,8 +118,6 @@ export function buildGithubAccessReviewPdf(
 	})
 }
 
-/** Enkel tabell for "Personer med tilgang" og "Fjernet siden forrige gjennomgang" — ingen
- *  per-rad aktør/dato finnes lenger for disse to tabellene, kun Bruker/Tilgang/Tilgang via. */
 function renderSimpleSubjectsTable(
 	doc: PdfDoc,
 	title: string,
@@ -235,8 +206,6 @@ function renderSimpleSubjectsTable(
 	}
 }
 
-/** Tabell for "merket for fjerning"/"merket for justering" — inkluderer hvem som merket
- *  beslutningen og datoen den ble gjort (dato-only, ikke tidspunkt). */
 function renderDecisionSubjectsTable(
 	doc: PdfDoc,
 	title: string,
@@ -252,7 +221,6 @@ function renderDecisionSubjectsTable(
 		return
 	}
 
-	/** Dato-only-felt (YYYY-MM-DD) vist med samme konvensjon som "Dato:"-linjen øverst i PDF-en. */
 	const dateOnlyLabel = (dateOnly: string | null) => {
 		if (!dateOnly) return "—"
 		const [y, m, d] = dateOnly.split("-").map(Number)
