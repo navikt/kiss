@@ -53,13 +53,11 @@ export function buildGithubAccessReviewPdf(
 		const dateOnly = (d: Date) => d.toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })
 		const githubUserLookups =
 			params.githubUserLookups ?? new Map<string, { displayName: string | null; navIdent: string | null }>()
-		/** "Navn (@brukernavn)" når visningsnavn finnes fra NDA, ellers bare brukernavnet. */
 		const userLabel = (username: string) => {
 			const displayName = githubUserLookups.get(username)?.displayName?.trim()
 			return displayName ? `${displayName} (@${username})` : username
 		}
 		const nameByNavIdent = params.nameByNavIdent ?? new Map<string, string>()
-		/** "Navn (Z990001)" når reelt navn finnes i brukertabellen, ellers bare nav-identen. */
 		const identLabel = (navIdent: string | null) => {
 			if (!navIdent) return "—"
 			const name = nameByNavIdent.get(navIdent.trim().toUpperCase())

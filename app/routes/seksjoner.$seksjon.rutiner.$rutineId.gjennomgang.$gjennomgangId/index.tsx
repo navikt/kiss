@@ -1407,7 +1407,6 @@ export async function action({ request, params }: Route.ActionArgs) {
 					op: "mark-for-removal",
 					username,
 					markedBy: authedUser.navIdent,
-					// Dato-only (YYYY-MM-DD) — se #2 i oppgaven/README for konvensjonen.
 					markedAt: new Date().toISOString().slice(0, 10),
 				},
 				authedUser.navIdent,
@@ -1489,7 +1488,6 @@ export async function action({ request, params }: Route.ActionArgs) {
 					username,
 					targetPermission,
 					markedBy: authedUser.navIdent,
-					// Dato-only (YYYY-MM-DD) — se #2 i oppgaven/README for konvensjonen.
 					markedAt: new Date().toISOString().slice(0, 10),
 				},
 				authedUser.navIdent,

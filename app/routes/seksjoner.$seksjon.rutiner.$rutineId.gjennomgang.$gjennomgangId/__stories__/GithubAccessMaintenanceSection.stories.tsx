@@ -186,7 +186,7 @@ export const IngenTilganger: Story = {
 /**
  * Demonstrerer "merk for fjerning"-flyten: én person er allerede merket for fjerning i denne
  * runden, og de resterende venter på ordinær gjennomgang — der reviewer kan
- * velge "Skal personen fjernes fra repoet i stedet?" som alternativ til å la tilgangen stå.
+ * velge "Fjern tilgang" i Handlinger-menyen som alternativ til å la tilgangen stå.
  * Ved fullføring av gjennomgangen opprettes automatisk et preutfylt oppfølgingspunkt for denne
  * fjerningen — KISS bekrefter ikke lenger dette mot GitHub. Gjennomgangen er ikke bekreftet ennå.
  */
@@ -224,9 +224,10 @@ export const MerketForFjerning: Story = {
 /**
  * Demonstrerer "merk for justering av tilgangsnivå"-flyten: én person er allerede merket for
  * justering i denne runden (fra admin til push), og de resterende venter på
- * ordinær gjennomgang — der reviewer kan velge "Juster tilgang" som alternativ til å la
- * tilgangen stå eller fjerne den. Ved fullføring av gjennomgangen opprettes automatisk et
- * preutfylt oppfølgingspunkt for justeringen — KISS bekrefter ikke lenger dette mot GitHub.
+ * ordinær gjennomgang — der reviewer kan velge "Juster tilgang" i Handlinger-menyen som
+ * alternativ til å la tilgangen stå eller fjerne den. Ved fullføring av gjennomgangen opprettes
+ * automatisk et preutfylt oppfølgingspunkt for justeringen — KISS bekrefter ikke lenger dette mot
+ * GitHub.
  */
 export const MerketForJustering: Story = {
 	name: "Merket for justering av tilgangsnivå (oppfølgingspunkt opprettes ved fullføring)",
@@ -300,11 +301,11 @@ const manySubjects: GithubAccessSubject[] = NAMES.map((username, i) => ({
 }))
 
 /**
- * Lang liste (20 personer) — for å demonstrere hurtigfiltre (Alle/Nye) og den samlede
+ * Lang liste (20 personer) — for å demonstrere scroll/ytelse og den samlede
  * "Bekreft tjenstlig behov for alle"-handlingen uten per-person godkjenning.
  */
 export const LangListe: Story = {
-	name: "Lang liste — filter og samlet bekreftelse",
+	name: "Lang liste — samlet bekreftelse",
 	args: {
 		activity: baseActivity,
 		reviewId: "review-1",
