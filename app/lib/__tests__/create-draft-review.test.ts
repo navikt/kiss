@@ -22,8 +22,9 @@ vi.mock("~/db/queries/sections.server", () => ({
 
 const { createDraftReview } = await import("../create-draft-review.server")
 
+const fakeRoutineId = "c388d8ec-aa81-415c-ad18-30e91592720a"
 const fakeSection = { id: "section-1", slug: "test-seksjon" }
-const fakeSectionRoutine = { id: "routine-1", sectionId: "section-1", isSectionRoutine: 1 }
+const fakeSectionRoutine = { id: fakeRoutineId, sectionId: "section-1", isSectionRoutine: 1 }
 
 beforeEach(() => {
 	vi.resetAllMocks()
@@ -37,7 +38,7 @@ beforeEach(() => {
 describe("createDraftReview", () => {
 	it("legger oppretteren til som deltaker", async () => {
 		const result = await createDraftReview({
-			routineId: "routine-1",
+			routineId: fakeRoutineId,
 			sectionSlug: "test-seksjon",
 			applicationId: null,
 			navIdent: "Z990001",
@@ -54,7 +55,7 @@ describe("createDraftReview", () => {
 
 	it("setter userName til null når det ikke er oppgitt", async () => {
 		const result = await createDraftReview({
-			routineId: "routine-1",
+			routineId: fakeRoutineId,
 			sectionSlug: "test-seksjon",
 			applicationId: null,
 			navIdent: "Z990001",
