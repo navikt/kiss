@@ -6476,6 +6476,12 @@ export async function completeReviewActivity(
 		// kan omgå kravet om bevis per app.
 		if (evidenceProviderType === "deployments" && activity.applicationId) {
 			const appsGroup = await getNdaAppParamsGroup(activity.applicationId)
+			if (appsGroup.length === 0) {
+				throw new Response(
+					"Vedlikeholdsaktiviteten kan ikke fullføres. Applikasjonen har ingen produksjonsmiljøer konfigurert for leveranserapporter.",
+					{ status: 400 },
+				)
+			}
 			const appsMissingReports = appsGroup.filter(
 				(app) =>
 					!downloads.some(

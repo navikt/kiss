@@ -2492,6 +2492,70 @@ describe("Routines integration tests", () => {
 			expect(completed.status).toBe("completed")
 		})
 
+		it("should reject completing a deployment_evidence_report activity when the app's NDA group has no current production environments, even with an old recorded download", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("act-deployment-empty-group", "act-deployment-empty-group")
+			const appId = await createTestApp("app-deployment-empty-group")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-tom-gruppe-rutine",
+				description: "Rutine med leveranserapport-bevis for app uten gjeldende produksjonsmiljø",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Leveranserapport-tom-gruppe-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+
+			// En eldre rapport finnes fra før appen mistet sitt produksjonsmiljø (f.eks. miljøet ble
+			// fjernet/omkonfigurert). Siden getNdaAppParamsGroup() ikke lenger finner noen gyldige
+			// gruppemedlemmer, skal aktiviteten fortsatt IKKE kunne fullføres — en gammel nedlasting
+			// skal ikke kunne dekke et krav som nå ikke har noen app å knyttes til.
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "gammelt-team",
+					environment: "prod-gcp",
+					appName: "app-deployment-empty-group",
+					periodType: "quarterly",
+					periodStart: "2025-10-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "gammelt-team",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("gammel-leveranserapport"),
+				fileName: "gammel-rapport.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			const error = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
+			expect(error).toBeInstanceOf(Response)
+			expect((error as Response).status).toBe(400)
+			expect(await (error as Response).text()).toMatch(/ingen produksjonsmiljøer konfigurert/)
+		})
+
 		it("should return empty for reviews with no activities", async () => {
 			const activities = await getActivitiesForReviews([])
 			expect(activities).toEqual([])
