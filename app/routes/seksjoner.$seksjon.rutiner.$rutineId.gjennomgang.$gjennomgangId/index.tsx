@@ -467,10 +467,18 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 				const { getEvidenceDownloadsForActivityWithBucketDetails } = await import(
 					"~/db/queries/evidence-downloads.server"
 				)
-				const [apps, downloads] = await Promise.all([
+				const [appsGroup, downloads] = await Promise.all([
 					review.applicationId ? getNdaAppParamsGroup(review.applicationId) : Promise.resolve([]),
 					getEvidenceDownloadsForActivityWithBucketDetails(activity.id),
 				])
+				// getNdaAppParamsGroup() deliberately includes linked members from other sections
+				// (linkApplication() doesn't require a shared section), but this loader only
+				// authorizes the review's own application/section — and validateDeploymentsAccess()
+				// rejects reports for cross-section members. Scope the apps sent to the client to
+				// the review's own section, and strip sectionId so it's never serialized to the client.
+				const apps = appsGroup
+					.filter((app) => app.sectionId === routine.sectionId)
+					.map(({ applicationId, team, environment, appName }) => ({ applicationId, team, environment, appName }))
 				actNdaEvidenceData = {
 					apps,
 					periodConfig: activity.periodConfig ?? null,

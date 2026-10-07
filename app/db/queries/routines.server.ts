@@ -6435,9 +6435,11 @@ export async function completeReviewActivity(
 			stagedData: routineReviewActivities.stagedData,
 			applicationId: routineReviews.applicationId,
 			reviewId: routineReviews.id,
+			sectionId: routines.sectionId,
 		})
 		.from(routineReviewActivities)
 		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
+		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 		.where(eq(routineReviewActivities.id, activityId))
 		.limit(1)
 
@@ -6476,13 +6478,20 @@ export async function completeReviewActivity(
 		// kan omgå kravet om bevis per app.
 		if (evidenceProviderType === "deployments" && activity.applicationId) {
 			const appsGroup = await getNdaAppParamsGroup(activity.applicationId)
-			if (appsGroup.length === 0) {
+			// validateDeploymentsAccess() (evidence-providers/validation.server.ts) rejects any
+			// report submission for a group member whose sectionId differs from the review's own
+			// section — a linked application is not an authorization boundary, so cross-section
+			// members can never be reported on through this review. Scope the completion
+			// requirement the same way, or a single cross-section link would permanently block
+			// completion for a report that can never legally be collected.
+			const appsInSection = appsGroup.filter((app) => app.sectionId === activity.sectionId)
+			if (appsInSection.length === 0) {
 				throw new Response(
 					"Vedlikeholdsaktiviteten kan ikke fullføres. Applikasjonen har ingen produksjonsmiljøer konfigurert for leveranserapporter.",
 					{ status: 400 },
 				)
 			}
-			const appsMissingReports = appsGroup.filter(
+			const appsMissingReports = appsInSection.filter(
 				(app) =>
 					!downloads.some(
 						(d) =>

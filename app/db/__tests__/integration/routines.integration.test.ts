@@ -2556,6 +2556,99 @@ describe("Routines integration tests", () => {
 			expect(await (error as Response).text()).toMatch(/ingen produksjonsmiljøer konfigurert/)
 		})
 
+		it("should complete a deployment_evidence_report activity once the review's own section's group members have reports, ignoring a linked member in a different section", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection(
+				"act-deployment-cross-section-own",
+				"act-deployment-cross-section-own",
+			)
+			const naisTeamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-cross-section-own', '${sectionId}') RETURNING id`,
+			)
+			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
+			const primaryId = await createTestApp("primary-app-cross-section")
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${primaryId}', 'prod-gcp', 'default', '${naisTeamId}')`,
+			)
+
+			// Lenket app tilhører en ANNEN seksjon — linkApplication() krever ikke delt seksjon/team.
+			// validateDeploymentsAccess() avviser rapportinnsending for denne appen (403), så den kan
+			// aldri få sin egen rapport gjennom denne gjennomgangen. completeReviewActivity() skal
+			// derfor ikke kreve rapport for den, ellers ville gjennomgangen aldri kunne fullføres.
+			const otherSectionId = await createTestSection(
+				"act-deployment-cross-section-other",
+				"act-deployment-cross-section-other",
+			)
+			const otherNaisTeamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-cross-section-other', '${otherSectionId}') RETURNING id`,
+			)
+			const otherNaisTeamId = (otherNaisTeamResult.rows[0] as { id: string }).id
+			const linkedResult = await db.execute(
+				/* sql */ `INSERT INTO monitored_applications (name, primary_application_id, created_by, updated_by)
+				VALUES ('linked-app-cross-section', '${primaryId}', 'test', 'test') RETURNING id`,
+			)
+			const linkedId = (linkedResult.rows[0] as { id: string }).id
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${linkedId}', 'prod-fss', 'default', '${otherNaisTeamId}')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-tverrseksjon-rutine",
+				description: "Rutine med leveranserapport-bevis for gruppe med lenket app i annen seksjon",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: primaryId,
+				title: "Leveranserapport-tverrseksjon-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+
+			// Kun hovedapplikasjonens egen rapport lastes opp. Den lenkede appen i den andre
+			// seksjonen skal ikke kreves — og aktiviteten skal derfor kunne fullføres.
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "team-cross-section-own",
+					environment: "prod-gcp",
+					appName: "primary-app-cross-section",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "team-cross-section-own",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("leveranserapport-innhold-primary-cross-section"),
+				fileName: "rapport-primary-cross-section.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			const completed = await completeReviewActivity(activity.id, null, "test")
+			expect(completed.status).toBe("completed")
+		})
+
 		it("should return empty for reviews with no activities", async () => {
 			const activities = await getActivitiesForReviews([])
 			expect(activities).toEqual([])
