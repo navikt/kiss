@@ -486,8 +486,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 							performedBy: d.performedBy,
 							performedAt: d.performedAt.toISOString(),
 							team: typeof d.providerMetadata.team === "string" ? d.providerMetadata.team : "",
-							environment:
-								typeof d.providerMetadata.environment === "string" ? d.providerMetadata.environment : "",
+							environment: typeof d.providerMetadata.environment === "string" ? d.providerMetadata.environment : "",
 							appName: typeof d.providerMetadata.appName === "string" ? d.providerMetadata.appName : "",
 						})),
 				}
@@ -1545,7 +1544,9 @@ export default function GjennomgangDetalj() {
 					}
 				} else {
 					const downloads = activity.oracleEvidenceData?.downloads ?? []
-					const collectedEvidenceTypes = new Set(downloads.map((d) => ("evidenceType" in d ? d.evidenceType : undefined)))
+					const collectedEvidenceTypes = new Set(
+						downloads.map((d) => ("evidenceType" in d ? d.evidenceType : undefined)),
+					)
 					const missingEvidenceTypes = requiredEvidenceTypes.filter((et) => !collectedEvidenceTypes.has(et))
 					if (missingEvidenceTypes.length > 0) {
 						const labels = getProviderUiConfig(evidenceProviderType).evidenceTypeLabels

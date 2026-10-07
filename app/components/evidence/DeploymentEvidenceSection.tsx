@@ -108,7 +108,9 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, pre
 							periodConfig={periodConfig}
 							downloads={downloads.filter(
 								(d) =>
-									d.team === appParams.team && d.environment === appParams.environment && d.appName === appParams.appName,
+									d.team === appParams.team &&
+									d.environment === appParams.environment &&
+									d.appName === appParams.appName,
 							)}
 							isDraft={isDraft}
 							preview={preview}
