@@ -469,6 +469,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 				const { getEvidenceDownloadsForActivityWithBucketDetails } = await import(
 					"~/db/queries/evidence-downloads.server"
 				)
+				const { getAppScopeIdsForApps } = await import("~/db/queries/applications.server")
 				const [appsGroup, downloads] = await Promise.all([
 					review.applicationId ? getNdaAppParamsGroup(review.applicationId, routine.sectionId) : Promise.resolve([]),
 					getEvidenceDownloadsForActivityWithBucketDetails(activity.id),
@@ -477,9 +478,14 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 				// (linkApplication() doesn't require a shared section), but this loader only
 				// authorizes the review's own application/section — and validateDeploymentsAccess()
 				// rejects reports for cross-section members. Scope the apps sent to the client to
-				// the review's own section, and strip sectionId so it's never serialized to the client.
+				// the review's own section using each member's canonical application scope
+				// (dev-team + NAIS-team derived sections, via getAppScopeIdsForApps) rather than the
+				// deployed environment's naisTeams.sectionId alone — an app can be linked to a dev
+				// team (or NAIS team) in a different section than the one its deployment environment
+				// happens to resolve to. Strip sectionId so it's never serialized to the client.
+				const scopeByApp = await getAppScopeIdsForApps(appsGroup.map((app) => app.applicationId))
 				const apps = appsGroup
-					.filter((app) => app.sectionId === routine.sectionId)
+					.filter((app) => scopeByApp.get(app.applicationId)?.sectionIds.includes(routine.sectionId))
 					.map(({ applicationId, team, environment, appName }) => ({ applicationId, team, environment, appName }))
 				actNdaEvidenceData = {
 					apps,

@@ -2649,6 +2649,69 @@ describe("Routines integration tests", () => {
 			expect(completed.status).toBe("completed")
 		})
 
+		it("should require a report for a group member whose deployment environment resolves to a different nais_teams section than the review, when a dev-team mapping puts the member's canonical scope in the review's section", async () => {
+			// Regression for the authorization-scope bug: an app's canonical section scope
+			// (getAppScopeIds()) is derived from dev-team mappings AND nais_teams environments, not
+			// nais_teams.sectionId alone. A member whose deployment environment happens to resolve to
+			// a different nais_teams section must still be required if a dev-team mapping places it
+			// in the review's own section — otherwise completeReviewActivity() would wrongly treat it
+			// as cross-section and let the review complete without its report.
+			const db = getTestDb()
+			const sectionId = await createTestSection(
+				"act-deployment-devteam-scope-own",
+				"act-deployment-devteam-scope-own",
+			)
+			const otherSectionId = await createTestSection(
+				"act-deployment-devteam-scope-env",
+				"act-deployment-devteam-scope-env",
+			)
+			const otherNaisTeamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-devteam-scope-env', '${otherSectionId}') RETURNING id`,
+			)
+			const otherNaisTeamId = (otherNaisTeamResult.rows[0] as { id: string }).id
+			const appId = await createTestApp("app-deployment-devteam-scope")
+			await assignAppToSection(appId, sectionId)
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${appId}', 'prod-fss', 'default', '${otherNaisTeamId}')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-devteam-scope-rutine",
+				description: "Rutine med leveranserapport-bevis for app med devteam-mapping i egen seksjon",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Leveranserapport-devteam-scope-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+
+			const error = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
+			expect(error).toBeInstanceOf(Response)
+			expect((error as Response).status).toBe(400)
+			expect(await (error as Response).text()).toMatch(/Leveranserapport mangler/)
+		})
+
 		it("should reject completing a deployment_evidence_report activity when the only matching download is for an older period than the activity's current period config", async () => {
 			const sectionId = await createTestSection("act-deployment-period-mismatch", "act-deployment-period-mismatch")
 			const appId = await createTestApp("app-deployment-period-mismatch")

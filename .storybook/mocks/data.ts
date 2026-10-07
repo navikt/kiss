@@ -2047,6 +2047,8 @@ export function mockGjennomgangMultiActivityData(overrides?: { status?: Gjennomg
 					team: "starte-pensjon",
 					environment: "prod",
 					appName: "pensjon-sak",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
 				},
 			],
 		},

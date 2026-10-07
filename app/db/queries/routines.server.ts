@@ -94,6 +94,7 @@ import {
 import { syncApplicationControls } from "./application-controls.server"
 import { writeAuditLog } from "./audit.server"
 import { getOracleInstancesForApp } from "./audit-evidence.server"
+import { getAppScopeIdsForApps } from "./applications.server"
 import { getNdaAppParamsGroup } from "./deployment-audit.server"
 import { getEvidenceDownloadsForActivities, getEvidenceDownloadsForActivity } from "./evidence-downloads.server"
 import {
@@ -6487,12 +6488,22 @@ export async function completeReviewActivity(
 		if (evidenceProviderType === "deployments" && activity.applicationId) {
 			const appsGroup = await getNdaAppParamsGroup(activity.applicationId, activity.sectionId, tx ?? db)
 			// validateDeploymentsAccess() (evidence-providers/validation.server.ts) rejects any
-			// report submission for a group member whose sectionId differs from the review's own
-			// section — a linked application is not an authorization boundary, so cross-section
-			// members can never be reported on through this review. Scope the completion
-			// requirement the same way, or a single cross-section link would permanently block
-			// completion for a report that can never legally be collected.
-			const appsInSection = appsGroup.filter((app) => app.sectionId === activity.sectionId)
+			// report submission for a group member whose canonical application scope (dev-team +
+			// NAIS-team derived sections, via getAppScopeIdsForApps) doesn't include the review's
+			// own section — a linked application is not an authorization boundary, so cross-section
+			// members can never be reported on through this review. Comparing against the deployed
+			// environment's naisTeams.sectionId alone is insufficient, since an app can be linked to
+			// a dev team (or NAIS team) in a different section than its deployment environment
+			// resolves to. Scope the completion requirement the same way, or a single cross-section
+			// link would permanently block completion for a report that can never legally be
+			// collected.
+			const scopeByApp = await getAppScopeIdsForApps(
+				appsGroup.map((app) => app.applicationId),
+				tx ?? db,
+			)
+			const appsInSection = appsGroup.filter((app) =>
+				scopeByApp.get(app.applicationId)?.sectionIds.includes(activity.sectionId),
+			)
 			if (appsInSection.length === 0) {
 				throw new Response(
 					"Vedlikeholdsaktiviteten kan ikke fullføres. Applikasjonen har ingen produksjonsmiljøer konfigurert for leveranserapporter.",
@@ -6672,7 +6683,19 @@ export async function completeReviewActivity(
 			}
 			const freshDownloads = await getEvidenceDownloadsForActivity(activityId, exec)
 			const appsGroup = await getNdaAppParamsGroup(activity.applicationId, activity.sectionId, exec)
-			const appsInSection = appsGroup.filter((app) => app.sectionId === activity.sectionId)
+			const scopeByApp = await getAppScopeIdsForApps(
+				appsGroup.map((app) => app.applicationId),
+				exec,
+			)
+			const appsInSection = appsGroup.filter((app) =>
+				scopeByApp.get(app.applicationId)?.sectionIds.includes(activity.sectionId),
+			)
+			if (appsInSection.length === 0) {
+				throw new Response(
+					"Vedlikeholdsaktiviteten kan ikke fullføres. Applikasjonen har ingen produksjonsmiljøer konfigurert for leveranserapporter.",
+					{ status: 400 },
+				)
+			}
 			const appsMissingReports = appsInSection.filter(
 				(app) =>
 					!freshDownloads.some(

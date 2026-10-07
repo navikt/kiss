@@ -6,6 +6,7 @@
  */
 
 import { data } from "react-router"
+import { getAppScopeIds } from "~/db/queries/applications.server"
 import { getNdaAppParamsGroup } from "~/db/queries/deployment-audit.server"
 import { type ActivityContext, isInstanceConfiguredForApp } from "~/db/queries/evidence-downloads.server"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity } from "~/lib/activity-types"
@@ -186,14 +187,22 @@ async function validateDeploymentsAccess(params: Record<string, unknown>, ctx: A
 	// have deployed independently, each reported on separately.
 	// `linkApplication()` does not require linked apps to share a section/team, so group
 	// membership alone is NOT an authorization boundary — also require that the matched
-	// member's own section equals the review's section (already authorized via
-	// requireAnySectionRole(user, ctx.sectionId) at the route level). Without this, a user
-	// with access only to the review's section could pull deployment data for an
-	// independently-governed sibling application in a different section.
+	// member's own canonical application scope (dev-team + NAIS-team derived sections, via
+	// getAppScopeIds) includes the review's section (already authorized via
+	// requireAnySectionRole(user, ctx.sectionId) at the route level). Comparing against the
+	// deployed environment's naisTeams.sectionId alone is insufficient: an app can be linked
+	// to a dev team (or NAIS team) in a different section than the one its deployment
+	// environment happens to resolve to, so that narrower comparison could both wrongly
+	// reject legitimate same-section apps and wrongly admit apps the reviewer has no
+	// authorized relationship to in the review's section.
 	const matchedGroupMember = appParamsGroup.find(
 		(p) => p.team === team && p.environment === environment && p.appName === appName,
 	)
-	if (!matchedGroupMember || matchedGroupMember.sectionId !== ctx.sectionId) {
+	if (!matchedGroupMember) {
+		throw data({ error: "team, environment og appName matcher ikke applikasjonen" }, { status: 403 })
+	}
+	const { sectionIds } = await getAppScopeIds(matchedGroupMember.applicationId)
+	if (!sectionIds.includes(ctx.sectionId)) {
 		throw data({ error: "team, environment og appName matcher ikke applikasjonen" }, { status: 403 })
 	}
 
