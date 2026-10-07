@@ -508,6 +508,145 @@ export const IngenAppParamsMedNedlastinger: Story = {
 	},
 }
 
+export const RapportKlarIkkeRegistrertSomBevis: Story = {
+	name: "Rapport klar – ikke registrert som bevis",
+	render: () => {
+		const Wrapper = () => (
+			<DeploymentEvidenceSection
+				activity={baseActivity}
+				evidenceData={{
+					appParams,
+					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
+					downloads: [],
+				}}
+				isDraft={true}
+			/>
+		)
+		const Stub = createRoutesStub([
+			{ path: "/", Component: Wrapper },
+			{
+				path: "/api/evidence-status",
+				loader: async () =>
+					makeStatusResponse({
+						items: [
+							{
+								id: "report-1",
+								label: "Leveranserapport Q1 2026",
+								status: "ok",
+								formats: ["pdf", "excel"],
+								canDownload: true,
+								details: undefined,
+							},
+						],
+						metadata: {
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
+							period: {
+								type: "quarterly",
+								label: "Q1 2026",
+								start: "2026-01-01",
+								end: "2026-03-31",
+							},
+							deployments: {
+								total: 45,
+								approved: 42,
+								pending: 2,
+								notApproved: 1,
+								approvedPercent: 93,
+								withChangeOrigin: 40,
+								changeOriginPercent: 89,
+							},
+							existingReports: [
+								{
+									reportId: "report-1",
+									generatedAt: "2026-04-01T09:00:00Z",
+									availableFormats: ["pdf", "excel"],
+								},
+							],
+						},
+					}),
+			},
+		])
+		return <Stub initialEntries={["/"]} />
+	},
+}
+
+export const RapportRegistrertSomBevis: Story = {
+	name: "Rapport registrert som bevis",
+	render: () => {
+		const Wrapper = () => (
+			<DeploymentEvidenceSection
+				activity={baseActivity}
+				evidenceData={{
+					appParams,
+					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
+					downloads: [
+						{
+							id: "dl-1",
+							format: "pdf",
+							fileName: "leveranserapport-Q1-2026.pdf",
+							sizeBytes: 245_000,
+							source: "m2m_api",
+							forceFetchJustification: null,
+							performedBy: "Z990001",
+							performedAt: "2026-04-01T10:30:00Z",
+						},
+					],
+				}}
+				isDraft={true}
+			/>
+		)
+		const Stub = createRoutesStub([
+			{ path: "/", Component: Wrapper },
+			{
+				path: "/api/evidence-status",
+				loader: async () =>
+					makeStatusResponse({
+						items: [
+							{
+								id: "report-1",
+								label: "Leveranserapport Q1 2026",
+								status: "ok",
+								formats: ["pdf", "excel"],
+								canDownload: true,
+								details: undefined,
+							},
+						],
+						metadata: {
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
+							period: {
+								type: "quarterly",
+								label: "Q1 2026",
+								start: "2026-01-01",
+								end: "2026-03-31",
+							},
+							deployments: {
+								total: 45,
+								approved: 42,
+								pending: 2,
+								notApproved: 1,
+								approvedPercent: 93,
+								withChangeOrigin: 40,
+								changeOriginPercent: 89,
+							},
+							existingReports: [
+								{
+									reportId: "report-1",
+									generatedAt: "2026-04-01T09:00:00Z",
+									availableFormats: ["pdf", "excel"],
+								},
+							],
+						},
+					}),
+			},
+		])
+		return <Stub initialEntries={["/"]} />
+	},
+}
+
 export const StatusfeilFraApi: Story = {
 	name: "Statusfeil fra API",
 	render: () => {

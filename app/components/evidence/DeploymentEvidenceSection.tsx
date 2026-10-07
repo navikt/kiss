@@ -8,6 +8,7 @@
  * 4. Report download and display of existing downloads
  */
 
+import { CheckmarkCircleFillIcon } from "@navikt/aksel-icons"
 import {
 	Alert,
 	BodyShort,
@@ -62,6 +63,7 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, pre
 	const config = getProviderUiConfig("deployments")
 	const revalidator = useRevalidator()
 	const { appParams, periodConfig, downloads } = evidenceData
+	const showConfirmation = isDraft && !preview && downloads.length > 0
 
 	if (!appParams) {
 		return (
@@ -69,6 +71,7 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, pre
 				<Heading size="medium" level="3">
 					{config.heading}
 				</Heading>
+				{showConfirmation && <RegisteredEvidenceConfirmation count={downloads.length} />}
 				<Alert variant="warning">{config.noInstancesWarning}</Alert>
 				{downloads.length > 0 && <NdaDownloadsTable downloads={downloads} preview={preview} />}
 			</VStack>
@@ -80,6 +83,8 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, pre
 			<Heading size="medium" level="3">
 				{config.heading}
 			</Heading>
+
+			{showConfirmation && <RegisteredEvidenceConfirmation count={downloads.length} />}
 
 			{!periodConfig ? (
 				<>
@@ -102,6 +107,19 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, pre
 				/>
 			)}
 		</VStack>
+	)
+}
+
+// ─── Registered Evidence Confirmation ───────────────────────────────────────
+
+function RegisteredEvidenceConfirmation({ count }: { count: number }) {
+	return (
+		<HStack gap="space-2" align="center" role="status">
+			<CheckmarkCircleFillIcon fontSize="1.25rem" color="var(--ax-text-action-success)" aria-hidden />
+			<BodyShort size="small">
+				{count} rapport{count !== 1 ? "er" : ""} registrert som bevis for denne aktiviteten.
+			</BodyShort>
+		</HStack>
 	)
 }
 
@@ -323,6 +341,17 @@ function DeploymentStatusPanel({
 
 					{!validStatus.metadata?.error && <DeploymentStats metadata={validStatus.metadata} />}
 
+					{isDraft &&
+						!preview &&
+						!validStatus.metadata?.error &&
+						downloads.length === 0 &&
+						validStatus.items.some((item) => item.canDownload) && (
+							<Alert variant="info" size="small">
+								Bevis er ikke registrert for denne aktiviteten ennå. Klikk «Registrer som bevis» i tabellen under for å
+								registrere en rapport som bevis for gjennomgangen.
+							</Alert>
+						)}
+
 					{validStatus.items.length > 0 && (
 						<Table size="small">
 							<Table.Header>
@@ -519,7 +548,7 @@ function ExistingReportActions({
 							})
 						}}
 					>
-						Hent {format.toUpperCase()}
+						Registrer {format.toUpperCase()} som bevis
 					</Button>
 				)),
 			)}
