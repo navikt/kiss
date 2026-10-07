@@ -61,6 +61,7 @@ const {
 	getFollowUpReviewsForSection,
 	getFollowUpReviewsForApps,
 	copyRoutineToSection,
+	savePeriodConfig,
 } = await import("~/db/queries/routines.server")
 
 const { recordManualEvidenceUpload } = await import("~/db/queries/evidence-downloads.server")
@@ -2638,6 +2639,104 @@ describe("Routines integration tests", () => {
 				format: "pdf",
 				buffer: Buffer.from("leveranserapport-innhold-primary-cross-section"),
 				fileName: "rapport-primary-cross-section.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			const completed = await completeReviewActivity(activity.id, null, "test")
+			expect(completed.status).toBe("completed")
+		})
+
+		it("should reject completing a deployment_evidence_report activity when the only matching download is for an older period than the activity's current period config", async () => {
+			const sectionId = await createTestSection("act-deployment-period-mismatch", "act-deployment-period-mismatch")
+			const appId = await createTestApp("app-deployment-period-mismatch")
+			const db = getTestDb()
+			const naisTeamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-period-mismatch', '${sectionId}') RETURNING id`,
+			)
+			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${appId}', 'prod-gcp', 'default', '${naisTeamId}')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-periode-rutine",
+				description: "Rutine med leveranserapport-bevis for periode-mismatch-test",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Leveranserapport-periode-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+
+			// Laster opp en rapport for Q4 2025 (aktivitetens periode på det tidspunktet).
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "team-period-mismatch",
+					environment: "prod-gcp",
+					appName: "app-deployment-period-mismatch",
+					periodType: "quarterly",
+					periodStart: "2025-10-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "team-period-mismatch",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("leveranserapport-innhold-q4"),
+				fileName: "rapport-q4.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			// /api/evidence-period-config endrer periode til Q1 2026 ETTER at Q4-rapporten er lastet
+			// opp. Den gamle Q4-rapporten dekker ikke den nye perioden og skal ikke kunne brukes til
+			// å fullføre aktiviteten.
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+
+			const error = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
+			expect(error).toBeInstanceOf(Response)
+			expect((error as Response).status).toBe(400)
+			expect(await (error as Response).text()).toMatch(/Leveranserapport mangler for følgende applikasjon/)
+
+			// Etter at en rapport for den nye perioden også er lastet opp, skal aktiviteten kunne fullføres.
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "team-period-mismatch",
+					environment: "prod-gcp",
+					appName: "app-deployment-period-mismatch",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "team-period-mismatch",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("leveranserapport-innhold-q1"),
+				fileName: "rapport-q1.pdf",
 				contentType: "application/pdf",
 				performedBy: "test",
 			})

@@ -6436,6 +6436,7 @@ export async function completeReviewActivity(
 			applicationId: routineReviews.applicationId,
 			reviewId: routineReviews.id,
 			sectionId: routines.sectionId,
+			periodConfig: routineReviewActivities.periodConfig,
 		})
 		.from(routineReviewActivities)
 		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
@@ -6477,7 +6478,7 @@ export async function completeReviewActivity(
 		// Håndheves her (ikke bare i klientens useMemo) slik at et direkte completion-kall ikke
 		// kan omgå kravet om bevis per app.
 		if (evidenceProviderType === "deployments" && activity.applicationId) {
-			const appsGroup = await getNdaAppParamsGroup(activity.applicationId)
+			const appsGroup = await getNdaAppParamsGroup(activity.applicationId, activity.sectionId)
 			// validateDeploymentsAccess() (evidence-providers/validation.server.ts) rejects any
 			// report submission for a group member whose sectionId differs from the review's own
 			// section — a linked application is not an authorization boundary, so cross-section
@@ -6497,7 +6498,13 @@ export async function completeReviewActivity(
 						(d) =>
 							d.providerMetadata.team === app.team &&
 							d.providerMetadata.environment === app.environment &&
-							d.providerMetadata.appName === app.appName,
+							d.providerMetadata.appName === app.appName &&
+							// /api/evidence-period-config kan oppdatere en ventende aktivitets periode
+							// etter at nedlastinger allerede finnes. Uten denne sjekken kan en gammel
+							// nedlasting for en annen periode (f.eks. Q4) feilaktig tilfredsstille kravet
+							// for en nylig valgt periode (f.eks. Q1) den aldri faktisk dekket.
+							d.providerMetadata.periodType === activity.periodConfig?.periodType &&
+							d.providerMetadata.periodStart === activity.periodConfig?.periodStart,
 					),
 			)
 			if (appsMissingReports.length > 0) {

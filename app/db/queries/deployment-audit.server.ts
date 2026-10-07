@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, notExists } from "drizzle-orm"
+import { and, asc, eq, inArray, isNotNull, isNull, notExists, sql } from "drizzle-orm"
 import { getVerificationSummary } from "../../lib/deployment-audit.server"
 import { logger } from "../../lib/logger.server"
 import { db } from "../connection.server"
@@ -334,13 +334,20 @@ export interface NdaAppParamsGroupEntry extends NdaAppParams {
  * Resolve NDA API parameters for a monitored application.
  *
  * Finds the application's primary production environment — an environment whose cluster
- * has not been excluded by the application's section in `section_environments` — using
- * alphabetical ordering on cluster name and returns the team/environment/appName needed
- * by the NDA audit-reports API.
+ * has not been excluded by the application's section in `section_environments`. An application
+ * can have production environments spanning multiple sections (e.g. deployed by nais teams in
+ * different sections); when `preferredSectionId` is given, an environment belonging to that
+ * section is preferred over alphabetical-by-cluster ordering, so the review's own section isn't
+ * dropped just because another of the app's sections sorts first. Falls back to alphabetical
+ * ordering when no environment matches `preferredSectionId` (or none is given), returning
+ * whichever section that environment actually belongs to.
  *
  * @returns NdaAppParams or null if no production environment is found
  */
-export async function getNdaAppParams(applicationId: string): Promise<NdaAppParams | null> {
+export async function getNdaAppParams(
+	applicationId: string,
+	preferredSectionId?: string,
+): Promise<NdaAppParams | null> {
 	const rows = await db
 		.select({
 			appName: monitoredApplications.name,
@@ -359,7 +366,10 @@ export async function getNdaAppParams(applicationId: string): Promise<NdaAppPara
 				notExcludedBySectionCondition(),
 			),
 		)
-		.orderBy(asc(applicationEnvironments.cluster))
+		.orderBy(
+			sql`(case when ${naisTeams.sectionId} = ${preferredSectionId ?? null} then 0 else 1 end)`,
+			asc(applicationEnvironments.cluster),
+		)
 		.limit(1)
 
 	if (rows.length === 0) return null
@@ -386,9 +396,16 @@ export async function getNdaAppParams(applicationId: string): Promise<NdaAppPara
  * it) and returns NDA params for each member that has its own production environment, so each
  * can be reported on separately instead of merging or guessing which member's data applies.
  *
+ * `preferredSectionId` (typically the review's own section) is forwarded to `getNdaAppParams()`
+ * for each member, so a member with environments in multiple sections resolves to its
+ * environment in that section rather than an arbitrary alphabetical pick.
+ *
  * @returns one entry per group member with its own production environment (may be empty)
  */
-export async function getNdaAppParamsGroup(applicationId: string): Promise<NdaAppParamsGroupEntry[]> {
+export async function getNdaAppParamsGroup(
+	applicationId: string,
+	preferredSectionId?: string,
+): Promise<NdaAppParamsGroupEntry[]> {
 	const [app] = await db
 		.select({ primaryApplicationId: monitoredApplications.primaryApplicationId })
 		.from(monitoredApplications)
@@ -408,7 +425,7 @@ export async function getNdaAppParamsGroup(applicationId: string): Promise<NdaAp
 
 	const results = await Promise.all(
 		memberIds.map(async (id) => {
-			const params = await getNdaAppParams(id)
+			const params = await getNdaAppParams(id, preferredSectionId)
 			return params ? { applicationId: id, ...params } : null
 		}),
 	)

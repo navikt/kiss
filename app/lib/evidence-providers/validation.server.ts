@@ -164,7 +164,7 @@ async function validateDeploymentsAccess(params: Record<string, unknown>, ctx: A
 		throw data({ error: "Gjennomgangen mangler applikasjonstilknytning" }, { status: 400 })
 	}
 
-	const appParamsGroup = await getNdaAppParamsGroup(ctx.applicationId)
+	const appParamsGroup = await getNdaAppParamsGroup(ctx.applicationId, ctx.sectionId)
 	if (appParamsGroup.length === 0) {
 		throw data(
 			{ error: "Applikasjonen har ingen produksjonsmiljøer konfigurert for leveranserapporter" },

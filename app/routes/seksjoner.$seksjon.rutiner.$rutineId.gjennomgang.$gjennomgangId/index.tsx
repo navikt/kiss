@@ -468,7 +468,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 					"~/db/queries/evidence-downloads.server"
 				)
 				const [appsGroup, downloads] = await Promise.all([
-					review.applicationId ? getNdaAppParamsGroup(review.applicationId) : Promise.resolve([]),
+					review.applicationId ? getNdaAppParamsGroup(review.applicationId, routine.sectionId) : Promise.resolve([]),
 					getEvidenceDownloadsForActivityWithBucketDetails(activity.id),
 				])
 				// getNdaAppParamsGroup() deliberately includes linked members from other sections

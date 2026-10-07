@@ -441,6 +441,47 @@ describe("Deployment audit queries integration tests", () => {
 			expect(result).toBeNull()
 		})
 
+		it("prefers the environment in preferredSectionId over alphabetical cluster ordering when the app has environments in multiple sections", async () => {
+			// "prod-aaa" sorterer alfabetisk FØR "prod-zzz", men tilhører en ANNEN seksjon enn den
+			// vi spør etter. Uten preferredSectionId-prioritering ville denne appen feilaktig
+			// rapportert "ingen miljø" for review-seksjonen, selv om den faktisk har et gyldig miljø der.
+			const otherSectionId = await createSection("sec-nda-multi-other")
+			const otherNaisTeamId = await createNaisTeam(otherSectionId, "team-nda-multi-other")
+			const appId = await createApp("app-nda-multi-section")
+			await createEnvironment(appId, otherNaisTeamId, "prod-aaa")
+
+			const reviewSectionId = await createSection("sec-nda-multi-review")
+			const reviewNaisTeamId = await createNaisTeam(reviewSectionId, "team-nda-multi-review")
+			await createEnvironment(appId, reviewNaisTeamId, "prod-zzz")
+
+			const result = await getNdaAppParams(appId, reviewSectionId)
+
+			expect(result).toEqual({
+				team: "team-nda-multi-review",
+				environment: "prod-zzz",
+				appName: "app-nda-multi-section",
+				sectionId: reviewSectionId,
+			})
+		})
+
+		it("falls back to alphabetical cluster ordering when no environment matches preferredSectionId", async () => {
+			const sectionId = await createSection("sec-nda-multi-fallback")
+			const naisTeamId = await createNaisTeam(sectionId, "team-nda-multi-fallback")
+			const appId = await createApp("app-nda-multi-fallback")
+			await createEnvironment(appId, naisTeamId, "prod-gcp")
+
+			const unrelatedSectionId = await createSection("sec-nda-multi-unrelated")
+
+			const result = await getNdaAppParams(appId, unrelatedSectionId)
+
+			expect(result).toEqual({
+				team: "team-nda-multi-fallback",
+				environment: "prod-gcp",
+				appName: "app-nda-multi-fallback",
+				sectionId,
+			})
+		})
+
 		describe("getNdaAppParamsGroup", () => {
 			it("returns only the primary's own params when a linked application has no environment of its own", async () => {
 				const sectionId = await createSection("sec-nda-group1")
