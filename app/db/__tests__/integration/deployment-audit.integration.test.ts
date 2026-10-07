@@ -418,7 +418,7 @@ describe("Deployment audit queries integration tests", () => {
 
 			const result = await getNdaAppParams(appId)
 
-			expect(result).toEqual({ team: "team-nda1", environment: "prod-gcp", appName: "app-nda1" })
+			expect(result).toEqual({ team: "team-nda1", environment: "prod-gcp", appName: "app-nda1", sectionId })
 		})
 
 		it("returns null when a linked application has no production environment of its own", async () => {
@@ -457,6 +457,7 @@ describe("Deployment audit queries integration tests", () => {
 						team: "team-nda-group1",
 						environment: "prod-gcp",
 						appName: "alderspensjon-endringssoknad-frontend-group1",
+						sectionId,
 					},
 				])
 			})
@@ -478,16 +479,54 @@ describe("Deployment audit queries integration tests", () => {
 							team: "team-nda-group2",
 							environment: "prod-gcp",
 							appName: "primary-with-own-deploy",
+							sectionId,
 						},
 						{
 							applicationId: linkedId,
 							team: "team-nda-group2",
 							environment: "prod-fss",
 							appName: "linked-with-own-deploy",
+							sectionId,
 						},
 					]),
 				)
 				expect(result).toHaveLength(2)
+			})
+
+			it("preserves each member's own sectionId, even when a linked application belongs to a different section than the primary", async () => {
+				const primarySectionId = await createSection("sec-nda-group-primary")
+				const primaryNaisTeamId = await createNaisTeam(primarySectionId, "team-nda-group-primary")
+				const primaryId = await createApp("primary-cross-section")
+				await createEnvironment(primaryId, primaryNaisTeamId, "prod-gcp")
+
+				// Lenket app tilhører en ANNEN seksjon enn hovedapplikasjonen — linkApplication()
+				// krever ikke delt seksjon/team, så dette er et gyldig (om enn uvanlig) oppsett.
+				const linkedSectionId = await createSection("sec-nda-group-linked")
+				const linkedNaisTeamId = await createNaisTeam(linkedSectionId, "team-nda-group-linked")
+				const linkedId = await createApp("linked-cross-section", primaryId)
+				await createEnvironment(linkedId, linkedNaisTeamId, "prod-fss")
+
+				const result = await getNdaAppParamsGroup(primaryId)
+
+				expect(result).toEqual(
+					expect.arrayContaining([
+						{
+							applicationId: primaryId,
+							team: "team-nda-group-primary",
+							environment: "prod-gcp",
+							appName: "primary-cross-section",
+							sectionId: primarySectionId,
+						},
+						{
+							applicationId: linkedId,
+							team: "team-nda-group-linked",
+							environment: "prod-fss",
+							appName: "linked-cross-section",
+							sectionId: linkedSectionId,
+						},
+					]),
+				)
+				expect(primarySectionId).not.toBe(linkedSectionId)
 			})
 
 			it("returns an empty array when neither the application nor its linked primary has a production environment", async () => {
@@ -508,7 +547,13 @@ describe("Deployment audit queries integration tests", () => {
 				const result = await getNdaAppParamsGroup(appId)
 
 				expect(result).toEqual([
-					{ applicationId: appId, team: "team-nda-group3", environment: "prod-gcp", appName: "standalone-app-group3" },
+					{
+						applicationId: appId,
+						team: "team-nda-group3",
+						environment: "prod-gcp",
+						appName: "standalone-app-group3",
+						sectionId,
+					},
 				])
 			})
 
@@ -529,6 +574,7 @@ describe("Deployment audit queries integration tests", () => {
 						team: "team-nda-group4",
 						environment: "prod-gcp",
 						appName: "primary-with-archived-child",
+						sectionId,
 					},
 				])
 			})

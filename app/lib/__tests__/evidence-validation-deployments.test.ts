@@ -41,6 +41,7 @@ describe("validateProviderAccess for deployments", () => {
 				team: "pensjon-saksbehandling",
 				environment: "prod-gcp",
 				appName: "pensjon-pen",
+				sectionId: "s1",
 			},
 		])
 	})
@@ -108,12 +109,14 @@ describe("validateProviderAccess for deployments", () => {
 				team: "pensjon-saksbehandling",
 				environment: "prod-gcp",
 				appName: "pensjon-pen",
+				sectionId: "s1",
 			},
 			{
 				applicationId: "app2",
 				team: "pensjon-saksbehandling",
 				environment: "prod-fss",
 				appName: "pensjon-pen-variant",
+				sectionId: "s1",
 			},
 		])
 
@@ -130,6 +133,45 @@ describe("validateProviderAccess for deployments", () => {
 				baseContext,
 			),
 		).resolves.toBeUndefined()
+	})
+
+	it("throws 403 when params match a linked application's team/environment/appName but that application belongs to a different section than the review", async () => {
+		// linkApplication() does not require linked apps to share a section/team, so a linked
+		// sibling can belong to a section the reviewing user has no access to. Matching on
+		// team/environment/appName alone must not be treated as an authorization boundary.
+		mockGetNdaAppParamsGroup.mockResolvedValue([
+			{
+				applicationId: "app1",
+				team: "pensjon-saksbehandling",
+				environment: "prod-gcp",
+				appName: "pensjon-pen",
+				sectionId: "s1",
+			},
+			{
+				applicationId: "app2",
+				team: "annet-team",
+				environment: "prod-fss",
+				appName: "uavhengig-app",
+				sectionId: "s2",
+			},
+		])
+
+		try {
+			await validateProviderAccess(
+				"deployments",
+				{
+					team: "annet-team",
+					environment: "prod-fss",
+					appName: "uavhengig-app",
+					periodType: "yearly",
+					periodStart: "2025-01-01",
+				},
+				baseContext,
+			)
+			expect.fail("should throw")
+		} catch (thrown) {
+			expect(getStatus(thrown)).toBe(403)
+		}
 	})
 
 	it("throws 400 when periodType is invalid", async () => {

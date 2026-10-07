@@ -183,11 +183,17 @@ async function validateDeploymentsAccess(params: Record<string, unknown>, ctx: A
 
 	// Verify client-supplied params match one of the applications in the linked group —
 	// a review activity can cover a primary application plus any linked applications that
-	// have deployed independently, each reported on separately
-	const matchesGroupMember = appParamsGroup.some(
+	// have deployed independently, each reported on separately.
+	// `linkApplication()` does not require linked apps to share a section/team, so group
+	// membership alone is NOT an authorization boundary — also require that the matched
+	// member's own section equals the review's section (already authorized via
+	// requireAnySectionRole(user, ctx.sectionId) at the route level). Without this, a user
+	// with access only to the review's section could pull deployment data for an
+	// independently-governed sibling application in a different section.
+	const matchedGroupMember = appParamsGroup.find(
 		(p) => p.team === team && p.environment === environment && p.appName === appName,
 	)
-	if (!matchesGroupMember) {
+	if (!matchedGroupMember || matchedGroupMember.sectionId !== ctx.sectionId) {
 		throw data({ error: "team, environment og appName matcher ikke applikasjonen" }, { status: 403 })
 	}
 

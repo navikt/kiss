@@ -319,6 +319,10 @@ export interface NdaAppParams {
 	team: string
 	environment: string
 	appName: string
+	/** Section the resolved production environment belongs to — used to enforce that a linked
+	 * application's data is only exposed to users authorized for that application's own section,
+	 * since `linkApplication()` does not require linked apps to share a section. */
+	sectionId: string
 }
 
 /** NDA params for one member of a linked-application group, tagged with its own application id */
@@ -342,6 +346,7 @@ export async function getNdaAppParams(applicationId: string): Promise<NdaAppPara
 			appName: monitoredApplications.name,
 			cluster: applicationEnvironments.cluster,
 			teamSlug: naisTeams.slug,
+			sectionId: naisTeams.sectionId,
 		})
 		.from(applicationEnvironments)
 		.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
@@ -360,10 +365,14 @@ export async function getNdaAppParams(applicationId: string): Promise<NdaAppPara
 	if (rows.length === 0) return null
 
 	const row = rows[0]
+	// sectionId can't be null here — filtered by isNotNull(naisTeams.sectionId) above
+	if (!row.sectionId) return null
+
 	return {
 		team: row.teamSlug ?? "",
 		environment: row.cluster,
 		appName: row.appName,
+		sectionId: row.sectionId,
 	}
 }
 
