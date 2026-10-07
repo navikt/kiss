@@ -405,6 +405,11 @@ describe("Deployment audit queries integration tests", () => {
 			)
 		}
 
+		async function archiveApp(appId: string) {
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE monitored_applications SET archived_at = now() WHERE id = '${appId}'`)
+		}
+
 		it("resolves team/environment/appName for an application with its own production environment", async () => {
 			const sectionId = await createSection("sec-nda1")
 			const naisTeamId = await createNaisTeam(sectionId, "team-nda1")
@@ -504,6 +509,27 @@ describe("Deployment audit queries integration tests", () => {
 
 				expect(result).toEqual([
 					{ applicationId: appId, team: "team-nda-group3", environment: "prod-gcp", appName: "standalone-app-group3" },
+				])
+			})
+
+			it("excludes an archived linked application even if it still has a production environment", async () => {
+				const sectionId = await createSection("sec-nda-group4")
+				const naisTeamId = await createNaisTeam(sectionId, "team-nda-group4")
+				const primaryId = await createApp("primary-with-archived-child")
+				await createEnvironment(primaryId, naisTeamId, "prod-gcp")
+				const archivedChildId = await createApp("archived-linked-app", primaryId)
+				await createEnvironment(archivedChildId, naisTeamId, "prod-fss")
+				await archiveApp(archivedChildId)
+
+				const result = await getNdaAppParamsGroup(primaryId)
+
+				expect(result).toEqual([
+					{
+						applicationId: primaryId,
+						team: "team-nda-group4",
+						environment: "prod-gcp",
+						appName: "primary-with-archived-child",
+					},
 				])
 			})
 		})
