@@ -220,6 +220,89 @@ export const MedNedlastinger: Story = {
 	},
 }
 
+export const MedHistoriskBevis: Story = {
+	name: "Med historisk bevis (endret app-konfigurasjon)",
+	render: () => {
+		const Wrapper = () => (
+			<DeploymentEvidenceSection
+				activity={baseActivity}
+				evidenceData={{
+					apps: [appParams],
+					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
+					downloads: [
+						{
+							id: "dl-current",
+							format: "pdf",
+							fileName: "leveranserapport-Q1-2026.pdf",
+							sizeBytes: 245_000,
+							source: "m2m_api",
+							forceFetchJustification: null,
+							performedBy: "T123456",
+							performedAt: "2026-04-01T10:30:00Z",
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
+						},
+						{
+							id: "dl-historisk",
+							format: "pdf",
+							fileName: "leveranserapport-Q4-2025-gammelt-navn.pdf",
+							sizeBytes: 198_000,
+							source: "m2m_api",
+							forceFetchJustification: null,
+							performedBy: "T111111",
+							performedAt: "2026-01-02T09:00:00Z",
+							team: "gammelt-team",
+							environment: "prod-gcp",
+							appName: "gammelt-appnavn",
+						},
+					],
+				}}
+				isDraft={false}
+			/>
+		)
+		const Stub = createRoutesStub([
+			{ path: "/", Component: Wrapper },
+			{
+				path: "/api/evidence-status",
+				loader: async () =>
+					makeStatusResponse({
+						items: [
+							{
+								id: "deployment-stats",
+								label: "Leveranser Q1 2026",
+								status: "ok",
+								formats: ["pdf"],
+								canDownload: false,
+							},
+						],
+						metadata: {
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
+							period: {
+								type: "quarterly",
+								label: "Q1 2026",
+								start: "2026-01-01",
+								end: "2026-03-31",
+							},
+							deployments: {
+								total: 45,
+								approved: 42,
+								pending: 2,
+								notApproved: 1,
+								approvedPercent: 93,
+								withChangeOrigin: 40,
+								changeOriginPercent: 89,
+							},
+						},
+					}),
+			},
+		])
+		return <Stub initialEntries={["/"]} />
+	},
+}
+
 export const ManuellOpplasting: Story = {
 	name: "Manuell opplasting",
 	render: () => {

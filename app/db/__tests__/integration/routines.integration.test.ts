@@ -2389,6 +2389,112 @@ describe("Routines integration tests", () => {
 			expect(completed.status).toBe("completed")
 		})
 
+		it("should reject completing a deployment_evidence_report activity until every linked application in the NDA group has its own report", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection(
+				"act-deployment-group-section",
+				"act-deployment-group-section",
+			)
+			const naisTeamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-deployment-group', '${sectionId}') RETURNING id`,
+			)
+			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
+			const primaryId = await createTestApp("primary-app-deployment-group")
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${primaryId}', 'prod-gcp', 'default', '${naisTeamId}')`,
+			)
+			const linkedResult = await db.execute(
+				/* sql */ `INSERT INTO monitored_applications (name, primary_application_id, created_by, updated_by)
+				VALUES ('linked-app-deployment-group', '${primaryId}', 'test', 'test') RETURNING id`,
+			)
+			const linkedId = (linkedResult.rows[0] as { id: string }).id
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${linkedId}', 'prod-fss', 'default', '${naisTeamId}')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-gruppe-rutine",
+				description: "Rutine med leveranserapport-bevis for lenket gruppe",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: primaryId,
+				title: "Leveranserapport-gruppe-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+
+			// Kun hovedapplikasjonens rapport er lastet opp — den lenkede appen, som har deployet
+			// separat (egen rad i application_environments), mangler fortsatt sin egen rapport.
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "team-deployment-group",
+					environment: "prod-gcp",
+					appName: "primary-app-deployment-group",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "team-deployment-group",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("leveranserapport-innhold-primary"),
+				fileName: "rapport-primary.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			const error = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
+			expect(error).toBeInstanceOf(Response)
+			expect((error as Response).status).toBe(400)
+			expect(await (error as Response).text()).toMatch(/Leveranserapport mangler for følgende applikasjon/)
+
+			// Etter at den lenkede appens egen rapport også er lastet opp, skal aktiviteten kunne fullføres.
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "team-deployment-group",
+					environment: "prod-fss",
+					appName: "linked-app-deployment-group",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "team-deployment-group",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("leveranserapport-innhold-linked"),
+				fileName: "rapport-linked.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			const completed = await completeReviewActivity(activity.id, null, "test")
+			expect(completed.status).toBe("completed")
+		})
+
 		it("should return empty for reviews with no activities", async () => {
 			const activities = await getActivitiesForReviews([])
 			expect(activities).toEqual([])

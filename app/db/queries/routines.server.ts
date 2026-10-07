@@ -94,6 +94,7 @@ import {
 import { syncApplicationControls } from "./application-controls.server"
 import { writeAuditLog } from "./audit.server"
 import { getOracleInstancesForApp } from "./audit-evidence.server"
+import { getNdaAppParamsGroup } from "./deployment-audit.server"
 import { getEvidenceDownloadsForActivities, getEvidenceDownloadsForActivity } from "./evidence-downloads.server"
 import {
 	getAppAuthIntegrations,
@@ -6466,6 +6467,31 @@ export async function completeReviewActivity(
 				`Vedlikeholdsaktiviteten kan ikke fullføres. Følgende bevis må lastes ned eller lastes opp: ${missingLabels.join(", ")}.`,
 				{ status: 400 },
 			)
+		}
+
+		// Deployments-aktiviteter kan dekke en gruppe lenkede applikasjoner (se getNdaAppParamsGroup).
+		// En nedlasting av riktig evidenceType er ikke nok alene — hvert gruppemedlem med eget
+		// produksjonsmiljø SKAL ha sin egen leveranserapport før aktiviteten kan fullføres.
+		// Håndheves her (ikke bare i klientens useMemo) slik at et direkte completion-kall ikke
+		// kan omgå kravet om bevis per app.
+		if (evidenceProviderType === "deployments" && activity.applicationId) {
+			const appsGroup = await getNdaAppParamsGroup(activity.applicationId)
+			const appsMissingReports = appsGroup.filter(
+				(app) =>
+					!downloads.some(
+						(d) =>
+							d.providerMetadata.team === app.team &&
+							d.providerMetadata.environment === app.environment &&
+							d.providerMetadata.appName === app.appName,
+					),
+			)
+			if (appsMissingReports.length > 0) {
+				const missingNames = appsMissingReports.map((app) => app.appName).join(", ")
+				throw new Response(
+					`Vedlikeholdsaktiviteten kan ikke fullføres. Leveranserapport mangler for følgende applikasjon(er): ${missingNames}.`,
+					{ status: 400 },
+				)
+			}
 		}
 	}
 

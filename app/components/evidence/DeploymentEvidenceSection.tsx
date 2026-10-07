@@ -68,6 +68,15 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, pre
 	const { apps, periodConfig, downloads } = evidenceData
 	const showConfirmation = isDraft && !preview && downloads.length > 0
 
+	// Nedlastinger beholder den team/environment/appName-tuppelen de ble generert med.
+	// Hvis en app senere endrer navn, miljø eller lenke-konfigurasjon (slik at getNdaAppParamsGroup
+	// ikke lenger returnerer samme tuppel), vil tidligere nedlastede rapporter ikke matche noe
+	// gjeldende app-panel. De skal likevel ikke forsvinne fra visningen — render dem i en egen
+	// historisk tabell slik at registrert bevis alltid er synlig et sted.
+	const unmatchedDownloads = downloads.filter(
+		(d) => !apps.some((app) => d.team === app.team && d.environment === app.environment && d.appName === app.appName),
+	)
+
 	if (apps.length === 0) {
 		return (
 			<VStack gap="space-4">
@@ -117,6 +126,17 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, pre
 							config={config}
 						/>
 					))}
+					{unmatchedDownloads.length > 0 && (
+						<VStack gap="space-2">
+							<ReadMore header="Historisk bevis fra tidligere app-konfigurasjon">
+								<BodyShort size="small" spacing>
+									Disse rapportene ble registrert mens applikasjonen hadde en annen team-, miljø- eller
+									navnekonfigurasjon enn i dag, og vises derfor ikke under noen av app-panelene ovenfor.
+								</BodyShort>
+								<NdaDownloadsTable downloads={unmatchedDownloads} preview={preview} />
+							</ReadMore>
+						</VStack>
+					)}
 				</VStack>
 			)}
 		</VStack>
