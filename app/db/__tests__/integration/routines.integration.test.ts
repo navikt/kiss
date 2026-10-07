@@ -2558,10 +2558,7 @@ describe("Routines integration tests", () => {
 
 		it("should complete a deployment_evidence_report activity once the review's own section's group members have reports, ignoring a linked member in a different section", async () => {
 			const db = getTestDb()
-			const sectionId = await createTestSection(
-				"act-deployment-cross-section-own",
-				"act-deployment-cross-section-own",
-			)
+			const sectionId = await createTestSection("act-deployment-cross-section-own", "act-deployment-cross-section-own")
 			const naisTeamResult = await db.execute(
 				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-cross-section-own', '${sectionId}') RETURNING id`,
 			)
