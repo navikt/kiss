@@ -337,8 +337,6 @@ export interface NdaAppParams {
  * @returns NdaAppParams or null if no production environment is found
  */
 export async function getNdaAppParams(applicationId: string): Promise<NdaAppParams | null> {
-	// Resolve primary application inheritance (linked/variant apps have no environments of
-	// their own — deployments are tracked under the primary application's name in NDA).
 	const [app] = await db
 		.select({ primaryApplicationId: monitoredApplications.primaryApplicationId })
 		.from(monitoredApplications)
