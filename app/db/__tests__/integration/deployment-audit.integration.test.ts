@@ -431,6 +431,23 @@ describe("Deployment audit queries integration tests", () => {
 			})
 		})
 
+		it("prefers the application's own environment over the primary's when a linked application has deployed separately", async () => {
+			const sectionId = await createSection("sec-nda3")
+			const naisTeamId = await createNaisTeam(sectionId, "team-nda3")
+			const primaryId = await createApp("primary-with-own-deploy")
+			await createEnvironment(primaryId, naisTeamId, "prod-gcp")
+			const linkedId = await createApp("linked-with-own-deploy", primaryId)
+			await createEnvironment(linkedId, naisTeamId, "prod-fss")
+
+			const result = await getNdaAppParams(linkedId)
+
+			expect(result).toEqual({
+				team: "team-nda3",
+				environment: "prod-fss",
+				appName: "linked-with-own-deploy",
+			})
+		})
+
 		it("returns null when neither the application nor its linked primary has a production environment", async () => {
 			const primaryId = await createApp("primary-without-env")
 			const linkedId = await createApp("linked-without-env", primaryId)

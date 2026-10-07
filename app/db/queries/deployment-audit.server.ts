@@ -329,21 +329,28 @@ export interface NdaAppParams {
  * alphabetical ordering on cluster name and returns the team/environment/appName needed
  * by the NDA audit-reports API.
  *
- * If the application is linked to a primary application (`primaryApplicationId` set), the
- * lookup is resolved against the primary application instead, since linked/variant apps have
- * no production environments of their own — their deployments are tracked under the primary
- * application's name in NDA.
+ * If the application has no production environment of its own but is linked to a primary
+ * application (`primaryApplicationId` set), the lookup falls back to the primary application —
+ * some linked/variant apps share the primary's deployment identity and are tracked under the
+ * primary application's name in NDA, while others are separately deployed and keep their own data.
  *
  * @returns NdaAppParams or null if no production environment is found
  */
 export async function getNdaAppParams(applicationId: string): Promise<NdaAppParams | null> {
+	const ownParams = await queryNdaAppParams(applicationId)
+	if (ownParams) return ownParams
+
 	const [app] = await db
 		.select({ primaryApplicationId: monitoredApplications.primaryApplicationId })
 		.from(monitoredApplications)
 		.where(eq(monitoredApplications.id, applicationId))
 		.limit(1)
-	const ndaApplicationId = app?.primaryApplicationId ?? applicationId
+	if (!app?.primaryApplicationId) return null
 
+	return queryNdaAppParams(app.primaryApplicationId)
+}
+
+async function queryNdaAppParams(applicationId: string): Promise<NdaAppParams | null> {
 	const rows = await db
 		.select({
 			appName: monitoredApplications.name,
@@ -355,7 +362,7 @@ export async function getNdaAppParams(applicationId: string): Promise<NdaAppPara
 		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
 		.where(
 			and(
-				eq(applicationEnvironments.applicationId, ndaApplicationId),
+				eq(applicationEnvironments.applicationId, applicationId),
 				isNotNull(naisTeams.sectionId),
 				isNull(applicationEnvironments.archivedAt),
 				notExcludedBySectionCondition(),
