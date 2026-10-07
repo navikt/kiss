@@ -13,16 +13,16 @@ describe("getProviderUiConfig", () => {
 			expect(config.instanceLabel).toBe("Oracle-instans")
 		})
 
-		it("returns correct loading message referencing pensjon-oracle-revisjon", () => {
-			expect(config.loadingMessage).toContain("pensjon-oracle-revisjon")
+		it("returns correct loading message referencing ORB", () => {
+			expect(config.loadingMessage).toContain("ORB")
 		})
 
-		it("returns correct downloading message referencing pensjon-oracle-revisjon", () => {
-			expect(config.downloadingMessage).toContain("pensjon-oracle-revisjon")
+		it("returns correct downloading message referencing ORB", () => {
+			expect(config.downloadingMessage).toContain("ORB")
 		})
 
-		it("returns external link label for oracle", () => {
-			expect(config.externalLinkLabel).toContain("pensjon-oracle-revisjon")
+		it("returns external link label for ORB", () => {
+			expect(config.externalLinkLabel).toContain("ORB")
 		})
 
 		it("returns status table description mentioning bevistyper", () => {
