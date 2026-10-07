@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { getClientCredentialToken } from "./azure.server"
+import { normalizeGithubUsername } from "./github-user-access"
 import { loggedFetch } from "./http-logger.server"
 import { logger } from "./logger.server"
 
@@ -80,5 +81,13 @@ export async function lookupGitHubUsers(
 		const requestGroup = batches.slice(index, index + MAX_CONCURRENT_REQUESTS)
 		responses.push(...(await Promise.all(requestGroup.map((batch) => lookupBatch(batch, token, options?.signal)))))
 	}
-	return new Map(responses.flat().map((user) => [user.githubUsername, user]))
+	const byNormalizedUsername = new Map(
+		responses.flat().map((user) => [normalizeGithubUsername(user.githubUsername), user]),
+	)
+	const lookups = new Map<string, GitHubUserLookupResult>(byNormalizedUsername)
+	for (const requested of uniqueUsernames) {
+		const user = byNormalizedUsername.get(normalizeGithubUsername(requested))
+		if (user) lookups.set(requested, user)
+	}
+	return lookups
 }

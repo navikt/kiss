@@ -1,10 +1,6 @@
 import { index, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
 import { monitoredApplications } from "./applications"
 
-/**
- * GitHub-team som har tilgang til et repositorium.
- * Synkroniseres daglig fra GitHub API.
- */
 export const githubRepoTeams = pgTable(
 	"github_repo_teams",
 	{
@@ -14,7 +10,7 @@ export const githubRepoTeams = pgTable(
 			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		teamSlug: text("team_slug").notNull(),
 		teamName: text("team_name").notNull(),
-		permission: text("permission").notNull(), // admin, maintain, push, triage, pull
+		permission: text("permission").notNull(),
 		syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
 	},
 	(t) => [
@@ -23,10 +19,6 @@ export const githubRepoTeams = pgTable(
 	],
 )
 
-/**
- * Medlemmer av GitHub-team (hentet transitivt).
- * Oppdateres ved hver synkronisering.
- */
 export const githubRepoTeamMembers = pgTable(
 	"github_repo_team_members",
 	{
@@ -35,7 +27,7 @@ export const githubRepoTeamMembers = pgTable(
 			.notNull()
 			.references(() => githubRepoTeams.id, { onDelete: "cascade" }),
 		username: text("username").notNull(),
-		role: text("role").notNull(), // maintainer, member
+		role: text("role").notNull(),
 		syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
 	},
 	(t) => [
@@ -44,10 +36,6 @@ export const githubRepoTeamMembers = pgTable(
 	],
 )
 
-/**
- * Individuelle collaborators med direkte tilgang til repoet (uten team).
- * Synkroniseres daglig fra GitHub API.
- */
 export const githubRepoCollaborators = pgTable(
 	"github_repo_collaborators",
 	{
@@ -56,7 +44,7 @@ export const githubRepoCollaborators = pgTable(
 			.notNull()
 			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		username: text("username").notNull(),
-		permission: text("permission").notNull(), // admin, maintain, write, triage, read
+		permission: text("permission").notNull(),
 		syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
 	},
 	(t) => [
@@ -64,3 +52,15 @@ export const githubRepoCollaborators = pgTable(
 		index("idx_github_repo_collaborators_app").on(t.applicationId),
 	],
 )
+
+export const githubAccessSyncStatus = pgTable("github_access_sync_status", {
+	applicationId: uuid("application_id")
+		.primaryKey()
+		.references(() => monitoredApplications.id, { onDelete: "cascade" }),
+	gitRepository: text("git_repository").notNull(),
+	lastSuccessAt: timestamp("last_success_at", { withTimezone: true }).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	createdBy: text("created_by").notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	updatedBy: text("updated_by").notNull(),
+})

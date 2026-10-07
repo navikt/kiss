@@ -5,6 +5,11 @@ export function compliancePercent(implemented: number, partial: number, total: n
 	return denominator > 0 ? Math.round(((implemented + partial * 0.5) / denominator) * 100) : 0
 }
 
+export function formatUserDisplayName(navIdent: string, name: string | null | undefined): string {
+	const trimmedName = name?.trim()
+	return trimmedName ? `${trimmedName} (${navIdent})` : navIdent
+}
+
 /** Create a URL-friendly slug from Norwegian text. */
 export function slugify(text: string) {
 	return text
@@ -43,4 +48,17 @@ export function formatDateTimeOslo(value: string | Date): string {
 	return new Date(value).toLocaleString("nb-NO", {
 		timeZone: "Europe/Oslo",
 	})
+}
+
+export function getDateOnlyOslo(date: Date = new Date()): string {
+	const parts = new Intl.DateTimeFormat("sv-SE", {
+		timeZone: "Europe/Oslo",
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+	}).formatToParts(date)
+	const year = parts.find((p) => p.type === "year")?.value
+	const month = parts.find((p) => p.type === "month")?.value
+	const day = parts.find((p) => p.type === "day")?.value
+	return `${year}-${month}-${day}`
 }
