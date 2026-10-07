@@ -37,6 +37,7 @@ const {
 	getDeploymentVerificationAggregate,
 	touchSyncAttempt,
 	getNdaAppParams,
+	getNdaAppParamsGroup,
 } = await import("~/db/queries/deployment-audit.server")
 
 describe("Deployment audit queries integration tests", () => {
@@ -415,42 +416,12 @@ describe("Deployment audit queries integration tests", () => {
 			expect(result).toEqual({ team: "team-nda1", environment: "prod-gcp", appName: "app-nda1" })
 		})
 
-		it("resolves NDA params via the primary application when a linked application has no environments of its own", async () => {
+		it("returns null when a linked application has no production environment of its own", async () => {
 			const sectionId = await createSection("sec-nda2")
 			const naisTeamId = await createNaisTeam(sectionId, "team-nda2")
 			const primaryId = await createApp("alderspensjon-endringssoknad-frontend")
 			await createEnvironment(primaryId, naisTeamId, "prod-gcp")
 			const linkedId = await createApp("alderspensjon-endringssoknad-frontend-borger", primaryId)
-
-			const result = await getNdaAppParams(linkedId)
-
-			expect(result).toEqual({
-				team: "team-nda2",
-				environment: "prod-gcp",
-				appName: "alderspensjon-endringssoknad-frontend",
-			})
-		})
-
-		it("prefers the application's own environment over the primary's when a linked application has deployed separately", async () => {
-			const sectionId = await createSection("sec-nda3")
-			const naisTeamId = await createNaisTeam(sectionId, "team-nda3")
-			const primaryId = await createApp("primary-with-own-deploy")
-			await createEnvironment(primaryId, naisTeamId, "prod-gcp")
-			const linkedId = await createApp("linked-with-own-deploy", primaryId)
-			await createEnvironment(linkedId, naisTeamId, "prod-fss")
-
-			const result = await getNdaAppParams(linkedId)
-
-			expect(result).toEqual({
-				team: "team-nda3",
-				environment: "prod-fss",
-				appName: "linked-with-own-deploy",
-			})
-		})
-
-		it("returns null when neither the application nor its linked primary has a production environment", async () => {
-			const primaryId = await createApp("primary-without-env")
-			const linkedId = await createApp("linked-without-env", primaryId)
 
 			const result = await getNdaAppParams(linkedId)
 
@@ -463,6 +434,78 @@ describe("Deployment audit queries integration tests", () => {
 			const result = await getNdaAppParams(appId)
 
 			expect(result).toBeNull()
+		})
+
+		describe("getNdaAppParamsGroup", () => {
+			it("returns only the primary's own params when a linked application has no environment of its own", async () => {
+				const sectionId = await createSection("sec-nda-group1")
+				const naisTeamId = await createNaisTeam(sectionId, "team-nda-group1")
+				const primaryId = await createApp("alderspensjon-endringssoknad-frontend-group1")
+				await createEnvironment(primaryId, naisTeamId, "prod-gcp")
+				const linkedId = await createApp("alderspensjon-endringssoknad-frontend-borger-group1", primaryId)
+
+				const result = await getNdaAppParamsGroup(linkedId)
+
+				expect(result).toEqual([
+					{
+						applicationId: primaryId,
+						team: "team-nda-group1",
+						environment: "prod-gcp",
+						appName: "alderspensjon-endringssoknad-frontend-group1",
+					},
+				])
+			})
+
+			it("returns a separate entry per member when both the primary and a linked application have deployed independently", async () => {
+				const sectionId = await createSection("sec-nda-group2")
+				const naisTeamId = await createNaisTeam(sectionId, "team-nda-group2")
+				const primaryId = await createApp("primary-with-own-deploy")
+				await createEnvironment(primaryId, naisTeamId, "prod-gcp")
+				const linkedId = await createApp("linked-with-own-deploy", primaryId)
+				await createEnvironment(linkedId, naisTeamId, "prod-fss")
+
+				const result = await getNdaAppParamsGroup(linkedId)
+
+				expect(result).toEqual(
+					expect.arrayContaining([
+						{
+							applicationId: primaryId,
+							team: "team-nda-group2",
+							environment: "prod-gcp",
+							appName: "primary-with-own-deploy",
+						},
+						{
+							applicationId: linkedId,
+							team: "team-nda-group2",
+							environment: "prod-fss",
+							appName: "linked-with-own-deploy",
+						},
+					]),
+				)
+				expect(result).toHaveLength(2)
+			})
+
+			it("returns an empty array when neither the application nor its linked primary has a production environment", async () => {
+				const primaryId = await createApp("primary-without-env-group")
+				const linkedId = await createApp("linked-without-env-group", primaryId)
+
+				const result = await getNdaAppParamsGroup(linkedId)
+
+				expect(result).toEqual([])
+			})
+
+			it("returns a single entry for a standalone application with no linked apps", async () => {
+				const sectionId = await createSection("sec-nda-group3")
+				const naisTeamId = await createNaisTeam(sectionId, "team-nda-group3")
+				const appId = await createApp("standalone-app-group3")
+				await createEnvironment(appId, naisTeamId, "prod-gcp")
+
+				const result = await getNdaAppParamsGroup(appId)
+
+				expect(result).toEqual([
+					{ applicationId: appId, team: "team-nda-group3", environment: "prod-gcp", appName: "standalone-app-group3" },
+				])
+			})
 		})
 	})
 })

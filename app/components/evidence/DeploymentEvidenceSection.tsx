@@ -30,7 +30,7 @@ import { EvidenceStatusBadge } from "./EvidenceStatusBadge"
 import { PeriodSelector } from "./PeriodSelector"
 
 export interface NdaEvidenceDataProp {
-	appParams: { team: string; environment: string; appName: string } | null
+	apps: Array<{ applicationId: string; team: string; environment: string; appName: string }>
 	periodConfig: { periodType: string; periodStart: string } | null
 	downloads: Array<{
 		id: string
@@ -41,6 +41,9 @@ export interface NdaEvidenceDataProp {
 		forceFetchJustification: string | null
 		performedBy: string
 		performedAt: string
+		team: string
+		environment: string
+		appName: string
 	}>
 }
 
@@ -62,10 +65,10 @@ interface Props {
 export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, preview = false }: Props) {
 	const config = getProviderUiConfig("deployments")
 	const revalidator = useRevalidator()
-	const { appParams, periodConfig, downloads } = evidenceData
+	const { apps, periodConfig, downloads } = evidenceData
 	const showConfirmation = isDraft && !preview && downloads.length > 0
 
-	if (!appParams) {
+	if (apps.length === 0) {
 		return (
 			<VStack gap="space-4">
 				<Heading size="medium" level="3">
@@ -96,15 +99,23 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, pre
 					{downloads.length > 0 && <NdaDownloadsTable downloads={downloads} preview={preview} />}
 				</>
 			) : (
-				<DeploymentStatusPanel
-					activity={activity}
-					appParams={appParams}
-					periodConfig={periodConfig}
-					downloads={downloads}
-					isDraft={isDraft}
-					preview={preview}
-					config={config}
-				/>
+				<VStack gap="space-6">
+					{apps.map((appParams) => (
+						<DeploymentStatusPanel
+							key={appParams.applicationId}
+							activity={activity}
+							appParams={appParams}
+							periodConfig={periodConfig}
+							downloads={downloads.filter(
+								(d) =>
+									d.team === appParams.team && d.environment === appParams.environment && d.appName === appParams.appName,
+							)}
+							isDraft={isDraft}
+							preview={preview}
+							config={config}
+						/>
+					))}
+				</VStack>
 			)}
 		</VStack>
 	)

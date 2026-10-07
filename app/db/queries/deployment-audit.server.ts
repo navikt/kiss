@@ -321,6 +321,11 @@ export interface NdaAppParams {
 	appName: string
 }
 
+/** NDA params for one member of a linked-application group, tagged with its own application id */
+export interface NdaAppParamsGroupEntry extends NdaAppParams {
+	applicationId: string
+}
+
 /**
  * Resolve NDA API parameters for a monitored application.
  *
@@ -329,28 +334,9 @@ export interface NdaAppParams {
  * alphabetical ordering on cluster name and returns the team/environment/appName needed
  * by the NDA audit-reports API.
  *
- * If the application has no production environment of its own but is linked to a primary
- * application (`primaryApplicationId` set), the lookup falls back to the primary application —
- * some linked/variant apps share the primary's deployment identity and are tracked under the
- * primary application's name in NDA, while others are separately deployed and keep their own data.
- *
  * @returns NdaAppParams or null if no production environment is found
  */
 export async function getNdaAppParams(applicationId: string): Promise<NdaAppParams | null> {
-	const ownParams = await queryNdaAppParams(applicationId)
-	if (ownParams) return ownParams
-
-	const [app] = await db
-		.select({ primaryApplicationId: monitoredApplications.primaryApplicationId })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, applicationId))
-		.limit(1)
-	if (!app?.primaryApplicationId) return null
-
-	return queryNdaAppParams(app.primaryApplicationId)
-}
-
-async function queryNdaAppParams(applicationId: string): Promise<NdaAppParams | null> {
 	const rows = await db
 		.select({
 			appName: monitoredApplications.name,
@@ -379,4 +365,42 @@ async function queryNdaAppParams(applicationId: string): Promise<NdaAppParams | 
 		environment: row.cluster,
 		appName: row.appName,
 	}
+}
+
+/**
+ * Resolve NDA API parameters for every member of an application's linked group.
+ *
+ * KISS's "linked applications" feature (`primaryApplicationId`) only means the apps share a
+ * single compliance assessment — it says nothing about whether they are the same deployable
+ * unit in NDA. Each member may or may not have its own production environment, independent of
+ * the others. This resolves the group (the primary application plus all applications linked to
+ * it) and returns NDA params for each member that has its own production environment, so each
+ * can be reported on separately instead of merging or guessing which member's data applies.
+ *
+ * @returns one entry per group member with its own production environment (may be empty)
+ */
+export async function getNdaAppParamsGroup(applicationId: string): Promise<NdaAppParamsGroupEntry[]> {
+	const [app] = await db
+		.select({ primaryApplicationId: monitoredApplications.primaryApplicationId })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, applicationId))
+		.limit(1)
+	const groupPrimaryId = app?.primaryApplicationId ?? applicationId
+
+	const children = await db
+		.select({ id: monitoredApplications.id })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.primaryApplicationId, groupPrimaryId))
+		.orderBy(asc(monitoredApplications.name))
+
+	const memberIds = [groupPrimaryId, ...children.map((c) => c.id)]
+
+	const results = await Promise.all(
+		memberIds.map(async (id) => {
+			const params = await getNdaAppParams(id)
+			return params ? { applicationId: id, ...params } : null
+		}),
+	)
+
+	return results.filter((r): r is NdaAppParamsGroupEntry => r !== null)
 }

@@ -6,7 +6,7 @@
  */
 
 import { data } from "react-router"
-import { getNdaAppParams } from "~/db/queries/deployment-audit.server"
+import { getNdaAppParamsGroup } from "~/db/queries/deployment-audit.server"
 import { type ActivityContext, isInstanceConfiguredForApp } from "~/db/queries/evidence-downloads.server"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity } from "~/lib/activity-types"
 import type { EvidenceProviderType } from "~/lib/evidence-providers/types"
@@ -164,8 +164,8 @@ async function validateDeploymentsAccess(params: Record<string, unknown>, ctx: A
 		throw data({ error: "Gjennomgangen mangler applikasjonstilknytning" }, { status: 400 })
 	}
 
-	const appParams = await getNdaAppParams(ctx.applicationId)
-	if (!appParams) {
+	const appParamsGroup = await getNdaAppParamsGroup(ctx.applicationId)
+	if (appParamsGroup.length === 0) {
 		throw data(
 			{ error: "Applikasjonen har ingen produksjonsmiljøer konfigurert for leveranserapporter" },
 			{ status: 400 },
@@ -181,15 +181,14 @@ async function validateDeploymentsAccess(params: Record<string, unknown>, ctx: A
 		throw data({ error: "team, environment og appName er påkrevd for leveranserapporter" }, { status: 400 })
 	}
 
-	// Verify client-supplied params match the application's actual params
-	if (team !== appParams.team) {
-		throw data({ error: "team matcher ikke applikasjonen" }, { status: 403 })
-	}
-	if (environment !== appParams.environment) {
-		throw data({ error: "environment matcher ikke applikasjonen" }, { status: 403 })
-	}
-	if (appName !== appParams.appName) {
-		throw data({ error: "appName matcher ikke applikasjonen" }, { status: 403 })
+	// Verify client-supplied params match one of the applications in the linked group —
+	// a review activity can cover a primary application plus any linked applications that
+	// have deployed independently, each reported on separately
+	const matchesGroupMember = appParamsGroup.some(
+		(p) => p.team === team && p.environment === environment && p.appName === appName,
+	)
+	if (!matchesGroupMember) {
+		throw data({ error: "team, environment og appName matcher ikke applikasjonen" }, { status: 403 })
 	}
 
 	// Require period params — all deployments flows need them
