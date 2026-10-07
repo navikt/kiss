@@ -208,6 +208,8 @@ export const DeploymentsMedPeriode: Story = {
 							team: "pensjon-saksbehandling",
 							environment: "prod-gcp",
 							appName: "pensjon-pen",
+							periodType: "quarterly",
+							periodStart: "2026-01-01",
 						},
 					],
 				},
