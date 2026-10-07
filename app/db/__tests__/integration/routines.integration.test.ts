@@ -2391,10 +2391,7 @@ describe("Routines integration tests", () => {
 
 		it("should reject completing a deployment_evidence_report activity until every linked application in the NDA group has its own report", async () => {
 			const db = getTestDb()
-			const sectionId = await createTestSection(
-				"act-deployment-group-section",
-				"act-deployment-group-section",
-			)
+			const sectionId = await createTestSection("act-deployment-group-section", "act-deployment-group-section")
 			const naisTeamResult = await db.execute(
 				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-deployment-group', '${sectionId}') RETURNING id`,
 			)
