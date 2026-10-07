@@ -2440,6 +2440,7 @@ describe("Routines integration tests", () => {
 				participants: [],
 			})
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			// Kun hovedapplikasjonens rapport er lastet opp — den lenkede appen, som har deployet
 			// separat (egen rad i application_environments), mangler fortsatt sin egen rapport.
@@ -2620,6 +2621,7 @@ describe("Routines integration tests", () => {
 				participants: [],
 			})
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			// Kun hovedapplikasjonens egen rapport lastes opp. Den lenkede appen i den andre
 			// seksjonen skal ikke kreves — og aktiviteten skal derfor kunne fullføres.
