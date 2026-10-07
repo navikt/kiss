@@ -44,6 +44,8 @@ export interface NdaEvidenceDataProp {
 		team: string
 		environment: string
 		appName: string
+		periodType: string
+		periodStart: string
 	}>
 }
 

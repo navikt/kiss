@@ -159,6 +159,8 @@ export const MedNedlastinger: Story = {
 							team: appParams.team,
 							environment: appParams.environment,
 							appName: appParams.appName,
+							periodType: "quarterly",
+							periodStart: "2026-01-01",
 						},
 						{
 							id: "dl-2",
@@ -172,6 +174,8 @@ export const MedNedlastinger: Story = {
 							team: appParams.team,
 							environment: appParams.environment,
 							appName: appParams.appName,
+							periodType: "quarterly",
+							periodStart: "2026-01-01",
 						},
 					],
 				}}
@@ -242,6 +246,8 @@ export const MedHistoriskBevis: Story = {
 							team: appParams.team,
 							environment: appParams.environment,
 							appName: appParams.appName,
+							periodType: "quarterly",
+							periodStart: "2026-01-01",
 						},
 						{
 							id: "dl-historisk",
@@ -255,6 +261,8 @@ export const MedHistoriskBevis: Story = {
 							team: "gammelt-team",
 							environment: "prod-gcp",
 							appName: "gammelt-appnavn",
+							periodType: "quarterly",
+							periodStart: "2026-01-01",
 						},
 					],
 				}}
@@ -325,6 +333,8 @@ export const ManuellOpplasting: Story = {
 							team: appParams.team,
 							environment: appParams.environment,
 							appName: appParams.appName,
+							periodType: "quarterly",
+							periodStart: "2026-01-01",
 						},
 					],
 				}}
@@ -583,6 +593,8 @@ export const IngenAppParamsMedNedlastinger: Story = {
 							team: "pensjon-saksbehandling",
 							environment: "prod-gcp",
 							appName: "pensjon-pen-gammel",
+							periodType: "quarterly",
+							periodStart: "2026-01-01",
 						},
 						{
 							id: "dl-old-2",
@@ -596,6 +608,8 @@ export const IngenAppParamsMedNedlastinger: Story = {
 							team: "pensjon-saksbehandling",
 							environment: "prod-gcp",
 							appName: "pensjon-pen-gammel",
+							periodType: "quarterly",
+							periodStart: "2026-01-01",
 						},
 					],
 				}}
@@ -693,6 +707,8 @@ export const RapportRegistrertSomBevis: Story = {
 							team: appParams.team,
 							environment: appParams.environment,
 							appName: appParams.appName,
+							periodType: "quarterly",
+							periodStart: "2026-01-01",
 						},
 					],
 				}}

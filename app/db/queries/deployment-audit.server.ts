@@ -406,22 +406,24 @@ export async function getNdaAppParamsGroup(
 	applicationId: string,
 	preferredSectionId?: string,
 ): Promise<NdaAppParamsGroupEntry[]> {
-	const [app] = await db
-		.select({ primaryApplicationId: monitoredApplications.primaryApplicationId })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, applicationId))
-		.limit(1)
-	const groupPrimaryId = app?.primaryApplicationId ?? applicationId
-
-	const children = await db
-		.select({ id: monitoredApplications.id })
-		.from(monitoredApplications)
-		.where(
-			and(eq(monitoredApplications.primaryApplicationId, groupPrimaryId), isNull(monitoredApplications.archivedAt)),
+	// Resolve the group primary and all active members in a single statement so group
+	// membership can't shift between two separate reads — e.g. if promoteToPrimary() commits
+	// between resolving groupPrimaryId and querying its children, a two-query approach could
+	// see a stale primary whose children have already been reassigned to a new primary,
+	// silently dropping members (and reports) the completion guard should have required.
+	const result = await db.execute(sql`
+		WITH root AS (
+			SELECT COALESCE(primary_application_id, id) AS primary_id
+			FROM ${monitoredApplications}
+			WHERE id = ${applicationId}
 		)
-		.orderBy(asc(monitoredApplications.name))
-
-	const memberIds = [groupPrimaryId, ...children.map((c) => c.id)]
+		SELECT m.id
+		FROM ${monitoredApplications} m, root
+		WHERE m.archived_at IS NULL
+		AND (m.id = root.primary_id OR m.primary_application_id = root.primary_id)
+		ORDER BY m.name
+	`)
+	const memberIds = (result.rows as Array<{ id: string }>).map((row) => row.id)
 
 	const results = await Promise.all(
 		memberIds.map(async (id) => {

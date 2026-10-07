@@ -56,6 +56,8 @@ type Props = {
 			team: string
 			environment: string
 			appName: string
+			periodType: string
+			periodStart: string
 		}>
 	} | null
 	evidenceProviderType: string | null

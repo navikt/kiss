@@ -319,6 +319,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 			team: string
 			environment: string
 			appName: string
+			periodType: string
+			periodStart: string
 		}>
 	}
 
@@ -496,6 +498,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 							team: typeof d.providerMetadata.team === "string" ? d.providerMetadata.team : "",
 							environment: typeof d.providerMetadata.environment === "string" ? d.providerMetadata.environment : "",
 							appName: typeof d.providerMetadata.appName === "string" ? d.providerMetadata.appName : "",
+							periodType: typeof d.providerMetadata.periodType === "string" ? d.providerMetadata.periodType : "",
+							periodStart: typeof d.providerMetadata.periodStart === "string" ? d.providerMetadata.periodStart : "",
 						})),
 				}
 			}
@@ -1528,6 +1532,7 @@ export default function GjennomgangDetalj() {
 				if (evidenceProviderType === "deployments") {
 					const apps = activity.ndaEvidenceData?.apps ?? []
 					const downloads = activity.ndaEvidenceData?.downloads ?? []
+					const periodConfig = activity.periodConfig
 					const labels = getProviderUiConfig(evidenceProviderType).evidenceTypeLabels
 					if (apps.length === 0) {
 						violations.push({
@@ -1539,7 +1544,15 @@ export default function GjennomgangDetalj() {
 						const appsMissingReports = apps.filter(
 							(app) =>
 								!downloads.some(
-									(d) => d.team === app.team && d.environment === app.environment && d.appName === app.appName,
+									(d) =>
+										d.team === app.team &&
+										d.environment === app.environment &&
+										d.appName === app.appName &&
+										// En nedlasting fra en tidligere periode dekker ikke aktivitetens gjeldende
+										// periode (perioden kan endres via /api/evidence-period-config etter at
+										// rapporten ble lastet ned) — speiler kravet i completeReviewActivity().
+										d.periodType === periodConfig?.periodType &&
+										d.periodStart === periodConfig?.periodStart,
 								),
 						)
 						for (const app of appsMissingReports) {

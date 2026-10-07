@@ -201,6 +201,8 @@ const MOCK_NDA_EVIDENCE_DATA: NdaEvidenceDataProp = {
 			team: "mitt-team",
 			environment: "prod",
 			appName: "min-applikasjon",
+			periodType: "monthly",
+			periodStart: "2025-01-01",
 		},
 	],
 }
