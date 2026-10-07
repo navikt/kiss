@@ -390,7 +390,9 @@ export async function getNdaAppParamsGroup(applicationId: string): Promise<NdaAp
 	const children = await db
 		.select({ id: monitoredApplications.id })
 		.from(monitoredApplications)
-		.where(and(eq(monitoredApplications.primaryApplicationId, groupPrimaryId), isNull(monitoredApplications.archivedAt)))
+		.where(
+			and(eq(monitoredApplications.primaryApplicationId, groupPrimaryId), isNull(monitoredApplications.archivedAt)),
+		)
 		.orderBy(asc(monitoredApplications.name))
 
 	const memberIds = [groupPrimaryId, ...children.map((c) => c.id)]
