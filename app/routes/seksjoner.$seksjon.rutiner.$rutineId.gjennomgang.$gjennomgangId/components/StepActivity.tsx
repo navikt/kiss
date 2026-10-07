@@ -42,7 +42,7 @@ type Props = {
 		evidenceTypes: string[]
 	} | null
 	ndaEvidenceData: {
-		appParams: { team: string; environment: string; appName: string } | null
+		apps: Array<{ applicationId: string; team: string; environment: string; appName: string }>
 		periodConfig: { periodType: string; periodStart: string } | null
 		downloads: Array<{
 			id: string
@@ -53,6 +53,9 @@ type Props = {
 			forceFetchJustification: string | null
 			performedBy: string
 			performedAt: string
+			team: string
+			environment: string
+			appName: string
 		}>
 	} | null
 	evidenceProviderType: string | null

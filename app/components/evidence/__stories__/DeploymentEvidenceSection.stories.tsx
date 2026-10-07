@@ -23,6 +23,7 @@ const baseActivity = {
 }
 
 const appParams = {
+	applicationId: "app-1",
 	team: "pensjon-saksbehandling",
 	environment: "prod-gcp",
 	appName: "pensjon-pen",
@@ -50,7 +51,7 @@ export const IngenProdMiljo: Story = {
 		const Wrapper = () => (
 			<DeploymentEvidenceSection
 				activity={baseActivity}
-				evidenceData={{ appParams: null, periodConfig: null, downloads: [] }}
+				evidenceData={{ apps: [], periodConfig: null, downloads: [] }}
 				isDraft={false}
 			/>
 		)
@@ -65,7 +66,7 @@ export const VelgPeriode: Story = {
 		const Wrapper = () => (
 			<DeploymentEvidenceSection
 				activity={baseActivity}
-				evidenceData={{ appParams, periodConfig: null, downloads: [] }}
+				evidenceData={{ apps: [appParams], periodConfig: null, downloads: [] }}
 				isDraft={false}
 			/>
 		)
@@ -87,7 +88,7 @@ export const MedPeriodeUtenNedlastinger: Story = {
 			<DeploymentEvidenceSection
 				activity={baseActivity}
 				evidenceData={{
-					appParams,
+					apps: [appParams],
 					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
 					downloads: [],
 				}}
@@ -143,7 +144,7 @@ export const MedNedlastinger: Story = {
 			<DeploymentEvidenceSection
 				activity={baseActivity}
 				evidenceData={{
-					appParams,
+					apps: [appParams],
 					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
 					downloads: [
 						{
@@ -155,6 +156,9 @@ export const MedNedlastinger: Story = {
 							forceFetchJustification: null,
 							performedBy: "T123456",
 							performedAt: "2026-04-01T10:30:00Z",
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
 						},
 						{
 							id: "dl-2",
@@ -165,6 +169,9 @@ export const MedNedlastinger: Story = {
 							forceFetchJustification: "Godkjenningsprosent under terskelverdi, men gjennomgang er fullført",
 							performedBy: "T654321",
 							performedAt: "2026-04-02T14:15:00Z",
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
 						},
 					],
 				}}
@@ -220,7 +227,7 @@ export const ManuellOpplasting: Story = {
 			<DeploymentEvidenceSection
 				activity={baseActivity}
 				evidenceData={{
-					appParams,
+					apps: [appParams],
 					periodConfig: { periodType: "yearly", periodStart: "2025-01-01" },
 					downloads: [
 						{
@@ -232,6 +239,9 @@ export const ManuellOpplasting: Story = {
 							forceFetchJustification: null,
 							performedBy: "T111222",
 							performedAt: "2026-02-15T09:00:00Z",
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
 						},
 					],
 				}}
@@ -270,7 +280,7 @@ export const KlarTilGenerering: Story = {
 			<DeploymentEvidenceSection
 				activity={baseActivity}
 				evidenceData={{
-					appParams,
+					apps: [appParams],
 					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
 					downloads: [],
 				}}
@@ -346,7 +356,7 @@ export const PollFeil: Story = {
 				<DeploymentEvidenceSection
 					activity={baseActivity}
 					evidenceData={{
-						appParams,
+						apps: [appParams],
 						periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
 						downloads: [],
 					}}
@@ -407,7 +417,7 @@ export const KonfliktVedGenerering: Story = {
 			<DeploymentEvidenceSection
 				activity={baseActivity}
 				evidenceData={{
-					appParams,
+					apps: [appParams],
 					periodConfig: { periodType: "yearly", periodStart: "2025-01-01" },
 					downloads: [],
 				}}
@@ -475,7 +485,7 @@ export const IngenAppParamsMedNedlastinger: Story = {
 			<DeploymentEvidenceSection
 				activity={baseActivity}
 				evidenceData={{
-					appParams: null,
+					apps: [],
 					periodConfig: null,
 					downloads: [
 						{
@@ -487,6 +497,9 @@ export const IngenAppParamsMedNedlastinger: Story = {
 							forceFetchJustification: null,
 							performedBy: "T123456",
 							performedAt: "2026-01-10T08:30:00Z",
+							team: "pensjon-saksbehandling",
+							environment: "prod-gcp",
+							appName: "pensjon-pen-gammel",
 						},
 						{
 							id: "dl-old-2",
@@ -497,6 +510,9 @@ export const IngenAppParamsMedNedlastinger: Story = {
 							forceFetchJustification: null,
 							performedBy: "T654321",
 							performedAt: "2025-10-05T14:00:00Z",
+							team: "pensjon-saksbehandling",
+							environment: "prod-gcp",
+							appName: "pensjon-pen-gammel",
 						},
 					],
 				}}
@@ -515,7 +531,7 @@ export const RapportKlarIkkeRegistrertSomBevis: Story = {
 			<DeploymentEvidenceSection
 				activity={baseActivity}
 				evidenceData={{
-					appParams,
+					apps: [appParams],
 					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
 					downloads: [],
 				}}
@@ -579,7 +595,7 @@ export const RapportRegistrertSomBevis: Story = {
 			<DeploymentEvidenceSection
 				activity={baseActivity}
 				evidenceData={{
-					appParams,
+					apps: [appParams],
 					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
 					downloads: [
 						{
@@ -591,6 +607,9 @@ export const RapportRegistrertSomBevis: Story = {
 							forceFetchJustification: null,
 							performedBy: "Z990001",
 							performedAt: "2026-04-01T10:30:00Z",
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
 						},
 					],
 				}}
@@ -654,7 +673,7 @@ export const StatusfeilFraApi: Story = {
 			<DeploymentEvidenceSection
 				activity={baseActivity}
 				evidenceData={{
-					appParams,
+					apps: [appParams],
 					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
 					downloads: [],
 				}}
@@ -679,7 +698,7 @@ export const NdaUtilgjengelig: Story = {
 			<DeploymentEvidenceSection
 				activity={baseActivity}
 				evidenceData={{
-					appParams,
+					apps: [appParams],
 					periodConfig: { periodType: "yearly", periodStart: "2025-01-01" },
 					downloads: [],
 				}}

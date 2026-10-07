@@ -153,7 +153,14 @@ export const DeploymentsPlaceholder: Story = {
 					createdAt: "2026-03-01T08:00:00Z",
 				},
 				evidenceData: {
-					appParams: { team: "pensjon-saksbehandling", environment: "prod-gcp", appName: "pensjon-pen" },
+					apps: [
+						{
+							applicationId: "app-pensjon-pen",
+							team: "pensjon-saksbehandling",
+							environment: "prod-gcp",
+							appName: "pensjon-pen",
+						},
+					],
 					periodConfig: null,
 					downloads: [],
 				},
@@ -179,7 +186,14 @@ export const DeploymentsMedPeriode: Story = {
 					createdAt: "2026-03-01T08:00:00Z",
 				},
 				evidenceData: {
-					appParams: { team: "pensjon-saksbehandling", environment: "prod-gcp", appName: "pensjon-pen" },
+					apps: [
+						{
+							applicationId: "app-pensjon-pen",
+							team: "pensjon-saksbehandling",
+							environment: "prod-gcp",
+							appName: "pensjon-pen",
+						},
+					],
 					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
 					downloads: [
 						{
@@ -191,6 +205,9 @@ export const DeploymentsMedPeriode: Story = {
 							forceFetchJustification: null,
 							performedBy: "T123456",
 							performedAt: "2026-04-01T10:30:00Z",
+							team: "pensjon-saksbehandling",
+							environment: "prod-gcp",
+							appName: "pensjon-pen",
 						},
 					],
 				},
