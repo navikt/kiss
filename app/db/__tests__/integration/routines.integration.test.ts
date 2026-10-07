@@ -2747,6 +2747,88 @@ describe("Routines integration tests", () => {
 			expect(completed.status).toBe("completed")
 		})
 
+		it("should reject savePeriodConfig on an already-completed activity, closing the TOCTOU window where a concurrent period change could land after completion", async () => {
+			// completeReviewActivity() re-validates the period match against a FOR UPDATE-locked
+			// read of periodConfig immediately before committing, but that alone isn't enough: a
+			// concurrent /api/evidence-period-config request could still land in the gap between
+			// that lock being released (transaction commit) and this test's own completion call.
+			// savePeriodConfig()'s WHERE clause requiring status='pending' is what actually closes
+			// that window — it must reject any period change once the activity is completed.
+			const sectionId = await createTestSection(
+				"act-deployment-period-after-complete",
+				"act-deployment-period-after-complete",
+			)
+			const appId = await createTestApp("app-deployment-period-after-complete")
+			const db = getTestDb()
+			const naisTeamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-period-after-complete', '${sectionId}') RETURNING id`,
+			)
+			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${appId}', 'prod-gcp', 'default', '${naisTeamId}')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-periode-etter-fullført-rutine",
+				description: "Rutine med leveranserapport-bevis for periode-etter-fullført-test",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Leveranserapport-periode-etter-fullført-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "team-period-after-complete",
+					environment: "prod-gcp",
+					appName: "app-deployment-period-after-complete",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "team-period-after-complete",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("leveranserapport-innhold-q1"),
+				fileName: "rapport-q1.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			const completed = await completeReviewActivity(activity.id, null, "test")
+			expect(completed.status).toBe("completed")
+
+			const error = await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-04-01" }).catch(
+				(e) => e,
+			)
+			expect(error).toBeInstanceOf(Response)
+			expect((error as Response).status).toBe(409)
+		})
+
 		it("should return empty for reviews with no activities", async () => {
 			const activities = await getActivitiesForReviews([])
 			expect(activities).toEqual([])

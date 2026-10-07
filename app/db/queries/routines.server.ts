@@ -6121,14 +6121,21 @@ export async function autoCreateActivitiesForReview(
 }
 
 export async function savePeriodConfig(activityId: string, periodConfig: PeriodConfig) {
+	// WHERE-betingelsen krever status='pending' slik at denne UPDATE-en ikke kan endre
+	// perioden på en aktivitet som nettopp ble låst/fullført av completeReviewActivity()
+	// (som holder en FOR UPDATE-lås på raden mens den validerer periode-match) — uten dette
+	// kunne en samtidig fullføring og periode-endring resultere i en fullført aktivitet som
+	// er konfigurert med en periode ingen av de innsamlede rapportene faktisk dekker.
 	const [updated] = await db
 		.update(routineReviewActivities)
 		.set({ periodConfig })
-		.where(eq(routineReviewActivities.id, activityId))
+		.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))
 		.returning({ id: routineReviewActivities.id })
 
 	if (!updated) {
-		throw new Error(`Activity ${activityId} not found`)
+		throw new Response("Aktiviteten finnes ikke eller er allerede fullført, og kan ikke få endret periode.", {
+			status: 409,
+		})
 	}
 	return updated
 }
@@ -6478,7 +6485,7 @@ export async function completeReviewActivity(
 		// Håndheves her (ikke bare i klientens useMemo) slik at et direkte completion-kall ikke
 		// kan omgå kravet om bevis per app.
 		if (evidenceProviderType === "deployments" && activity.applicationId) {
-			const appsGroup = await getNdaAppParamsGroup(activity.applicationId, activity.sectionId)
+			const appsGroup = await getNdaAppParamsGroup(activity.applicationId, activity.sectionId, tx ?? db)
 			// validateDeploymentsAccess() (evidence-providers/validation.server.ts) rejects any
 			// report submission for a group member whose sectionId differs from the review's own
 			// section — a linked application is not an authorization boundary, so cross-section
@@ -6646,6 +6653,46 @@ export async function completeReviewActivity(
 	}
 
 	const runGeneric = async (exec: DbExecutor) => {
+		if (evidenceProviderType === "deployments" && activity.applicationId) {
+			// Lås aktivitetsraden FOR UPDATE og les periodConfig på nytt rett før commit.
+			// /api/evidence-period-config kan ellers endre perioden i vinduet mellom den
+			// tidlige sjekken over og denne UPDATE-en (TOCTOU), slik at aktiviteten
+			// fullføres med rapporter som bare dekket den gamle perioden. savePeriodConfig()
+			// sin WHERE-betingelse på status='pending' sørger for at et samtidig
+			// periode-bytte enten vinner løpet (vi ser det her) eller blokkeres av denne
+			// låsen og feiler med 409 etter at vi har fullført (siden status da er endret).
+			const [locked] = await exec
+				.select({ status: routineReviewActivities.status, periodConfig: routineReviewActivities.periodConfig })
+				.from(routineReviewActivities)
+				.where(eq(routineReviewActivities.id, activityId))
+				.for("update", { of: [routineReviewActivities] })
+				.limit(1)
+			if (!locked || locked.status !== "pending") {
+				throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+			}
+			const freshDownloads = await getEvidenceDownloadsForActivity(activityId, exec)
+			const appsGroup = await getNdaAppParamsGroup(activity.applicationId, activity.sectionId, exec)
+			const appsInSection = appsGroup.filter((app) => app.sectionId === activity.sectionId)
+			const appsMissingReports = appsInSection.filter(
+				(app) =>
+					!freshDownloads.some(
+						(d) =>
+							d.providerMetadata.team === app.team &&
+							d.providerMetadata.environment === app.environment &&
+							d.providerMetadata.appName === app.appName &&
+							d.providerMetadata.periodType === locked.periodConfig?.periodType &&
+							d.providerMetadata.periodStart === locked.periodConfig?.periodStart,
+					),
+			)
+			if (appsMissingReports.length > 0) {
+				const missingNames = appsMissingReports.map((app) => app.appName).join(", ")
+				throw new Response(
+					`Vedlikeholdsaktiviteten kan ikke fullføres. Leveranserapport mangler for følgende applikasjon(er): ${missingNames}.`,
+					{ status: 400 },
+				)
+			}
+		}
+
 		const [updated] = await exec
 			.update(routineReviewActivities)
 			.set({

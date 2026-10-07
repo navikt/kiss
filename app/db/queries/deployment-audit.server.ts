@@ -7,6 +7,8 @@ import type { VerificationSummaryResponse } from "../schema/deployment-audit"
 import { deploymentVerificationSummaries } from "../schema/deployment-audit"
 import { sectionEnvironments } from "../schema/organization"
 
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
+
 /**
  * An environment counts as "production" here when `naisTeams.sectionId` is set and the section
  * has not excluded the cluster (`section_environments.included = false`). Environments whose team
@@ -347,8 +349,9 @@ export interface NdaAppParamsGroupEntry extends NdaAppParams {
 export async function getNdaAppParams(
 	applicationId: string,
 	preferredSectionId?: string,
+	executor: DbExecutor = db,
 ): Promise<NdaAppParams | null> {
-	const rows = await db
+	const rows = await executor
 		.select({
 			appName: monitoredApplications.name,
 			cluster: applicationEnvironments.cluster,
@@ -400,18 +403,24 @@ export async function getNdaAppParams(
  * for each member, so a member with environments in multiple sections resolves to its
  * environment in that section rather than an arbitrary alphabetical pick.
  *
+ * `executor` lets callers that already hold a transaction (e.g. `completeReviewActivity()`
+ * inside `completeReview()`'s transaction) reuse that connection instead of acquiring a new
+ * one from the pool — calling this with the default `db` from inside an open transaction can
+ * exhaust the pool and deadlock once concurrent completions saturate it.
+ *
  * @returns one entry per group member with its own production environment (may be empty)
  */
 export async function getNdaAppParamsGroup(
 	applicationId: string,
 	preferredSectionId?: string,
+	executor: DbExecutor = db,
 ): Promise<NdaAppParamsGroupEntry[]> {
 	// Resolve the group primary and all active members in a single statement so group
 	// membership can't shift between two separate reads — e.g. if promoteToPrimary() commits
 	// between resolving groupPrimaryId and querying its children, a two-query approach could
 	// see a stale primary whose children have already been reassigned to a new primary,
 	// silently dropping members (and reports) the completion guard should have required.
-	const result = await db.execute(sql`
+	const result = await executor.execute(sql`
 		WITH root AS (
 			SELECT COALESCE(primary_application_id, id) AS primary_id
 			FROM ${monitoredApplications}
@@ -427,7 +436,7 @@ export async function getNdaAppParamsGroup(
 
 	const results = await Promise.all(
 		memberIds.map(async (id) => {
-			const params = await getNdaAppParams(id, preferredSectionId)
+			const params = await getNdaAppParams(id, preferredSectionId, executor)
 			return params ? { applicationId: id, ...params } : null
 		}),
 	)

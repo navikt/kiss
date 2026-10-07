@@ -619,6 +619,31 @@ describe("Deployment audit queries integration tests", () => {
 					},
 				])
 			})
+
+			it("accepts an explicit executor so callers already inside a transaction don't need a second pool connection", async () => {
+				// completeReview() wraps every activity completion in one transaction and passes that
+				// connection down to completeReviewActivity() → getNdaAppParamsGroup(). If this ran
+				// against the default db pool instead of the passed-in executor, concurrent completions
+				// could exhaust the pool and deadlock (each transaction holding one connection while
+				// waiting for a free one for this nested read).
+				const sectionId = await createSection("sec-nda-group5")
+				const naisTeamId = await createNaisTeam(sectionId, "team-nda-group5")
+				const appId = await createApp("standalone-app-group5")
+				await createEnvironment(appId, naisTeamId, "prod-gcp")
+
+				const testDb = getTestDb()
+				const result = await testDb.transaction((tx) => getNdaAppParamsGroup(appId, undefined, tx))
+
+				expect(result).toEqual([
+					{
+						applicationId: appId,
+						team: "team-nda-group5",
+						environment: "prod-gcp",
+						appName: "standalone-app-group5",
+						sectionId,
+					},
+				])
+			})
 		})
 	})
 })
