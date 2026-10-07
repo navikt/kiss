@@ -2495,7 +2495,6 @@ describe("Routines integration tests", () => {
 		})
 
 		it("should reject completing a deployment_evidence_report activity when the app's NDA group has no current production environments, even with an old recorded download", async () => {
-			const db = getTestDb()
 			const sectionId = await createTestSection("act-deployment-empty-group", "act-deployment-empty-group")
 			const appId = await createTestApp("app-deployment-empty-group")
 
@@ -2657,10 +2656,7 @@ describe("Routines integration tests", () => {
 			// in the review's own section — otherwise completeReviewActivity() would wrongly treat it
 			// as cross-section and let the review complete without its report.
 			const db = getTestDb()
-			const sectionId = await createTestSection(
-				"act-deployment-devteam-scope-own",
-				"act-deployment-devteam-scope-own",
-			)
+			const sectionId = await createTestSection("act-deployment-devteam-scope-own", "act-deployment-devteam-scope-own")
 			const otherSectionId = await createTestSection(
 				"act-deployment-devteam-scope-env",
 				"act-deployment-devteam-scope-env",
@@ -2705,6 +2701,29 @@ describe("Routines integration tests", () => {
 			})
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
 			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+
+			// Satisfies the generic "at least one evidence-type download exists" check with a report
+			// for an unrelated team/environment/appName, so the test exercises the deployments-specific
+			// per-app requirement below rather than the generic evidence-type check.
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "unrelated-team",
+					environment: "prod-unrelated",
+					appName: "unrelated-app",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "unrelated-team",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("unrelated-leveranserapport"),
+				fileName: "unrelated-rapport.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
 
 			const error = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
 			expect(error).toBeInstanceOf(Response)

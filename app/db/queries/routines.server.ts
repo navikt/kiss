@@ -92,9 +92,9 @@ import {
 	screeningRoutineSelections,
 } from "../schema/screening"
 import { syncApplicationControls } from "./application-controls.server"
+import { getAppScopeIdsForApps } from "./applications.server"
 import { writeAuditLog } from "./audit.server"
 import { getOracleInstancesForApp } from "./audit-evidence.server"
-import { getAppScopeIdsForApps } from "./applications.server"
 import { getNdaAppParamsGroup } from "./deployment-audit.server"
 import { getEvidenceDownloadsForActivities, getEvidenceDownloadsForActivity } from "./evidence-downloads.server"
 import {
@@ -6678,7 +6678,7 @@ export async function completeReviewActivity(
 				.where(eq(routineReviewActivities.id, activityId))
 				.for("update", { of: [routineReviewActivities] })
 				.limit(1)
-			if (!locked || locked.status !== "pending") {
+			if (locked?.status !== "pending") {
 				throw new Response("Aktiviteten er allerede fullført", { status: 409 })
 			}
 			const freshDownloads = await getEvidenceDownloadsForActivity(activityId, exec)
