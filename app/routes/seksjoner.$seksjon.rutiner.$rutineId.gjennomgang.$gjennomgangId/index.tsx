@@ -307,6 +307,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 	type NdaEvidenceData = {
 		apps: Array<{ applicationId: string; team: string; environment: string; appName: string }>
 		periodConfig: { periodType: string; periodStart: string } | null
+		periodConfigLastChanged?: { at: string; by: string } | null
 		downloads: Array<{
 			id: string
 			format: string
@@ -465,28 +466,45 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 			}
 
 			if (evidenceProviderType === "deployments") {
-				const { getNdaAppParamsGroup } = await import("~/db/queries/deployment-audit.server")
+				const { getNdaAppParamsGroup, buildReadOnlyNdaAppGroupSnapshot } = await import(
+					"~/db/queries/deployment-audit.server"
+				)
 				const { getEvidenceDownloadsForActivityWithBucketDetails } = await import(
 					"~/db/queries/evidence-downloads.server"
 				)
 				const { getAppScopeIdsForApps } = await import("~/db/queries/applications.server")
-				const [appsGroup, downloads] = await Promise.all([
-					review.applicationId ? getNdaAppParamsGroup(review.applicationId, routine.sectionId) : Promise.resolve([]),
-					getEvidenceDownloadsForActivityWithBucketDetails(activity.id),
-				])
-				// getNdaAppParamsGroup() deliberately includes linked members from other sections
-				// (linkApplication() doesn't require a shared section), but this loader only
-				// authorizes the review's own application/section — and validateDeploymentsAccess()
-				// rejects reports for cross-section members. Scope the apps sent to the client to
-				// the review's own section using each member's canonical application scope
-				// (dev-team + NAIS-team derived sections, via getAppScopeIdsForApps) rather than the
-				// deployed environment's naisTeams.sectionId alone — an app can be linked to a dev
-				// team (or NAIS team) in a different section than the one its deployment environment
-				// happens to resolve to. Strip sectionId so it's never serialized to the client.
-				const scopeByApp = await getAppScopeIdsForApps(appsGroup.map((app) => app.applicationId))
-				const apps = appsGroup
-					.filter((app) => scopeByApp.get(app.applicationId)?.sectionIds.includes(routine.sectionId))
-					.map(({ applicationId, team, environment, appName }) => ({ applicationId, team, environment, appName }))
+
+				const completedSnapshot =
+					activity.status === "completed" ? buildReadOnlyNdaAppGroupSnapshot(activity.snapshotAfter) : null
+
+				const downloads = await getEvidenceDownloadsForActivityWithBucketDetails(activity.id)
+				let apps: Array<{ applicationId: string; team: string; environment: string; appName: string }>
+				if (completedSnapshot) {
+					apps = completedSnapshot
+				} else if (activity.status === "completed") {
+					const seen = new Set<string>()
+					apps = []
+					for (const d of downloads) {
+						if (d.providerType !== "deployments") continue
+						const team = typeof d.providerMetadata.team === "string" ? d.providerMetadata.team : ""
+						const environment = typeof d.providerMetadata.environment === "string" ? d.providerMetadata.environment : ""
+						const appName = typeof d.providerMetadata.appName === "string" ? d.providerMetadata.appName : ""
+						if (!team || !environment || !appName) continue
+						const key = `${team}|${environment}|${appName}`
+						if (seen.has(key)) continue
+						seen.add(key)
+						apps.push({ applicationId: key, team, environment, appName })
+					}
+				} else {
+					const appsGroup = review.applicationId
+						? await getNdaAppParamsGroup(review.applicationId, routine.sectionId)
+						: []
+					const scopeByApp = await getAppScopeIdsForApps(appsGroup.map((app) => app.applicationId))
+					apps = appsGroup
+						.filter((app) => scopeByApp.get(app.applicationId)?.sectionIds.includes(routine.sectionId))
+						.map(({ applicationId, team, environment, appName }) => ({ applicationId, team, environment, appName }))
+				}
+
 				actNdaEvidenceData = {
 					apps,
 					periodConfig: activity.periodConfig ?? null,
@@ -714,6 +732,36 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 	if (routine.archivedAt !== null && routine.replacedByRoutineId) {
 		const nameMap = await getRoutineNamesByIds([routine.replacedByRoutineId])
 		replacedByRoutineName = nameMap.get(routine.replacedByRoutineId)?.name ?? null
+	}
+
+	const deploymentActivityIds = activitiesWithEvidence
+		.filter((a) => a.evidenceProviderType === "deployments")
+		.map((a) => a.id)
+	const { getAuditLogForEntities } = await import("~/db/queries/audit.server")
+	const periodConfigAuditLog =
+		deploymentActivityIds.length > 0
+			? await getAuditLogForEntities("routine_review_activity", deploymentActivityIds)
+			: []
+	const periodConfigLastChangedByActivity = new Map<string, { at: string; by: string }>()
+	for (const entry of periodConfigAuditLog) {
+		if (entry.action !== "review_activity_period_config_updated") continue
+		if (periodConfigLastChangedByActivity.has(entry.entityId)) continue
+		periodConfigLastChangedByActivity.set(entry.entityId, {
+			at: entry.performedAt.toISOString(),
+			by: entry.performedBy,
+		})
+	}
+	const periodConfigAuditNames = await getUserNamesByNavIdents(
+		[...periodConfigLastChangedByActivity.values()].map((v) => v.by),
+	)
+	for (const activity of activitiesWithEvidence) {
+		const lastChanged = periodConfigLastChangedByActivity.get(activity.id)
+		if (lastChanged && activity.ndaEvidenceData) {
+			activity.ndaEvidenceData.periodConfigLastChanged = {
+				at: lastChanged.at,
+				by: periodConfigAuditNames.get(lastChanged.by.trim().toUpperCase()) ?? lastChanged.by,
+			}
+		}
 	}
 
 	return data({
@@ -1554,9 +1602,6 @@ export default function GjennomgangDetalj() {
 										d.team === app.team &&
 										d.environment === app.environment &&
 										d.appName === app.appName &&
-										// En nedlasting fra en tidligere periode dekker ikke aktivitetens gjeldende
-										// periode (perioden kan endres via /api/evidence-period-config etter at
-										// rapporten ble lastet ned) — speiler kravet i completeReviewActivity().
 										d.periodType === periodConfig?.periodType &&
 										d.periodStart === periodConfig?.periodStart,
 								),

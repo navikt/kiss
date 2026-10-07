@@ -58,7 +58,7 @@ describe("api.evidence-period-config action", () => {
 		vi.clearAllMocks()
 
 		const user = {
-			navIdent: "Z123456",
+			navIdent: "Z990001",
 			name: "Test User",
 			token: "test-token",
 			groups: [],
@@ -85,10 +85,14 @@ describe("api.evidence-period-config action", () => {
 
 		expect(getStatus(result)).toBe(200)
 		expect(getData<{ success: boolean }>(result)?.success).toBe(true)
-		expect(mockSavePeriodConfig).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111", {
-			periodType: "yearly",
-			periodStart: "2025-01-01",
-		})
+		expect(mockSavePeriodConfig).toHaveBeenCalledWith(
+			"11111111-1111-4111-8111-111111111111",
+			{
+				periodType: "yearly",
+				periodStart: "2025-01-01",
+			},
+			"Z990001",
+		)
 	})
 
 	it("rejects non-deployment activity types", async () => {

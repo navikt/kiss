@@ -293,9 +293,7 @@ export async function getAvailableAppsForTeam(devTeamId: string, sectionId: stri
 
 /** Get dev team IDs and section IDs for an application — used for authorization checks.
  * Section IDs are derived from both dev-team mappings and NAIS-team environments.
- * Delegates to getAppScopeIdsForApps to avoid maintaining two copies of the same join logic.
- * Pass an open transaction as `executor` when calling from within one — reusing a hardcoded
- * pool connection here while already inside a transaction can exhaust the pool under load. */
+ * Delegates to getAppScopeIdsForApps to avoid maintaining two copies of the same join logic. */
 export async function getAppScopeIds(
 	appId: string,
 	executor: DbExecutor = db,

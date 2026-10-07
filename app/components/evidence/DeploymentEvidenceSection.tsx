@@ -32,6 +32,7 @@ import { PeriodSelector } from "./PeriodSelector"
 export interface NdaEvidenceDataProp {
 	apps: Array<{ applicationId: string; team: string; environment: string; appName: string }>
 	periodConfig: { periodType: string; periodStart: string } | null
+	periodConfigLastChanged?: { at: string; by: string } | null
 	downloads: Array<{
 		id: string
 		format: string
@@ -67,17 +68,21 @@ interface Props {
 export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, preview = false }: Props) {
 	const config = getProviderUiConfig("deployments")
 	const revalidator = useRevalidator()
-	const { apps, periodConfig, downloads } = evidenceData
+	const { apps, periodConfig, periodConfigLastChanged, downloads } = evidenceData
 	const showConfirmation = isDraft && !preview && downloads.length > 0
 
-	// Nedlastinger beholder den team/environment/appName-tuppelen de ble generert med.
-	// Hvis en app senere endrer navn, miljø eller lenke-konfigurasjon (slik at getNdaAppParamsGroup
-	// ikke lenger returnerer samme tuppel), vil tidligere nedlastede rapporter ikke matche noe
-	// gjeldende app-panel. De skal likevel ikke forsvinne fra visningen — render dem i en egen
-	// historisk tabell slik at registrert bevis alltid er synlig et sted.
 	const unmatchedDownloads = downloads.filter(
 		(d) => !apps.some((app) => d.team === app.team && d.environment === app.environment && d.appName === app.appName),
 	)
+
+	const otherPeriodDownloads =
+		periodConfig != null
+			? downloads.filter(
+					(d) =>
+						apps.some((app) => d.team === app.team && d.environment === app.environment && d.appName === app.appName) &&
+						(d.periodType !== periodConfig.periodType || d.periodStart !== periodConfig.periodStart),
+				)
+			: []
 
 	if (apps.length === 0) {
 		return (
@@ -111,6 +116,11 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, pre
 				</>
 			) : (
 				<VStack gap="space-6">
+					{periodConfigLastChanged && (
+						<Detail textColor="subtle">
+							Periode sist endret {formatDate(periodConfigLastChanged.at)} av {periodConfigLastChanged.by}
+						</Detail>
+					)}
 					{apps.map((appParams) => (
 						<DeploymentStatusPanel
 							key={appParams.applicationId}
@@ -121,19 +131,32 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, pre
 								(d) =>
 									d.team === appParams.team &&
 									d.environment === appParams.environment &&
-									d.appName === appParams.appName,
+									d.appName === appParams.appName &&
+									d.periodType === periodConfig.periodType &&
+									d.periodStart === periodConfig.periodStart,
 							)}
 							isDraft={isDraft}
 							preview={preview}
 							config={config}
 						/>
 					))}
+					{otherPeriodDownloads.length > 0 && (
+						<VStack gap="space-2">
+							<ReadMore header="Rapporter fra tidligere perioder">
+								<BodyShort size="small" spacing>
+									Disse rapportene ble registrert for en annen periode enn den som er valgt for denne aktiviteten nå, og
+									vises derfor ikke under applikasjonspanelene ovenfor.
+								</BodyShort>
+								<NdaDownloadsTable downloads={otherPeriodDownloads} preview={preview} />
+							</ReadMore>
+						</VStack>
+					)}
 					{unmatchedDownloads.length > 0 && (
 						<VStack gap="space-2">
-							<ReadMore header="Historisk bevis fra tidligere app-konfigurasjon">
+							<ReadMore header="Historisk bevis fra tidligere applikasjonskonfigurasjon">
 								<BodyShort size="small" spacing>
 									Disse rapportene ble registrert mens applikasjonen hadde en annen team-, miljø- eller
-									navnekonfigurasjon enn i dag, og vises derfor ikke under noen av app-panelene ovenfor.
+									navnekonfigurasjon enn i dag, og vises derfor ikke under noen av applikasjonspanelene ovenfor.
 								</BodyShort>
 								<NdaDownloadsTable downloads={unmatchedDownloads} preview={preview} />
 							</ReadMore>
@@ -192,10 +215,12 @@ function DeploymentStatusPanel({
 	const pollFailCountRef = useRef(0)
 	const MAX_POLL_FAILURES = 3
 
+	const canLoadLiveStatus = isDraft && !preview && activity.status === "pending"
+
 	// Fetch status on mount
 	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally mount-only
 	useEffect(() => {
-		if (preview) return
+		if (!canLoadLiveStatus) return
 		if (statusFetcher.state === "idle" && !statusFetcher.data) {
 			const params = new URLSearchParams({
 				providerType: "deployments",
@@ -348,9 +373,11 @@ function DeploymentStatusPanel({
 					{" — "}
 					{periodConfig.periodStart}
 				</Tag>
-				<Button variant="tertiary" size="xsmall" onClick={refreshStatus} loading={isLoadingStatus} disabled={preview}>
-					Oppdater status
-				</Button>
+				{canLoadLiveStatus && (
+					<Button variant="tertiary" size="xsmall" onClick={refreshStatus} loading={isLoadingStatus}>
+						Oppdater status
+					</Button>
+				)}
 			</HStack>
 
 			{isLoadingStatus && !validStatus && !statusError && (

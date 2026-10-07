@@ -95,7 +95,7 @@ import { syncApplicationControls } from "./application-controls.server"
 import { getAppScopeIdsForApps } from "./applications.server"
 import { writeAuditLog } from "./audit.server"
 import { getOracleInstancesForApp } from "./audit-evidence.server"
-import { getNdaAppParamsGroup } from "./deployment-audit.server"
+import { getNdaAppParamsGroup, type NdaAppGroupSnapshotEntry } from "./deployment-audit.server"
 import { getEvidenceDownloadsForActivities, getEvidenceDownloadsForActivity } from "./evidence-downloads.server"
 import {
 	getAppAuthIntegrations,
@@ -6121,24 +6121,41 @@ export async function autoCreateActivitiesForReview(
 	})
 }
 
-export async function savePeriodConfig(activityId: string, periodConfig: PeriodConfig) {
-	// WHERE-betingelsen krever status='pending' slik at denne UPDATE-en ikke kan endre
-	// perioden på en aktivitet som nettopp ble låst/fullført av completeReviewActivity()
-	// (som holder en FOR UPDATE-lås på raden mens den validerer periode-match) — uten dette
-	// kunne en samtidig fullføring og periode-endring resultere i en fullført aktivitet som
-	// er konfigurert med en periode ingen av de innsamlede rapportene faktisk dekker.
-	const [updated] = await db
-		.update(routineReviewActivities)
-		.set({ periodConfig })
-		.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))
-		.returning({ id: routineReviewActivities.id })
+export async function savePeriodConfig(activityId: string, periodConfig: PeriodConfig, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select({ periodConfig: routineReviewActivities.periodConfig })
+			.from(routineReviewActivities)
+			.where(eq(routineReviewActivities.id, activityId))
+			.for("update", { of: [routineReviewActivities] })
+			.limit(1)
 
-	if (!updated) {
-		throw new Response("Aktiviteten finnes ikke eller er allerede fullført, og kan ikke få endret periode.", {
-			status: 409,
-		})
-	}
-	return updated
+		const [updated] = await tx
+			.update(routineReviewActivities)
+			.set({ periodConfig })
+			.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))
+			.returning({ id: routineReviewActivities.id })
+
+		if (!updated) {
+			throw new Response("Aktiviteten finnes ikke eller er allerede fullført, og kan ikke få endret periode.", {
+				status: 409,
+			})
+		}
+
+		await writeAuditLog(
+			{
+				action: "review_activity_period_config_updated",
+				entityType: "routine_review_activity",
+				entityId: activityId,
+				previousValue: existing?.periodConfig ? JSON.stringify(existing.periodConfig) : null,
+				newValue: JSON.stringify(periodConfig),
+				performedBy,
+			},
+			tx,
+		)
+
+		return updated
+	})
 }
 
 export async function recordEntraChange(
@@ -6480,23 +6497,15 @@ export async function completeReviewActivity(
 			)
 		}
 
-		// Deployments-aktiviteter kan dekke en gruppe lenkede applikasjoner (se getNdaAppParamsGroup).
-		// En nedlasting av riktig evidenceType er ikke nok alene — hvert gruppemedlem med eget
-		// produksjonsmiljø SKAL ha sin egen leveranserapport før aktiviteten kan fullføres.
-		// Håndheves her (ikke bare i klientens useMemo) slik at et direkte completion-kall ikke
-		// kan omgå kravet om bevis per app.
+		if (evidenceProviderType === "deployments" && !activity.applicationId) {
+			throw new Response(
+				"Vedlikeholdsaktiviteten kan ikke fullføres. Leveranserapport-aktiviteter må være knyttet til en applikasjon.",
+				{ status: 400 },
+			)
+		}
+
 		if (evidenceProviderType === "deployments" && activity.applicationId) {
 			const appsGroup = await getNdaAppParamsGroup(activity.applicationId, activity.sectionId, tx ?? db)
-			// validateDeploymentsAccess() (evidence-providers/validation.server.ts) rejects any
-			// report submission for a group member whose canonical application scope (dev-team +
-			// NAIS-team derived sections, via getAppScopeIdsForApps) doesn't include the review's
-			// own section — a linked application is not an authorization boundary, so cross-section
-			// members can never be reported on through this review. Comparing against the deployed
-			// environment's naisTeams.sectionId alone is insufficient, since an app can be linked to
-			// a dev team (or NAIS team) in a different section than its deployment environment
-			// resolves to. Scope the completion requirement the same way, or a single cross-section
-			// link would permanently block completion for a report that can never legally be
-			// collected.
 			const scopeByApp = await getAppScopeIdsForApps(
 				appsGroup.map((app) => app.applicationId),
 				tx ?? db,
@@ -6517,10 +6526,6 @@ export async function completeReviewActivity(
 							d.providerMetadata.team === app.team &&
 							d.providerMetadata.environment === app.environment &&
 							d.providerMetadata.appName === app.appName &&
-							// /api/evidence-period-config kan oppdatere en ventende aktivitets periode
-							// etter at nedlastinger allerede finnes. Uten denne sjekken kan en gammel
-							// nedlasting for en annen periode (f.eks. Q4) feilaktig tilfredsstille kravet
-							// for en nylig valgt periode (f.eks. Q1) den aldri faktisk dekket.
 							d.providerMetadata.periodType === activity.periodConfig?.periodType &&
 							d.providerMetadata.periodStart === activity.periodConfig?.periodStart,
 					),
@@ -6664,14 +6669,8 @@ export async function completeReviewActivity(
 	}
 
 	const runGeneric = async (exec: DbExecutor) => {
+		let deploymentsAppsSnapshot: NdaAppGroupSnapshotEntry[] | null = null
 		if (evidenceProviderType === "deployments" && activity.applicationId) {
-			// Lås aktivitetsraden FOR UPDATE og les periodConfig på nytt rett før commit.
-			// /api/evidence-period-config kan ellers endre perioden i vinduet mellom den
-			// tidlige sjekken over og denne UPDATE-en (TOCTOU), slik at aktiviteten
-			// fullføres med rapporter som bare dekket den gamle perioden. savePeriodConfig()
-			// sin WHERE-betingelse på status='pending' sørger for at et samtidig
-			// periode-bytte enten vinner løpet (vi ser det her) eller blokkeres av denne
-			// låsen og feiler med 409 etter at vi har fullført (siden status da er endret).
 			const [locked] = await exec
 				.select({ status: routineReviewActivities.status, periodConfig: routineReviewActivities.periodConfig })
 				.from(routineReviewActivities)
@@ -6681,6 +6680,49 @@ export async function completeReviewActivity(
 			if (locked?.status !== "pending") {
 				throw new Response("Aktiviteten er allerede fullført", { status: 409 })
 			}
+
+			const [root] = (
+				await exec.execute<{ primary_id: string }>(sql`
+					SELECT COALESCE(primary_application_id, id) AS primary_id
+					FROM ${monitoredApplications}
+					WHERE id = ${activity.applicationId}
+				`)
+			).rows
+			if (root) {
+				const { rows } = await exec.execute<{ id: string; primary_application_id: string | null }>(sql`
+					SELECT id, primary_application_id FROM ${monitoredApplications}
+					WHERE id = ${root.primary_id} AND archived_at IS NULL
+					FOR UPDATE
+				`)
+				const primaryLocked = rows[0]
+				if (primaryLocked && primaryLocked.primary_application_id !== null) {
+					throw new Response("Applikasjonsgruppen endret seg samtidig. Prøv igjen.", { status: 409 })
+				}
+				if (primaryLocked) {
+					const { rows: appRows } = await exec.execute<{ id: string; primary_application_id: string | null }>(sql`
+						SELECT id, primary_application_id FROM ${monitoredApplications}
+						WHERE id = ${activity.applicationId}
+						FOR UPDATE
+					`)
+					const appLocked = appRows[0]
+					if (
+						!appLocked ||
+						(appLocked.id !== primaryLocked.id && appLocked.primary_application_id !== primaryLocked.id)
+					) {
+						throw new Response("Applikasjonsgruppen endret seg samtidig. Prøv igjen.", { status: 409 })
+					}
+
+					const { rows: children } = await exec.execute<{ id: string }>(sql`
+						SELECT id FROM ${monitoredApplications}
+						WHERE archived_at IS NULL AND primary_application_id = ${primaryLocked.id}
+						ORDER BY id
+					`)
+					for (const child of children) {
+						await exec.execute(sql`SELECT id FROM ${monitoredApplications} WHERE id = ${child.id} FOR UPDATE`)
+					}
+				}
+			}
+
 			const freshDownloads = await getEvidenceDownloadsForActivity(activityId, exec)
 			const appsGroup = await getNdaAppParamsGroup(activity.applicationId, activity.sectionId, exec)
 			const scopeByApp = await getAppScopeIdsForApps(
@@ -6696,6 +6738,12 @@ export async function completeReviewActivity(
 					{ status: 400 },
 				)
 			}
+			if (!locked.periodConfig) {
+				throw new Response("Vedlikeholdsaktiviteten kan ikke fullføres. Periode er ikke valgt.", {
+					status: 400,
+				})
+			}
+			const periodConfig = locked.periodConfig
 			const appsMissingReports = appsInSection.filter(
 				(app) =>
 					!freshDownloads.some(
@@ -6703,8 +6751,8 @@ export async function completeReviewActivity(
 							d.providerMetadata.team === app.team &&
 							d.providerMetadata.environment === app.environment &&
 							d.providerMetadata.appName === app.appName &&
-							d.providerMetadata.periodType === locked.periodConfig?.periodType &&
-							d.providerMetadata.periodStart === locked.periodConfig?.periodStart,
+							d.providerMetadata.periodType === periodConfig.periodType &&
+							d.providerMetadata.periodStart === periodConfig.periodStart,
 					),
 			)
 			if (appsMissingReports.length > 0) {
@@ -6714,13 +6762,20 @@ export async function completeReviewActivity(
 					{ status: 400 },
 				)
 			}
+
+			deploymentsAppsSnapshot = appsInSection.map(({ applicationId, team, environment, appName }) => ({
+				applicationId,
+				team,
+				environment,
+				appName,
+			}))
 		}
 
 		const [updated] = await exec
 			.update(routineReviewActivities)
 			.set({
 				status: "completed",
-				snapshotAfter,
+				snapshotAfter: deploymentsAppsSnapshot ?? snapshotAfter,
 				completedAt: new Date(),
 			})
 			.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))

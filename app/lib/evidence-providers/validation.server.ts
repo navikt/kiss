@@ -182,19 +182,6 @@ async function validateDeploymentsAccess(params: Record<string, unknown>, ctx: A
 		throw data({ error: "team, environment og appName er påkrevd for leveranserapporter" }, { status: 400 })
 	}
 
-	// Verify client-supplied params match one of the applications in the linked group —
-	// a review activity can cover a primary application plus any linked applications that
-	// have deployed independently, each reported on separately.
-	// `linkApplication()` does not require linked apps to share a section/team, so group
-	// membership alone is NOT an authorization boundary — also require that the matched
-	// member's own canonical application scope (dev-team + NAIS-team derived sections, via
-	// getAppScopeIds) includes the review's section (already authorized via
-	// requireAnySectionRole(user, ctx.sectionId) at the route level). Comparing against the
-	// deployed environment's naisTeams.sectionId alone is insufficient: an app can be linked
-	// to a dev team (or NAIS team) in a different section than the one its deployment
-	// environment happens to resolve to, so that narrower comparison could both wrongly
-	// reject legitimate same-section apps and wrongly admit apps the reviewer has no
-	// authorized relationship to in the review's section.
 	const matchedGroupMember = appParamsGroup.find(
 		(p) => p.team === team && p.environment === environment && p.appName === appName,
 	)
@@ -220,6 +207,12 @@ async function validateDeploymentsAccess(params: Record<string, unknown>, ctx: A
 	}
 	if (!isPeriodEnded(periodType as PeriodType, periodStart)) {
 		throw data({ error: "Perioden er ikke avsluttet ennå" }, { status: 400 })
+	}
+	if (!ctx.periodConfig) {
+		throw data({ error: "Ingen periode er valgt for denne gjennomgangen ennå" }, { status: 403 })
+	}
+	if (ctx.periodConfig.periodType !== periodType || ctx.periodConfig.periodStart !== periodStart) {
+		throw data({ error: "periodType og periodStart matcher ikke perioden valgt for gjennomgangen" }, { status: 403 })
 	}
 }
 

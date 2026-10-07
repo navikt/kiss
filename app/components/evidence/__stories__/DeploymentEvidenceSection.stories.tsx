@@ -95,44 +95,7 @@ export const MedPeriodeUtenNedlastinger: Story = {
 				isDraft={false}
 			/>
 		)
-		const Stub = createRoutesStub([
-			{ path: "/", Component: Wrapper },
-			{
-				path: "/api/evidence-status",
-				loader: async () =>
-					makeStatusResponse({
-						items: [
-							{
-								id: "deployment-stats",
-								label: "Leveranser Q1 2026",
-								status: "ok",
-								formats: ["pdf"],
-								canDownload: false,
-							},
-						],
-						metadata: {
-							team: appParams.team,
-							environment: appParams.environment,
-							appName: appParams.appName,
-							period: {
-								type: "quarterly",
-								label: "Q1 2026",
-								start: "2026-01-01",
-								end: "2026-03-31",
-							},
-							deployments: {
-								total: 45,
-								approved: 42,
-								pending: 2,
-								notApproved: 1,
-								approvedPercent: 93,
-								withChangeOrigin: 40,
-								changeOriginPercent: 89,
-							},
-						},
-					}),
-			},
-		])
+		const Stub = createRoutesStub([{ path: "/", Component: Wrapper }])
 		return <Stub initialEntries={["/"]} />
 	},
 }
@@ -182,44 +145,7 @@ export const MedNedlastinger: Story = {
 				isDraft={false}
 			/>
 		)
-		const Stub = createRoutesStub([
-			{ path: "/", Component: Wrapper },
-			{
-				path: "/api/evidence-status",
-				loader: async () =>
-					makeStatusResponse({
-						items: [
-							{
-								id: "deployment-stats",
-								label: "Leveranser Q1 2026",
-								status: "ok",
-								formats: ["pdf"],
-								canDownload: false,
-							},
-						],
-						metadata: {
-							team: appParams.team,
-							environment: appParams.environment,
-							appName: appParams.appName,
-							period: {
-								type: "quarterly",
-								label: "Q1 2026",
-								start: "2026-01-01",
-								end: "2026-03-31",
-							},
-							deployments: {
-								total: 45,
-								approved: 45,
-								pending: 0,
-								notApproved: 0,
-								approvedPercent: 100,
-								withChangeOrigin: 44,
-								changeOriginPercent: 98,
-							},
-						},
-					}),
-			},
-		])
+		const Stub = createRoutesStub([{ path: "/", Component: Wrapper }])
 		return <Stub initialEntries={["/"]} />
 	},
 }
@@ -241,7 +167,7 @@ export const MedHistoriskBevis: Story = {
 							sizeBytes: 245_000,
 							source: "m2m_api",
 							forceFetchJustification: null,
-							performedBy: "T123456",
+							performedBy: "Z990003",
 							performedAt: "2026-04-01T10:30:00Z",
 							team: appParams.team,
 							environment: appParams.environment,
@@ -256,7 +182,7 @@ export const MedHistoriskBevis: Story = {
 							sizeBytes: 198_000,
 							source: "m2m_api",
 							forceFetchJustification: null,
-							performedBy: "T111111",
+							performedBy: "Z990002",
 							performedAt: "2026-01-02T09:00:00Z",
 							team: "gammelt-team",
 							environment: "prod-gcp",
@@ -267,6 +193,41 @@ export const MedHistoriskBevis: Story = {
 					],
 				}}
 				isDraft={false}
+			/>
+		)
+		const Stub = createRoutesStub([{ path: "/", Component: Wrapper }])
+		return <Stub initialEntries={["/"]} />
+	},
+}
+
+export const MedBevisFraAnnenPeriode: Story = {
+	name: "Med bevis fra annen periode (ikke registrert for valgt periode)",
+	render: () => {
+		const Wrapper = () => (
+			<DeploymentEvidenceSection
+				activity={baseActivity}
+				evidenceData={{
+					apps: [appParams],
+					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
+					downloads: [
+						{
+							id: "dl-forrige-periode",
+							format: "pdf",
+							fileName: "leveranserapport-Q4-2025.pdf",
+							sizeBytes: 198_000,
+							source: "m2m_api",
+							forceFetchJustification: null,
+							performedBy: "Z990002",
+							performedAt: "2026-01-02T09:00:00Z",
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
+							periodType: "quarterly",
+							periodStart: "2025-10-01",
+						},
+					],
+				}}
+				isDraft={true}
 			/>
 		)
 		const Stub = createRoutesStub([
@@ -281,7 +242,7 @@ export const MedHistoriskBevis: Story = {
 								label: "Leveranser Q1 2026",
 								status: "ok",
 								formats: ["pdf"],
-								canDownload: false,
+								canDownload: true,
 							},
 						],
 						metadata: {
@@ -295,13 +256,13 @@ export const MedHistoriskBevis: Story = {
 								end: "2026-03-31",
 							},
 							deployments: {
-								total: 45,
-								approved: 42,
-								pending: 2,
+								total: 12,
+								approved: 10,
+								pending: 1,
 								notApproved: 1,
-								approvedPercent: 93,
-								withChangeOrigin: 40,
-								changeOriginPercent: 89,
+								approvedPercent: 83,
+								withChangeOrigin: 9,
+								changeOriginPercent: 75,
 							},
 						},
 					}),
@@ -333,35 +294,15 @@ export const ManuellOpplasting: Story = {
 							team: appParams.team,
 							environment: appParams.environment,
 							appName: appParams.appName,
-							periodType: "quarterly",
-							periodStart: "2026-01-01",
+							periodType: "yearly",
+							periodStart: "2025-01-01",
 						},
 					],
 				}}
 				isDraft={false}
 			/>
 		)
-		const Stub = createRoutesStub([
-			{ path: "/", Component: Wrapper },
-			{
-				path: "/api/evidence-status",
-				loader: async () =>
-					makeStatusResponse({
-						items: [],
-						metadata: {
-							team: appParams.team,
-							environment: appParams.environment,
-							appName: appParams.appName,
-							period: {
-								type: "yearly",
-								label: "2025",
-								start: "2025-01-01",
-								end: "2025-12-31",
-							},
-						},
-					}),
-			},
-		])
+		const Stub = createRoutesStub([{ path: "/", Component: Wrapper }])
 		return <Stub initialEntries={["/"]} />
 	},
 }
@@ -776,7 +717,7 @@ export const StatusfeilFraApi: Story = {
 					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
 					downloads: [],
 				}}
-				isDraft={false}
+				isDraft={true}
 			/>
 		)
 		const Stub = createRoutesStub([
@@ -818,6 +759,110 @@ export const NdaUtilgjengelig: Story = {
 							error: "Leveranserapport-tjenesten er ikke tilgjengelig. Prøv igjen senere.",
 						},
 					}),
+			},
+		])
+		return <Stub initialEntries={["/"]} />
+	},
+}
+
+const linkedAppParams = {
+	applicationId: "app-2",
+	team: appParams.team,
+	environment: appParams.environment,
+	appName: "pensjon-pen-linked",
+}
+
+export const ToLenkedeApplikasjoner: Story = {
+	name: "To lenkede applikasjoner – egne paneler og nedlastinger",
+	render: () => {
+		const Wrapper = () => (
+			<DeploymentEvidenceSection
+				activity={baseActivity}
+				evidenceData={{
+					apps: [appParams, linkedAppParams],
+					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
+					downloads: [
+						{
+							id: "dl-app-1",
+							format: "pdf",
+							fileName: "leveranserapport-pensjon-pen-Q1-2026.pdf",
+							sizeBytes: 245_000,
+							source: "m2m_api",
+							forceFetchJustification: null,
+							performedBy: "Z990004",
+							performedAt: "2026-04-01T10:30:00Z",
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
+							periodType: "quarterly",
+							periodStart: "2026-01-01",
+						},
+						{
+							id: "dl-app-2",
+							format: "pdf",
+							fileName: "leveranserapport-pensjon-pen-linked-Q1-2026.pdf",
+							sizeBytes: 198_000,
+							source: "m2m_api",
+							forceFetchJustification: null,
+							performedBy: "Z990005",
+							performedAt: "2026-04-01T11:00:00Z",
+							team: linkedAppParams.team,
+							environment: linkedAppParams.environment,
+							appName: linkedAppParams.appName,
+							periodType: "quarterly",
+							periodStart: "2026-01-01",
+						},
+					],
+				}}
+				isDraft={true}
+			/>
+		)
+		const Stub = createRoutesStub([
+			{ path: "/", Component: Wrapper },
+			{
+				path: "/api/evidence-status",
+				loader: async ({ request }) => {
+					const url = new URL(request.url)
+					const isLinked = url.searchParams.get("appName") === linkedAppParams.appName
+					return makeStatusResponse({
+						items: [
+							{
+								id: "deployment-stats",
+								label: isLinked ? "Leveranser Q1 2026 (lenket app)" : "Leveranser Q1 2026",
+								status: "ok",
+								formats: ["pdf"],
+								canDownload: true,
+							},
+						],
+						metadata: {
+							team: isLinked ? linkedAppParams.team : appParams.team,
+							environment: isLinked ? linkedAppParams.environment : appParams.environment,
+							appName: isLinked ? linkedAppParams.appName : appParams.appName,
+							period: {
+								type: "quarterly",
+								label: "Q1 2026",
+								start: "2026-01-01",
+								end: "2026-03-31",
+							},
+							deployments: {
+								total: isLinked ? 6 : 12,
+								approved: isLinked ? 5 : 10,
+								pending: isLinked ? 0 : 1,
+								notApproved: isLinked ? 1 : 1,
+								approvedPercent: isLinked ? 83 : 83,
+								withChangeOrigin: isLinked ? 4 : 9,
+								changeOriginPercent: isLinked ? 67 : 75,
+							},
+							existingReports: [
+								{
+									reportId: isLinked ? "report-app-2" : "report-app-1",
+									generatedAt: "2026-04-01T09:00:00Z",
+									availableFormats: ["pdf", "excel"],
+								},
+							],
+						},
+					})
+				},
 			},
 		])
 		return <Stub initialEntries={["/"]} />

@@ -321,28 +321,49 @@ export interface NdaAppParams {
 	team: string
 	environment: string
 	appName: string
-	/** Section the resolved production environment belongs to — used to enforce that a linked
-	 * application's data is only exposed to users authorized for that application's own section,
-	 * since `linkApplication()` does not require linked apps to share a section. */
 	sectionId: string
 }
 
-/** NDA params for one member of a linked-application group, tagged with its own application id */
 export interface NdaAppParamsGroupEntry extends NdaAppParams {
 	applicationId: string
+}
+
+export interface NdaAppGroupSnapshotEntry {
+	applicationId: string
+	team: string
+	environment: string
+	appName: string
+}
+
+export function buildReadOnlyNdaAppGroupSnapshot(snapshotAfter: unknown): NdaAppGroupSnapshotEntry[] | null {
+	if (!Array.isArray(snapshotAfter)) return null
+
+	const entries: NdaAppGroupSnapshotEntry[] = []
+	for (const raw of snapshotAfter) {
+		if (!raw || typeof raw !== "object") return null
+		const entry = raw as Record<string, unknown>
+		const { applicationId, team, environment, appName } = entry
+		if (
+			typeof applicationId !== "string" ||
+			typeof team !== "string" ||
+			typeof environment !== "string" ||
+			typeof appName !== "string"
+		) {
+			return null
+		}
+		entries.push({ applicationId, team, environment, appName })
+	}
+	return entries
 }
 
 /**
  * Resolve NDA API parameters for a monitored application.
  *
  * Finds the application's primary production environment — an environment whose cluster
- * has not been excluded by the application's section in `section_environments`. An application
- * can have production environments spanning multiple sections (e.g. deployed by nais teams in
- * different sections); when `preferredSectionId` is given, an environment belonging to that
- * section is preferred over alphabetical-by-cluster ordering, so the review's own section isn't
- * dropped just because another of the app's sections sorts first. Falls back to alphabetical
- * ordering when no environment matches `preferredSectionId` (or none is given), returning
- * whichever section that environment actually belongs to.
+ * has not been excluded by the application's section in `section_environments`. Prefers an
+ * environment whose team belongs to `preferredSectionId` (if given), then falls back to
+ * alphabetical ordering on cluster name, and returns the team/environment/appName needed
+ * by the NDA audit-reports API.
  *
  * @returns NdaAppParams or null if no production environment is found
  */
@@ -378,7 +399,6 @@ export async function getNdaAppParams(
 	if (rows.length === 0) return null
 
 	const row = rows[0]
-	// sectionId can't be null here — filtered by isNotNull(naisTeams.sectionId) above
 	if (!row.sectionId) return null
 
 	return {
@@ -389,57 +409,67 @@ export async function getNdaAppParams(
 	}
 }
 
-/**
- * Resolve NDA API parameters for every member of an application's linked group.
- *
- * KISS's "linked applications" feature (`primaryApplicationId`) only means the apps share a
- * single compliance assessment — it says nothing about whether they are the same deployable
- * unit in NDA. Each member may or may not have its own production environment, independent of
- * the others. This resolves the group (the primary application plus all applications linked to
- * it) and returns NDA params for each member that has its own production environment, so each
- * can be reported on separately instead of merging or guessing which member's data applies.
- *
- * `preferredSectionId` (typically the review's own section) is forwarded to `getNdaAppParams()`
- * for each member, so a member with environments in multiple sections resolves to its
- * environment in that section rather than an arbitrary alphabetical pick.
- *
- * `executor` lets callers that already hold a transaction (e.g. `completeReviewActivity()`
- * inside `completeReview()`'s transaction) reuse that connection instead of acquiring a new
- * one from the pool — calling this with the default `db` from inside an open transaction can
- * exhaust the pool and deadlock once concurrent completions saturate it.
- *
- * @returns one entry per group member with its own production environment (may be empty)
- */
 export async function getNdaAppParamsGroup(
 	applicationId: string,
 	preferredSectionId?: string,
 	executor: DbExecutor = db,
 ): Promise<NdaAppParamsGroupEntry[]> {
-	// Resolve the group primary and all active members in a single statement so group
-	// membership can't shift between two separate reads — e.g. if promoteToPrimary() commits
-	// between resolving groupPrimaryId and querying its children, a two-query approach could
-	// see a stale primary whose children have already been reassigned to a new primary,
-	// silently dropping members (and reports) the completion guard should have required.
 	const result = await executor.execute(sql`
 		WITH root AS (
 			SELECT COALESCE(primary_application_id, id) AS primary_id
 			FROM ${monitoredApplications}
 			WHERE id = ${applicationId}
+		),
+		members AS (
+			SELECT m.id, m.name AS app_name
+			FROM ${monitoredApplications} m, root
+			WHERE m.archived_at IS NULL
+			AND (m.id = root.primary_id OR m.primary_application_id = root.primary_id)
+		),
+		ranked AS (
+			SELECT
+				members.id AS application_id,
+				members.app_name AS app_name,
+				${naisTeams.slug} AS team_slug,
+				${naisTeams.sectionId} AS section_id,
+				ROW_NUMBER() OVER (
+					PARTITION BY members.id
+					ORDER BY (CASE WHEN ${naisTeams.sectionId} = ${preferredSectionId ?? null} THEN 0 ELSE 1 END), ${applicationEnvironments.cluster} ASC
+				) AS rn,
+				${applicationEnvironments.cluster} AS cluster
+			FROM members
+			JOIN ${applicationEnvironments} ON ${applicationEnvironments.applicationId} = members.id
+			JOIN ${naisTeams} ON ${naisTeams.id} = ${applicationEnvironments.naisTeamId}
+			WHERE ${naisTeams.sectionId} IS NOT NULL
+			AND ${applicationEnvironments.archivedAt} IS NULL
+			AND NOT EXISTS (
+				SELECT 1 FROM ${sectionEnvironments}
+				WHERE ${sectionEnvironments.sectionId} = ${naisTeams.sectionId}
+				AND ${sectionEnvironments.cluster} = ${applicationEnvironments.cluster}
+				AND ${sectionEnvironments.included} = false
+			)
 		)
-		SELECT m.id
-		FROM ${monitoredApplications} m, root
-		WHERE m.archived_at IS NULL
-		AND (m.id = root.primary_id OR m.primary_application_id = root.primary_id)
-		ORDER BY m.name
+		SELECT application_id, app_name, team_slug, section_id, cluster
+		FROM ranked
+		WHERE rn = 1
+		ORDER BY app_name
 	`)
-	const memberIds = (result.rows as Array<{ id: string }>).map((row) => row.id)
 
-	const results = await Promise.all(
-		memberIds.map(async (id) => {
-			const params = await getNdaAppParams(id, preferredSectionId, executor)
-			return params ? { applicationId: id, ...params } : null
-		}),
+	return (
+		result.rows as Array<{
+			application_id: string
+			app_name: string
+			team_slug: string | null
+			section_id: string | null
+			cluster: string
+		}>
 	)
-
-	return results.filter((r): r is NdaAppParamsGroupEntry => r !== null)
+		.filter((row) => row.section_id !== null)
+		.map((row) => ({
+			applicationId: row.application_id,
+			team: row.team_slug ?? "",
+			environment: row.cluster,
+			appName: row.app_name,
+			sectionId: row.section_id as string,
+		}))
 }

@@ -38,6 +38,7 @@ const {
 	touchSyncAttempt,
 	getNdaAppParams,
 	getNdaAppParamsGroup,
+	buildReadOnlyNdaAppGroupSnapshot,
 } = await import("~/db/queries/deployment-audit.server")
 
 describe("Deployment audit queries integration tests", () => {
@@ -442,9 +443,6 @@ describe("Deployment audit queries integration tests", () => {
 		})
 
 		it("prefers the environment in preferredSectionId over alphabetical cluster ordering when the app has environments in multiple sections", async () => {
-			// "prod-aaa" sorterer alfabetisk FØR "prod-zzz", men tilhører en ANNEN seksjon enn den
-			// vi spør etter. Uten preferredSectionId-prioritering ville denne appen feilaktig
-			// rapportert "ingen miljø" for review-seksjonen, selv om den faktisk har et gyldig miljø der.
 			const otherSectionId = await createSection("sec-nda-multi-other")
 			const otherNaisTeamId = await createNaisTeam(otherSectionId, "team-nda-multi-other")
 			const appId = await createApp("app-nda-multi-section")
@@ -540,8 +538,6 @@ describe("Deployment audit queries integration tests", () => {
 				const primaryId = await createApp("primary-cross-section")
 				await createEnvironment(primaryId, primaryNaisTeamId, "prod-gcp")
 
-				// Lenket app tilhører en ANNEN seksjon enn hovedapplikasjonen — linkApplication()
-				// krever ikke delt seksjon/team, så dette er et gyldig (om enn uvanlig) oppsett.
 				const linkedSectionId = await createSection("sec-nda-group-linked")
 				const linkedNaisTeamId = await createNaisTeam(linkedSectionId, "team-nda-group-linked")
 				const linkedId = await createApp("linked-cross-section", primaryId)
@@ -621,11 +617,6 @@ describe("Deployment audit queries integration tests", () => {
 			})
 
 			it("accepts an explicit executor so callers already inside a transaction don't need a second pool connection", async () => {
-				// completeReview() wraps every activity completion in one transaction and passes that
-				// connection down to completeReviewActivity() → getNdaAppParamsGroup(). If this ran
-				// against the default db pool instead of the passed-in executor, concurrent completions
-				// could exhaust the pool and deadlock (each transaction holding one connection while
-				// waiting for a free one for this nested read).
 				const sectionId = await createSection("sec-nda-group5")
 				const naisTeamId = await createNaisTeam(sectionId, "team-nda-group5")
 				const appId = await createApp("standalone-app-group5")
@@ -644,6 +635,39 @@ describe("Deployment audit queries integration tests", () => {
 					},
 				])
 			})
+		})
+	})
+
+	describe("buildReadOnlyNdaAppGroupSnapshot", () => {
+		it("parses a valid snapshot array into app tuples", () => {
+			const snapshot = [
+				{ applicationId: "app-1", team: "team-a", environment: "prod-gcp", appName: "app-one" },
+				{ applicationId: "app-2", team: "team-b", environment: "prod-fss", appName: "app-two" },
+			]
+
+			expect(buildReadOnlyNdaAppGroupSnapshot(snapshot)).toEqual(snapshot)
+		})
+
+		it("returns an empty array for an empty snapshot", () => {
+			expect(buildReadOnlyNdaAppGroupSnapshot([])).toEqual([])
+		})
+
+		it("returns null for a non-array value", () => {
+			expect(buildReadOnlyNdaAppGroupSnapshot(null)).toBeNull()
+			expect(buildReadOnlyNdaAppGroupSnapshot(undefined)).toBeNull()
+			expect(buildReadOnlyNdaAppGroupSnapshot({ users: [] })).toBeNull()
+		})
+
+		it("returns null when an entry is missing a required field", () => {
+			const snapshot = [{ applicationId: "app-1", team: "team-a", environment: "prod-gcp" }]
+
+			expect(buildReadOnlyNdaAppGroupSnapshot(snapshot)).toBeNull()
+		})
+
+		it("returns null when an entry has a non-string field", () => {
+			const snapshot = [{ applicationId: "app-1", team: "team-a", environment: "prod-gcp", appName: 123 }]
+
+			expect(buildReadOnlyNdaAppGroupSnapshot(snapshot)).toBeNull()
 		})
 	})
 })
