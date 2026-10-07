@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
-import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
+import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase, truncateWithRetry } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
 	get db() {
@@ -36,6 +36,7 @@ const {
 	getDeploymentVerificationsForApps,
 	getDeploymentVerificationAggregate,
 	touchSyncAttempt,
+	getNdaAppParams,
 } = await import("~/db/queries/deployment-audit.server")
 
 describe("Deployment audit queries integration tests", () => {
@@ -51,8 +52,13 @@ describe("Deployment audit queries integration tests", () => {
 
 	beforeEach(async () => {
 		const db = getTestDb()
-		await db.execute(/* sql */ `DELETE FROM deployment_verification_summaries`)
-		await db.execute(/* sql */ `DELETE FROM monitored_applications`)
+		await truncateWithRetry([
+			"deployment_verification_summaries",
+			"application_environments",
+			"nais_teams",
+			"monitored_applications",
+			"sections",
+		])
 
 		// Create a test application
 		const result = await db.execute(
@@ -360,6 +366,86 @@ describe("Deployment audit queries integration tests", () => {
 			expect(result.appsWithData).toBe(2)
 			expect(result.fourEyesTotal).toBe(20)
 			expect(result.fourEyesApproved).toBe(16)
+		})
+	})
+
+	describe("getNdaAppParams", () => {
+		async function createSection(slug: string) {
+			const db = getTestDb()
+			const r = await db.execute(
+				/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('${slug}', '${slug}', 'test', 'test') RETURNING id`,
+			)
+			return (r.rows[0] as { id: string }).id
+		}
+
+		async function createNaisTeam(sectionId: string, slug: string) {
+			const db = getTestDb()
+			const r = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('${slug}', '${sectionId}') RETURNING id`,
+			)
+			return (r.rows[0] as { id: string }).id
+		}
+
+		async function createApp(name: string, primaryApplicationId: string | null = null) {
+			const db = getTestDb()
+			const primaryVal = primaryApplicationId ? `'${primaryApplicationId}'` : "NULL"
+			const r = await db.execute(
+				/* sql */ `INSERT INTO monitored_applications (name, primary_application_id, created_by, updated_by)
+				VALUES ('${name}', ${primaryVal}, 'test', 'test') RETURNING id`,
+			)
+			return (r.rows[0] as { id: string }).id
+		}
+
+		async function createEnvironment(appId: string, naisTeamId: string, cluster: string) {
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${appId}', '${cluster}', 'default', '${naisTeamId}')`,
+			)
+		}
+
+		it("resolves team/environment/appName for an application with its own production environment", async () => {
+			const sectionId = await createSection("sec-nda1")
+			const naisTeamId = await createNaisTeam(sectionId, "team-nda1")
+			const appId = await createApp("app-nda1")
+			await createEnvironment(appId, naisTeamId, "prod-gcp")
+
+			const result = await getNdaAppParams(appId)
+
+			expect(result).toEqual({ team: "team-nda1", environment: "prod-gcp", appName: "app-nda1" })
+		})
+
+		it("resolves NDA params via the primary application when a linked application has no environments of its own", async () => {
+			const sectionId = await createSection("sec-nda2")
+			const naisTeamId = await createNaisTeam(sectionId, "team-nda2")
+			const primaryId = await createApp("alderspensjon-endringssoknad-frontend")
+			await createEnvironment(primaryId, naisTeamId, "prod-gcp")
+			const linkedId = await createApp("alderspensjon-endringssoknad-frontend-borger", primaryId)
+
+			const result = await getNdaAppParams(linkedId)
+
+			expect(result).toEqual({
+				team: "team-nda2",
+				environment: "prod-gcp",
+				appName: "alderspensjon-endringssoknad-frontend",
+			})
+		})
+
+		it("returns null when neither the application nor its linked primary has a production environment", async () => {
+			const primaryId = await createApp("primary-without-env")
+			const linkedId = await createApp("linked-without-env", primaryId)
+
+			const result = await getNdaAppParams(linkedId)
+
+			expect(result).toBeNull()
+		})
+
+		it("returns null when the application has no production environment and is not linked", async () => {
+			const appId = await createApp("standalone-without-env")
+
+			const result = await getNdaAppParams(appId)
+
+			expect(result).toBeNull()
 		})
 	})
 })

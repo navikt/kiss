@@ -329,9 +329,23 @@ export interface NdaAppParams {
  * alphabetical ordering on cluster name and returns the team/environment/appName needed
  * by the NDA audit-reports API.
  *
+ * If the application is linked to a primary application (`primaryApplicationId` set), the
+ * lookup is resolved against the primary application instead, since linked/variant apps have
+ * no production environments of their own — their deployments are tracked under the primary
+ * application's name in NDA.
+ *
  * @returns NdaAppParams or null if no production environment is found
  */
 export async function getNdaAppParams(applicationId: string): Promise<NdaAppParams | null> {
+	// Resolve primary application inheritance (linked/variant apps have no environments of
+	// their own — deployments are tracked under the primary application's name in NDA).
+	const [app] = await db
+		.select({ primaryApplicationId: monitoredApplications.primaryApplicationId })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, applicationId))
+		.limit(1)
+	const ndaApplicationId = app?.primaryApplicationId ?? applicationId
+
 	const rows = await db
 		.select({
 			appName: monitoredApplications.name,
@@ -343,7 +357,7 @@ export async function getNdaAppParams(applicationId: string): Promise<NdaAppPara
 		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
 		.where(
 			and(
-				eq(applicationEnvironments.applicationId, applicationId),
+				eq(applicationEnvironments.applicationId, ndaApplicationId),
 				isNotNull(naisTeams.sectionId),
 				isNull(applicationEnvironments.archivedAt),
 				notExcludedBySectionCondition(),
