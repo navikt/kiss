@@ -6121,41 +6121,20 @@ export async function autoCreateActivitiesForReview(
 	})
 }
 
-export async function savePeriodConfig(activityId: string, periodConfig: PeriodConfig, performedBy: string) {
-	return db.transaction(async (tx) => {
-		const [existing] = await tx
-			.select({ periodConfig: routineReviewActivities.periodConfig })
-			.from(routineReviewActivities)
-			.where(eq(routineReviewActivities.id, activityId))
-			.for("update", { of: [routineReviewActivities] })
-			.limit(1)
+export async function savePeriodConfig(activityId: string, periodConfig: PeriodConfig) {
+	const [updated] = await db
+		.update(routineReviewActivities)
+		.set({ periodConfig })
+		.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))
+		.returning({ id: routineReviewActivities.id })
 
-		const [updated] = await tx
-			.update(routineReviewActivities)
-			.set({ periodConfig })
-			.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))
-			.returning({ id: routineReviewActivities.id })
+	if (!updated) {
+		throw new Response("Aktiviteten finnes ikke eller er allerede fullført, og kan ikke få endret periode.", {
+			status: 409,
+		})
+	}
 
-		if (!updated) {
-			throw new Response("Aktiviteten finnes ikke eller er allerede fullført, og kan ikke få endret periode.", {
-				status: 409,
-			})
-		}
-
-		await writeAuditLog(
-			{
-				action: "review_activity_period_config_updated",
-				entityType: "routine_review_activity",
-				entityId: activityId,
-				previousValue: existing?.periodConfig ? JSON.stringify(existing.periodConfig) : null,
-				newValue: JSON.stringify(periodConfig),
-				performedBy,
-			},
-			tx,
-		)
-
-		return updated
-	})
+	return updated
 }
 
 export async function recordEntraChange(

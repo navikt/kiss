@@ -32,7 +32,6 @@ import { PeriodSelector } from "./PeriodSelector"
 export interface NdaEvidenceDataProp {
 	apps: Array<{ applicationId: string; team: string; environment: string; appName: string }>
 	periodConfig: { periodType: string; periodStart: string } | null
-	periodConfigLastChanged?: { at: string; by: string } | null
 	downloads: Array<{
 		id: string
 		format: string
@@ -68,7 +67,7 @@ interface Props {
 export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, preview = false }: Props) {
 	const config = getProviderUiConfig("deployments")
 	const revalidator = useRevalidator()
-	const { apps, periodConfig, periodConfigLastChanged, downloads } = evidenceData
+	const { apps, periodConfig, downloads } = evidenceData
 	const showConfirmation = isDraft && !preview && downloads.length > 0
 
 	const unmatchedDownloads = downloads.filter(
@@ -116,11 +115,6 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, pre
 				</>
 			) : (
 				<VStack gap="space-6">
-					{periodConfigLastChanged && (
-						<Detail textColor="subtle">
-							Periode sist endret {formatDate(periodConfigLastChanged.at)} av {periodConfigLastChanged.by}
-						</Detail>
-					)}
 					{apps.map((appParams) => (
 						<DeploymentStatusPanel
 							key={appParams.applicationId}

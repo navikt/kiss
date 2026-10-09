@@ -307,7 +307,6 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 	type NdaEvidenceData = {
 		apps: Array<{ applicationId: string; team: string; environment: string; appName: string }>
 		periodConfig: { periodType: string; periodStart: string } | null
-		periodConfigLastChanged?: { at: string; by: string } | null
 		downloads: Array<{
 			id: string
 			format: string
@@ -732,36 +731,6 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 	if (routine.archivedAt !== null && routine.replacedByRoutineId) {
 		const nameMap = await getRoutineNamesByIds([routine.replacedByRoutineId])
 		replacedByRoutineName = nameMap.get(routine.replacedByRoutineId)?.name ?? null
-	}
-
-	const deploymentActivityIds = activitiesWithEvidence
-		.filter((a) => a.evidenceProviderType === "deployments")
-		.map((a) => a.id)
-	const { getAuditLogForEntities } = await import("~/db/queries/audit.server")
-	const periodConfigAuditLog =
-		deploymentActivityIds.length > 0
-			? await getAuditLogForEntities("routine_review_activity", deploymentActivityIds)
-			: []
-	const periodConfigLastChangedByActivity = new Map<string, { at: string; by: string }>()
-	for (const entry of periodConfigAuditLog) {
-		if (entry.action !== "review_activity_period_config_updated") continue
-		if (periodConfigLastChangedByActivity.has(entry.entityId)) continue
-		periodConfigLastChangedByActivity.set(entry.entityId, {
-			at: entry.performedAt.toISOString(),
-			by: entry.performedBy,
-		})
-	}
-	const periodConfigAuditNames = await getUserNamesByNavIdents(
-		[...periodConfigLastChangedByActivity.values()].map((v) => v.by),
-	)
-	for (const activity of activitiesWithEvidence) {
-		const lastChanged = periodConfigLastChangedByActivity.get(activity.id)
-		if (lastChanged && activity.ndaEvidenceData) {
-			activity.ndaEvidenceData.periodConfigLastChanged = {
-				at: lastChanged.at,
-				by: periodConfigAuditNames.get(lastChanged.by.trim().toUpperCase()) ?? lastChanged.by,
-			}
-		}
 	}
 
 	return data({

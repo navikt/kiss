@@ -67,7 +67,7 @@ export async function action({ request }: Route.ActionArgs) {
 		throw data({ error: "Perioden er ikke avsluttet ennå" }, { status: 400 })
 	}
 
-	await savePeriodConfig(activityId, { periodType, periodStart }, authedUser.navIdent)
+	await savePeriodConfig(activityId, { periodType, periodStart })
 
 	return data({ success: true, periodConfig: { periodType, periodStart } })
 }

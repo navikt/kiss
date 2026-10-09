@@ -2428,11 +2428,11 @@ describe("Routines integration tests", () => {
 
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
 
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" }, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			// Simulerer at periode ble validert av kallstedet før en periodeendring rakk å committe —
 			// kallet forventer fortsatt Q1 2026, men den lagrede perioden er nå en annen.
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-04-01" }, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-04-01" })
 
 			const error = await recordManualEvidenceUpload({
 				activityId: activity.id,
@@ -2509,7 +2509,7 @@ describe("Routines integration tests", () => {
 				participants: [],
 			})
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" }, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			await recordManualEvidenceUpload({
 				activityId: activity.id,
@@ -2678,7 +2678,7 @@ describe("Routines integration tests", () => {
 				participants: [],
 			})
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" }, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			await recordManualEvidenceUpload({
 				activityId: activity.id,
@@ -2755,7 +2755,7 @@ describe("Routines integration tests", () => {
 				participants: [],
 			})
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" }, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			for (const [team, environment, appName] of [
 				["team-deployment-snapshot", "prod-gcp", "primary-app-deployment-snapshot"],
@@ -2854,7 +2854,7 @@ describe("Routines integration tests", () => {
 				participants: [],
 			})
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" }, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			await recordManualEvidenceUpload({
 				activityId: activity.id,
@@ -2944,7 +2944,7 @@ describe("Routines integration tests", () => {
 				performedBy: "test",
 			})
 
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" }, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			const error = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
 			expect(error).toBeInstanceOf(Response)
@@ -3019,7 +3019,7 @@ describe("Routines integration tests", () => {
 				participants: [],
 			})
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" }, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			await recordManualEvidenceUpload({
 				activityId: activity.id,
@@ -3044,11 +3044,10 @@ describe("Routines integration tests", () => {
 			const completed = await completeReviewActivity(activity.id, null, "test")
 			expect(completed.status).toBe("completed")
 
-			const error = await savePeriodConfig(
-				activity.id,
-				{ periodType: "quarterly", periodStart: "2026-04-01" },
-				"test",
-			).catch((e) => e)
+			const error = await savePeriodConfig(activity.id, {
+				periodType: "quarterly",
+				periodStart: "2026-04-01",
+			}).catch((e) => e)
 			expect(error).toBeInstanceOf(Response)
 			expect((error as Response).status).toBe(409)
 		})
@@ -3099,7 +3098,7 @@ describe("Routines integration tests", () => {
 				participants: [],
 			})
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" }, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 			await recordManualEvidenceUpload({
 				activityId: activity.id,
 				providerType: "deployments",
@@ -3134,7 +3133,10 @@ describe("Routines integration tests", () => {
 				await heldOpen
 			})
 
-			await locksAcquired
+			// Race against completionPromise so a rejection inside the transaction (e.g.
+			// completeReviewActivity() throwing before signalLocksAcquired() runs) surfaces
+			// as the real test failure instead of hanging forever on locksAcquired.
+			await Promise.race([locksAcquired, completionPromise])
 
 			const stillBlockedAfter = async (promise: Promise<unknown>) => {
 				const timeout = Symbol("timeout")
@@ -3158,66 +3160,6 @@ describe("Routines integration tests", () => {
 
 			await expect(linkPromise).resolves.toBeUndefined()
 			await expect(unlinkPromise).resolves.toBeUndefined()
-		})
-
-		it("should write an audit log entry with actor, previous and new period when savePeriodConfig succeeds", async () => {
-			const { getAuditLogForEntity } = await import("~/db/queries/audit.server")
-			const sectionId = await createTestSection("act-period-config-audit", "act-period-config-audit")
-			const appId = await createTestApp("app-period-config-audit")
-			const db = getTestDb()
-			const naisTeamResult = await db.execute(
-				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-period-config-audit', '${sectionId}') RETURNING id`,
-			)
-			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
-			await db.execute(
-				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
-				VALUES ('${appId}', 'prod-gcp', 'default', '${naisTeamId}')`,
-			)
-
-			const routine = await createRoutine({
-				sectionId,
-				name: "Leveranserapport-periode-audit-rutine",
-				description: "Rutine med leveranserapport-bevis for periode-audit-test",
-				frequency: "monthly",
-				responsibleRole: null,
-				appliesToAllInSection: false,
-				persistenceLinks: [],
-				screeningQuestionId: null,
-				screeningChoiceValue: null,
-				controlIds: [],
-				technologyElementIds: [],
-				createdBy: "test",
-				activityTypes: ["deployment_evidence_report"],
-			})
-			await markRoutineApproved(routine.id)
-
-			const review = await createReview({
-				routineId: routine.id,
-				applicationId: appId,
-				title: "Leveranserapport-periode-audit-gjennomgang",
-				summary: null,
-				routineSnapshotPath: null,
-				reviewedAt: new Date(),
-				createdBy: "test",
-				participants: [],
-			})
-			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
-
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" }, "Z990001")
-			await savePeriodConfig(activity.id, { periodType: "yearly", periodStart: "2025-01-01" }, "Z990002")
-
-			const entries = await getAuditLogForEntity("routine_review_activity", activity.id)
-			const periodConfigEntries = entries.filter((e) => e.action === "review_activity_period_config_updated")
-			expect(periodConfigEntries).toHaveLength(2)
-
-			const [latest, earliest] = periodConfigEntries
-			expect(latest.performedBy).toBe("Z990002")
-			expect(JSON.parse(latest.newValue ?? "null")).toEqual({ periodType: "yearly", periodStart: "2025-01-01" })
-			expect(JSON.parse(latest.previousValue ?? "null")).toEqual({ periodType: "quarterly", periodStart: "2026-01-01" })
-
-			expect(earliest.performedBy).toBe("Z990001")
-			expect(JSON.parse(earliest.newValue ?? "null")).toEqual({ periodType: "quarterly", periodStart: "2026-01-01" })
-			expect(earliest.previousValue).toBeNull()
 		})
 
 		it("should return empty for reviews with no activities", async () => {
