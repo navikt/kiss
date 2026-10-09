@@ -52,9 +52,12 @@ vi.mock("~/db/schema/github-access", () => ({
 		username: "username",
 		permission: "permission",
 	},
+	githubAccessSyncStatus: { applicationId: "application_id", lastSuccessAt: "last_success_at" },
 }))
 
-const { runGitHubAccessSync, parseGitRepository } = await import("~/lib/github-access-sync.server")
+const { runGitHubAccessSync, parseGitRepository, canonicalizeGitRepository } = await import(
+	"~/lib/github-access-sync.server"
+)
 
 describe("parseGitRepository", () => {
 	it("parses owner/repo format", () => {
@@ -88,6 +91,13 @@ describe("parseGitRepository", () => {
 		expect(() => parseGitRepository("https://github.com/navikt/repo/tree/main")).toThrow(
 			"Invalid git repository format",
 		)
+	})
+})
+
+describe("canonicalizeGitRepository", () => {
+	it("lowercases owner and repo so casing differences don't break identity comparisons", () => {
+		expect(canonicalizeGitRepository("Navikt/KISS")).toBe("navikt/kiss")
+		expect(canonicalizeGitRepository("https://github.com/Navikt/KISS")).toBe("navikt/kiss")
 	})
 })
 
@@ -142,6 +152,7 @@ describe("runGitHubAccessSync", () => {
 				insert: () => ({
 					values: () => ({
 						returning: () => Promise.resolve([{ id: "new-team-id" }]),
+						onConflictDoUpdate: () => Promise.resolve(undefined),
 					}),
 				}),
 				delete: () => ({
@@ -211,6 +222,7 @@ describe("runGitHubAccessSync", () => {
 									teamName: "Team A",
 									permission: "push",
 									syncedAt: new Date(),
+									username: "alice",
 								},
 							]),
 					}),
@@ -218,6 +230,7 @@ describe("runGitHubAccessSync", () => {
 				insert: () => ({
 					values: () => ({
 						returning: () => Promise.resolve([{ id: "new-team-id" }]),
+						onConflictDoUpdate: () => Promise.resolve(undefined),
 					}),
 				}),
 				update: mockUpdate,
@@ -237,6 +250,116 @@ describe("runGitHubAccessSync", () => {
 		expect(mockWriteAuditLog).toHaveBeenCalledWith(
 			expect.objectContaining({
 				action: "github_access_team_permission_changed",
+				entityId: "app-1",
+			}),
+			expect.anything(),
+		)
+	})
+
+	it("does not treat a pure username casing change from GitHub as a member add+remove", async () => {
+		mockIsConfigured.mockReturnValue(true)
+		mockWithAdvisoryLock.mockImplementation(async (_name: string, fn: () => Promise<unknown>) => fn())
+
+		mockDbExecute.mockResolvedValueOnce({
+			rows: [{ id: "app-1", git_repository: "navikt/pen" }],
+		})
+
+		mockGetRepoTeams.mockResolvedValue([{ slug: "team-a", name: "Team A", permission: "push" }])
+		mockGetRepoCollaborators.mockResolvedValue([{ login: "Bob", role_name: "push" }])
+		mockGetTeamMembers.mockResolvedValue([{ login: "Alice", role: "member" }])
+
+		const { writeAuditLog: mockWriteAuditLog } = await import("~/db/queries/audit.server")
+
+		let selectCall = 0
+		mockDbTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+			const mockTx = {
+				select: () => ({
+					from: () => ({
+						where: () => {
+							selectCall++
+							if (selectCall === 1 || selectCall === 2) {
+								return Promise.resolve([{ id: "team-1", teamSlug: "team-a", teamName: "Team A", permission: "push" }])
+							}
+							if (selectCall === 3) {
+								return Promise.resolve([{ id: "member-1", username: "alice", role: "member" }])
+							}
+							if (selectCall === 4) {
+								return Promise.resolve([{ id: "collab-1", username: "bob", permission: "push" }])
+							}
+							return Promise.resolve([])
+						},
+					}),
+				}),
+				insert: () => ({
+					values: () => ({
+						returning: () => Promise.resolve([{ id: "new-id" }]),
+						onConflictDoUpdate: () => Promise.resolve(undefined),
+					}),
+				}),
+				update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+				delete: () => ({ where: () => Promise.resolve() }),
+			}
+			return fn(mockTx)
+		})
+
+		const outcome = await runGitHubAccessSync()
+
+		expect(outcome.status).toBe("success")
+		if (outcome.status === "success") {
+			expect(outcome.result.membersAdded).toBe(0)
+			expect(outcome.result.membersRemoved).toBe(0)
+			expect(outcome.result.collaboratorsAdded).toBe(0)
+			expect(outcome.result.collaboratorsRemoved).toBe(0)
+		}
+		expect(mockWriteAuditLog).not.toHaveBeenCalledWith(
+			expect.objectContaining({ action: "github_access_team_member_added" }),
+			expect.anything(),
+		)
+		expect(mockWriteAuditLog).not.toHaveBeenCalledWith(
+			expect.objectContaining({ action: "github_access_team_member_removed" }),
+			expect.anything(),
+		)
+	})
+
+	it("audits the sync-status upsert on every successful sync", async () => {
+		mockIsConfigured.mockReturnValue(true)
+		mockWithAdvisoryLock.mockImplementation(async (_name: string, fn: () => Promise<unknown>) => fn())
+
+		mockDbExecute.mockResolvedValueOnce({
+			rows: [{ id: "app-1", git_repository: "navikt/pen" }],
+		})
+
+		mockGetRepoTeams.mockResolvedValue([])
+		mockGetRepoCollaborators.mockResolvedValue([])
+		mockGetTeamMembers.mockResolvedValue([])
+
+		const { writeAuditLog: mockWriteAuditLog } = await import("~/db/queries/audit.server")
+
+		mockDbTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+			const mockTx = {
+				select: () => ({
+					from: () => ({
+						where: () => Promise.resolve([]),
+					}),
+				}),
+				insert: () => ({
+					values: () => ({
+						returning: () => Promise.resolve([{ id: "new-team-id" }]),
+						onConflictDoUpdate: () => Promise.resolve(undefined),
+					}),
+				}),
+				delete: () => ({
+					where: () => Promise.resolve(),
+				}),
+			}
+			return fn(mockTx)
+		})
+
+		await runGitHubAccessSync()
+
+		expect(mockWriteAuditLog).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "github_access_sync_status_recorded",
 				entityId: "app-1",
 			}),
 			expect.anything(),

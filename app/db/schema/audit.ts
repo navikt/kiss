@@ -188,6 +188,7 @@ export const auditLogActionEnum = [
 	"review_activity_entra_change",
 	"review_activity_rpa_patched",
 	"review_activity_oracle_role_criticality_patched",
+	"review_activity_github_access_patched",
 	"review_activity_checklist_step_toggled",
 	"routine_checklist_step_created",
 	"routine_checklist_step_updated",
@@ -275,6 +276,7 @@ export const auditLogActionEnum = [
 	"github_access_team_member_added",
 	"github_access_team_member_removed",
 	"github_access_team_member_role_changed",
+	"github_access_sync_status_recorded",
 	// RPA-brukervurderinger
 	"rpa_user_assessment_saved",
 ] as const

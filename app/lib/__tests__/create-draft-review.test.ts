@@ -11,6 +11,7 @@ vi.mock("~/db/queries/routines.server", () => ({
 	getAppsRequiringRoutine: mockGetAppsRequiringRoutine,
 	getRoutineActivityLinks: mockGetRoutineActivityLinks,
 	createReview: mockCreateReview,
+	isReviewConflictResponse: (err: unknown): err is Response => err instanceof Response && err.status === 409,
 }))
 
 const mockGetSectionBySlug = vi.fn()
@@ -67,5 +68,29 @@ describe("createDraftReview", () => {
 				participants: [{ userIdent: "Z990001", userName: null }],
 			}),
 		)
+	})
+
+	it("navngir den faktiske konflikterende (cross-routine) aktivitetstypen når createReview kaster typed 409, ikke første aktivitetstype på denne rutinen", async () => {
+		mockGetRoutineActivityLinks.mockResolvedValue([
+			{ activityType: "oracle_evidence_audit", sortOrder: 0 },
+			{ activityType: "github_access_maintenance", sortOrder: 1 },
+		])
+		mockFindActiveReviewConflict
+			.mockResolvedValueOnce(null)
+			.mockResolvedValueOnce({ activityType: "github_access_maintenance", reviewId: "other-review" })
+		mockCreateReview.mockRejectedValue(new Response("conflict", { status: 409 }))
+
+		const result = await createDraftReview({
+			routineId: fakeRoutineId,
+			sectionSlug: "test-seksjon",
+			applicationId: null,
+			navIdent: "Z990001",
+		})
+
+		expect(result.ok).toBe(false)
+		if (result.ok) throw new Error("expected failure")
+		expect(result.status).toBe(409)
+		expect(result.error).toContain("GitHub-tilgangsgjennomgang")
+		expect(result.error).not.toContain("Oracle Unified Audit-konfigurasjon")
 	})
 })

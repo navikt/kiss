@@ -340,10 +340,10 @@ function shouldSkipMigration(
 /** Extract all table names from CREATE TABLE statements. */
 function extractAllCreateTableNames(sqlContent: string): string[] {
 	const names: string[] = []
-	const regex = /CREATE TABLE[^"]*"(\w+)"/g
+	const regex = /CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(?:"(\w+)"|(\w+))/g
 	let match = regex.exec(sqlContent)
 	while (match) {
-		names.push(match[1])
+		names.push(match[1] ?? match[2])
 		match = regex.exec(sqlContent)
 	}
 	return names
@@ -364,10 +364,10 @@ function extractAlterTableAddColumns(sqlContent: string): Array<{ table: string;
 /** Extract table names from DROP TABLE statements. */
 function extractDropTableNames(sqlContent: string): string[] {
 	const names: string[] = []
-	const regex = /DROP TABLE[^"]*"(\w+)"/g
+	const regex = /DROP TABLE\s+(?:IF EXISTS\s+)?(?:"(\w+)"|(\w+))/g
 	let match = regex.exec(sqlContent)
 	while (match) {
-		names.push(match[1])
+		names.push(match[1] ?? match[2])
 		match = regex.exec(sqlContent)
 	}
 	return names

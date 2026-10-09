@@ -67,6 +67,27 @@ describe("NDA GitHub user lookup", () => {
 		expect(result.get("ukjent-bruker")?.found).toBe(false)
 	})
 
+	it("keys the result by both the normalized and the originally requested casing", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			Response.json({
+				users: [
+					{
+						githubUsername: "Alice",
+						displayName: "Alice Andersen",
+						navIdent: "Z990002",
+						found: true,
+					},
+				],
+			}),
+		)
+
+		const { lookupGitHubUsers } = await import("../nda-github-users.server")
+		const result = await lookupGitHubUsers(["Alice"])
+
+		expect(result.get("alice")?.displayName).toBe("Alice Andersen")
+		expect(result.get("Alice")?.displayName).toBe("Alice Andersen")
+	})
+
 	it("splits requests into batches of at most 500 usernames", async () => {
 		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, options) => {
 			const body = JSON.parse(options?.body as string) as { githubUsernames: string[] }

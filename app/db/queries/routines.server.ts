@@ -1,5 +1,9 @@
 import { and, desc, eq, inArray, isNotNull, isNull, ne, or, type SQL, sql } from "drizzle-orm"
-import { getEvidenceTypesForActivity, getProviderTypeForActivity } from "../../lib/activity-types"
+import {
+	activityRequiresApplication,
+	getEvidenceTypesForActivity,
+	getProviderTypeForActivity,
+} from "../../lib/activity-types"
 import {
 	applyEntraStagedDataPatch,
 	ENTRA_STAGED_DATA_ACTIVITY_TYPE,
@@ -11,8 +15,10 @@ import {
 	toEntraGroupSnapshot,
 } from "../../lib/entra-staged-data"
 import { getProviderUiConfig } from "../../lib/evidence-providers/ui-config"
+import { parseGithubAccessStagedData } from "../../lib/github-access-staged-data"
 import { resolveGroupNames } from "../../lib/graph.server"
 import { withAdvisoryLock } from "../../lib/lock.server"
+import { logger } from "../../lib/logger.server"
 import {
 	isManualActivityComplete,
 	MANUAL_ACTIVITY_SCHEMA_VERSION,
@@ -20,6 +26,7 @@ import {
 	type ManualActivityStagedData,
 	parseManualActivityStagedData,
 } from "../../lib/manual-activity-staged-data"
+import { type GitHubUserLookupResult, lookupGitHubUsers } from "../../lib/nda-github-users.server"
 import { getOracleRoles, shouldAssessRole } from "../../lib/oracle-revisjon.server"
 import {
 	applyOracleRoleCriticalityPatch,
@@ -31,6 +38,7 @@ import {
 	toOracleRoleCriticalitySnapshot,
 } from "../../lib/oracle-role-staged-data"
 import { frequencyDays, type RoutineFrequency } from "../../lib/routine-frequencies"
+import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
 import { applicationControls } from "../schema/application-controls"
 import {
@@ -97,6 +105,7 @@ import { writeAuditLog } from "./audit.server"
 import { getOracleInstancesForApp } from "./audit-evidence.server"
 import { getNdaAppParamsGroup, type NdaAppGroupSnapshotEntry } from "./deployment-audit.server"
 import { getEvidenceDownloadsForActivities, getEvidenceDownloadsForActivity } from "./evidence-downloads.server"
+import { commitGithubAccessActivity, seedGithubAccessActivity } from "./github-access-activity.server"
 import {
 	getAppAuthIntegrations,
 	getExcludedEnvironments,
@@ -1852,6 +1861,18 @@ async function enrichReviewsBatch(reviews: (typeof routineReviews.$inferSelect)[
 }
 
 /**
+ * Returnerer true dersom feilen er 409-konflikten `createReview()` kaster når det
+ * allerede finnes en aktiv gjennomgang for samme app på tvers av rutiner (den
+ * transaksjonsskopede advisory-locken i createReview()). Callere som allerede
+ * håndterer `isUniqueViolation()` for DB-constraint-racet MÅ også sjekke dette for
+ * å vise samme brukervendte konfliktmelding i stedet for å la Response-objektet
+ * eskalere til route error boundary.
+ */
+export function isReviewConflictResponse(err: unknown): err is Response {
+	return err instanceof Response && err.status === 409
+}
+
+/**
  * Oppretter en gjennomgang (review) av en rutine for en gitt applikasjon.
  * Kaster feil hvis rutinen ikke er godkjent, eller hvis den er
  * arkivert (soft-deleted). Skriver audit-logg.
@@ -1886,6 +1907,27 @@ export async function createReview(params: {
 			throw new Response("Kan ikke opprette gjennomgang for en rutine som ikke er godkjent", {
 				status: 400,
 			})
+
+		const activeLinks = await tx
+			.select({ activityType: routineActivityLinks.activityType })
+			.from(routineActivityLinks)
+			.where(and(eq(routineActivityLinks.routineId, params.routineId), isNull(routineActivityLinks.archivedAt)))
+		const activeLinkTypes = activeLinks.map((link) => link.activityType)
+
+		if (!params.applicationId) {
+			if (activeLinkTypes.some(activityRequiresApplication))
+				throw new Response("Denne rutinen krever at en applikasjon velges", { status: 400 })
+		} else {
+			const exclusiveTypes = activeLinkTypes.filter((t) => CROSS_ROUTINE_EXCLUSIVE_ACTIVITY_TYPES.includes(t))
+			if (exclusiveTypes.length > 0) {
+				await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`cross-routine-review-${params.applicationId}`}))`)
+				const conflict = await findActiveReviewConflict(params.routineId, params.applicationId, exclusiveTypes, tx)
+				if (conflict)
+					throw new Response("Det finnes allerede en aktiv gjennomgang med denne aktivitetstypen for applikasjonen", {
+						status: 409,
+					})
+			}
+		}
 
 		const [review] = await tx
 			.insert(routineReviews)
@@ -2144,65 +2186,108 @@ export async function completeReview(reviewId: string, performedBy: string) {
 		) {
 			await seedOracleRoleCriticalityActivity(activity.id, existing.applicationId, performedBy)
 		}
+		if (
+			activity.status === "pending" &&
+			activity.type === "github_access_maintenance" &&
+			existing.applicationId &&
+			!activity.stagedData
+		) {
+			await seedGithubAccessActivity(activity.id, performedBy)
+		}
 	}
 
-	// Atomisk: activity-complete + status UPDATE i samme tx.
-	// Audit + compliance-sync hopper over
-	// hvis status-UPDATE matchet 0 rader (samtidig completion-race).
-	const result = await db.transaction(async (tx) => {
-		// Fullfør alle ventende aktiviteter innenfor tx slik at de rolles
-		// tilbake ved transaksjonsfeil (f.eks. statusvakt i UPDATE matchet 0 rader).
-		for (const activity of allActivities) {
-			if (activity.status === "pending") {
-				await completeReviewActivity(activity.id, null, performedBy, tx)
-			}
-		}
-
-		// Hvis det finnes uadresserte oppfølgingspunkter blir status
-		// `needs_follow_up` heller enn `completed`. Når alle punktene
-		// senere markeres som fullført/ikke relevant flyttes status til
-		// `completed` av `updateFollowUpPointStatus`, som re-evaluerer
-		// gjennomgangsstatusen basert på gjenværende uadresserte punkter.
-		const unresolvedFollowUps = await tx
-			.select({ id: routineReviewFollowUpPoints.id })
-			.from(routineReviewFollowUpPoints)
-			.where(
-				and(
-					eq(routineReviewFollowUpPoints.reviewId, reviewId),
-					eq(routineReviewFollowUpPoints.status, "needs_follow_up"),
-				),
-			)
+	const githubUserLookupsByActivityId = new Map<string, Map<string, GitHubUserLookupResult>>()
+	for (const activity of allActivities) {
+		if (activity.status !== "pending" || activity.type !== "github_access_maintenance") continue
+		const [current] = await db
+			.select({ stagedData: routineReviewActivities.stagedData })
+			.from(routineReviewActivities)
+			.where(eq(routineReviewActivities.id, activity.id))
 			.limit(1)
-		const newStatus: "completed" | "needs_follow_up" = unresolvedFollowUps.length > 0 ? "needs_follow_up" : "completed"
+		if (!current?.stagedData) continue
+		try {
+			const stagedData = parseGithubAccessStagedData(current.stagedData)
+			githubUserLookupsByActivityId.set(
+				activity.id,
+				await lookupGitHubUsers(stagedData.subjects.map((s) => s.username)),
+			)
+		} catch (error) {
+			logger.warn("Kunne ikke hente visningsnavn for GitHub-brukere fra NDA til PDF-en", error)
+			githubUserLookupsByActivityId.set(activity.id, new Map())
+		}
+	}
 
-		const updated = await tx
-			.update(routineReviews)
-			.set({ status: newStatus })
-			.where(and(eq(routineReviews.id, reviewId), eq(routineReviews.status, "draft")))
-			.returning({ id: routineReviews.id })
+	const uploadedGithubPdfPaths: string[] = []
+	let result: { newStatus: "completed" | "needs_follow_up" }
+	try {
+		result = await db.transaction(async (tx) => {
+			// Fullfør alle ventende aktiviteter innenfor tx slik at de rolles
+			// tilbake ved transaksjonsfeil (f.eks. statusvakt i UPDATE matchet 0 rader).
+			for (const activity of allActivities) {
+				if (activity.status === "pending") {
+					await completeReviewActivity(
+						activity.id,
+						null,
+						performedBy,
+						tx,
+						uploadedGithubPdfPaths,
+						githubUserLookupsByActivityId.get(activity.id),
+					)
+				}
+			}
 
-		// Status endret seg mellom pre-check og UPDATE (samtidig completeReview)
-		// → hopp over audit; en annen request har allerede skrevet completion.
-		if (updated.length === 0) return { statusChanged: false, newStatus }
+			// Hvis det finnes uadresserte oppfølgingspunkter blir status
+			// `needs_follow_up` heller enn `completed`. Når alle punktene
+			// senere markeres som fullført/ikke relevant flyttes status til
+			// `completed` av `updateFollowUpPointStatus`, som re-evaluerer
+			// gjennomgangsstatusen basert på gjenværende uadresserte punkter.
+			const unresolvedFollowUps = await tx
+				.select({ id: routineReviewFollowUpPoints.id })
+				.from(routineReviewFollowUpPoints)
+				.where(
+					and(
+						eq(routineReviewFollowUpPoints.reviewId, reviewId),
+						eq(routineReviewFollowUpPoints.status, "needs_follow_up"),
+					),
+				)
+				.limit(1)
+			const newStatus: "completed" | "needs_follow_up" =
+				unresolvedFollowUps.length > 0 ? "needs_follow_up" : "completed"
 
-		await writeAuditLog(
-			{
-				action: "routine_review_completed",
-				entityType: "routine_review",
-				entityId: reviewId,
-				newValue: newStatus,
-				performedBy,
-			},
-			tx,
-		)
-		return { statusChanged: true, newStatus }
-	})
+			const updated = await tx
+				.update(routineReviews)
+				.set({ status: newStatus })
+				.where(and(eq(routineReviews.id, reviewId), eq(routineReviews.status, "draft")))
+				.returning({ id: routineReviews.id })
+
+			if (updated.length === 0)
+				throw new Response("Gjennomgangen ble endret samtidig av en annen operasjon. Prøv igjen.", { status: 409 })
+
+			await writeAuditLog(
+				{
+					action: "routine_review_completed",
+					entityType: "routine_review",
+					entityId: reviewId,
+					newValue: newStatus,
+					performedBy,
+				},
+				tx,
+			)
+			return { newStatus }
+		})
+	} catch (err) {
+		if (uploadedGithubPdfPaths.length > 0) {
+			const storage = getStorageProvider()
+			await Promise.all(uploadedGithubPdfPaths.map((path) => storage.delete(path).catch(() => {})))
+		}
+		throw err
+	}
 
 	// Sync materialiserte compliance-kontroller — utenfor tx fordi det er
 	// en stor batch-operasjon. Kjør kun hvis review faktisk ble `completed`
 	// (ikke `needs_follow_up`); compliance-syncen skal trigges senere
 	// av recomputeReviewStatus() når alle oppfølgingspunkter er adressert.
-	if (result.statusChanged && result.newStatus === "completed") {
+	if (result.newStatus === "completed") {
 		if (existing.applicationId) {
 			const { syncApplicationControls } = await import("./application-controls.server")
 			await syncApplicationControls(existing.applicationId, performedBy)
@@ -2294,18 +2379,51 @@ export async function getRoutineArchivedStatusByReviewId(
  * til `needs_follow_up` (og motsatt: når alle punkter er adressert
  * triggers `recomputeReviewStatus` til `completed`).
  */
+export async function addFollowUpPointRow(
+	tx: DbExecutor,
+	params: { reviewId: string; text: string; description?: string | null; performedBy: string },
+) {
+	const { reviewId, text, description, performedBy } = params
+	const trimmed = text.trim()
+	if (!trimmed) {
+		throw new Error("Oppfølgingspunkt kan ikke være tomt")
+	}
+	const trimmedDescription = description?.trim() || null
+
+	const [row] = await tx
+		.insert(routineReviewFollowUpPoints)
+		.values({
+			reviewId,
+			text: trimmed,
+			description: trimmedDescription,
+			status: "needs_follow_up",
+			createdBy: performedBy,
+			updatedBy: performedBy,
+		})
+		.returning()
+
+	await writeAuditLog(
+		{
+			action: "review_follow_up_added",
+			entityType: "review_follow_up_point",
+			entityId: row.id,
+			newValue: trimmed,
+			metadata: { reviewId },
+			performedBy,
+		},
+		tx,
+	)
+
+	return row
+}
+
 export async function addFollowUpPoint(params: {
 	reviewId: string
 	text: string
 	description?: string | null
 	performedBy: string
 }) {
-	const { reviewId, text, description, performedBy } = params
-	const trimmed = text.trim()
-	if (!trimmed) {
-		throw new Response("Oppfølgingspunkt kan ikke være tomt", { status: 400 })
-	}
-	const trimmedDescription = description?.trim() || null
+	const { reviewId } = params
 
 	const inserted = await db.transaction(async (tx) => {
 		const [snapshot] = await tx
@@ -2322,31 +2440,10 @@ export async function addFollowUpPoint(params: {
 			throw new Response("Oppfølgingspunkter kan bare legges til mens gjennomgangen er i utkast.", { status: 409 })
 		}
 
-		const [row] = await tx
-			.insert(routineReviewFollowUpPoints)
-			.values({
-				reviewId,
-				text: trimmed,
-				description: trimmedDescription,
-				status: "needs_follow_up",
-				createdBy: performedBy,
-				updatedBy: performedBy,
-			})
-			.returning()
-
-		await writeAuditLog(
-			{
-				action: "review_follow_up_added",
-				entityType: "review_follow_up_point",
-				entityId: row.id,
-				newValue: trimmed,
-				metadata: { reviewId },
-				performedBy,
-			},
-			tx,
-		)
-
-		return row
+		if (!params.text.trim()) {
+			throw new Response("Oppfølgingspunkt kan ikke være tomt", { status: 400 })
+		}
+		return await addFollowUpPointRow(tx, params)
 	})
 
 	return inserted
@@ -6431,6 +6528,8 @@ export async function completeReviewActivity(
 	snapshotAfter: EntraGroupSnapshot | null,
 	performedBy: string,
 	tx?: DbExecutor,
+	uploadedPaths?: string[],
+	prefetchedGithubUserLookups?: Map<string, GitHubUserLookupResult>,
 ) {
 	const [activity] = await (tx ?? db)
 		.select({
@@ -6568,6 +6667,67 @@ export async function completeReviewActivity(
 		const result = await withAdvisoryLock(lockName, async () => {
 			const run = async (exec: DbExecutor) => {
 				const snapshot = await completeRpaReviewActivity(activityId, activity.reviewId, performedBy, exec)
+
+				const [updated] = await exec
+					.update(routineReviewActivities)
+					.set({ status: "completed", snapshotAfter: snapshot, completedAt: new Date() })
+					.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))
+					.returning()
+
+				if (!updated) {
+					throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+				}
+
+				await writeAuditLog(
+					{
+						action: "review_activity_completed",
+						entityType: "routine_review_activity",
+						entityId: activityId,
+						performedBy,
+					},
+					exec,
+				)
+
+				return updated
+			}
+
+			return tx ? run(tx) : db.transaction(run)
+		})
+
+		if (result === null) {
+			throw new Response("Gjennomgangen er låst av en annen operasjon. Prøv igjen.", { status: 409 })
+		}
+
+		return result
+	}
+
+	if (activity.type === "github_access_maintenance") {
+		let githubUserLookups = prefetchedGithubUserLookups
+		if (!githubUserLookups) {
+			if (!tx && activity.stagedData) {
+				try {
+					const stagedData = parseGithubAccessStagedData(activity.stagedData)
+					githubUserLookups = await lookupGitHubUsers(stagedData.subjects.map((s) => s.username))
+				} catch (error) {
+					logger.warn("Kunne ikke hente visningsnavn for GitHub-brukere fra NDA til PDF-en", error)
+				}
+			}
+			if (tx && !githubUserLookups) {
+				githubUserLookups = new Map()
+			}
+		}
+
+		const lockName = `github_access_maintenance-activity-${activityId}`
+		const result = await withAdvisoryLock(lockName, async () => {
+			const run = async (exec: DbExecutor) => {
+				const snapshot = await commitGithubAccessActivity(
+					activityId,
+					activity.reviewId,
+					performedBy,
+					exec,
+					(path) => uploadedPaths?.push(path),
+					githubUserLookups,
+				)
 
 				const [updated] = await exec
 					.update(routineReviewActivities)
@@ -8186,6 +8346,8 @@ export async function hasReviewActivityType(reviewId: string, type: RoutineActiv
 	return result.length > 0
 }
 
+const CROSS_ROUTINE_EXCLUSIVE_ACTIVITY_TYPES: RoutineActivityType[] = ["github_access_maintenance"]
+
 /**
  * Sjekker om det finnes en aktiv gjennomgang (status 'draft' eller 'needs_follow_up') for
  * samme applicationId og minst én av de oppgitte aktivitetstypene.
@@ -8199,13 +8361,14 @@ export async function findActiveReviewConflict(
 	routineId: string,
 	applicationId: string | null,
 	activityTypes: RoutineActivityType[],
+	executor: DbExecutor = db,
 ): Promise<{ activityType: RoutineActivityType | null; reviewId: string } | null> {
 	const appFilter =
 		applicationId !== null ? eq(routineReviews.applicationId, applicationId) : isNull(routineReviews.applicationId)
 
 	if (activityTypes.length === 0) {
 		// No activity types on the routine → guard by routine identity instead of activity type
-		const [conflict] = await db
+		const [conflict] = await executor
 			.select({ reviewId: routineReviews.id })
 			.from(routineReviews)
 			.where(
@@ -8219,7 +8382,7 @@ export async function findActiveReviewConflict(
 		return conflict ? { activityType: null, reviewId: conflict.reviewId } : null
 	}
 
-	const [conflict] = await db
+	const [conflict] = await executor
 		.select({
 			activityType: routineReviewActivities.type,
 			reviewId: routineReviews.id,
@@ -8236,7 +8399,32 @@ export async function findActiveReviewConflict(
 		)
 		.limit(1)
 
-	return conflict ?? null
+	if (conflict) return conflict
+
+	const exclusiveTypes = activityTypes.filter((t) => CROSS_ROUTINE_EXCLUSIVE_ACTIVITY_TYPES.includes(t))
+	if (exclusiveTypes.length === 0 || applicationId === null) return null
+
+	const [crossRoutineConflict] = await executor
+		.select({
+			activityType: routineActivityLinks.activityType,
+			reviewId: routineReviews.id,
+		})
+		.from(routineReviews)
+		.innerJoin(routines, eq(routines.id, routineReviews.routineId))
+		.innerJoin(
+			routineActivityLinks,
+			and(eq(routineActivityLinks.routineId, routines.id), isNull(routineActivityLinks.archivedAt)),
+		)
+		.where(
+			and(
+				appFilter,
+				inArray(routineReviews.status, ["draft", "needs_follow_up"] as ReviewStatus[]),
+				inArray(routineActivityLinks.activityType, exclusiveTypes),
+			),
+		)
+		.limit(1)
+
+	return crossRoutineConflict ?? null
 }
 
 // ─── Follow-up Reviews for Section ───────────────────────────────────────────

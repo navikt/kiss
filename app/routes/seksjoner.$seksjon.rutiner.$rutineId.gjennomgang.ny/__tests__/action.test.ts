@@ -27,6 +27,7 @@ vi.mock("~/db/queries/routines.server", () => ({
 	getRoutineActivityLinks: mockGetRoutineActivityLinks,
 	getAppsRequiringRoutine: vi.fn().mockResolvedValue([]),
 	findActiveReviewConflict: mockFindActiveReviewConflict,
+	isReviewConflictResponse: (err: unknown): err is Response => err instanceof Response && err.status === 409,
 }))
 
 const mockGetOracleInstancesForApp = vi.fn()
@@ -186,5 +187,31 @@ describe("gjennomgang.ny action - aktiv gjennomgang-guard", () => {
 		const result = await callAction(fd)
 		expect(result).toBeInstanceOf(Error)
 		expect((result as Error).message).toBe("database connection lost")
+	})
+
+	it("names the actual conflicting (cross-routine) activity type when createReview throws the typed 409, not the first activity type on this routine", async () => {
+		mockGetRoutine.mockResolvedValue(baseRoutine)
+		mockGetRoutineActivityLinks.mockResolvedValue([
+			{ activityType: "oracle_evidence_audit", sortOrder: 0 },
+			{ activityType: "github_access_maintenance", sortOrder: 1 },
+		])
+		mockGetOracleInstancesForApp.mockResolvedValue([{ instanceId: "inst-1" }])
+		// Precheck finds nothing, but createReview's own cross-routine lock detects a race
+		// against a *different* routine whose only shared activity is github_access_maintenance.
+		mockFindActiveReviewConflict
+			.mockResolvedValueOnce(null)
+			.mockResolvedValueOnce({ activityType: "github_access_maintenance", reviewId: "other-review" })
+		mockCreateReview.mockRejectedValue(new Response("conflict", { status: 409 }))
+
+		const fd = new FormData()
+		fd.set("title", "Ny gjennomgang")
+		fd.set("applicationId", "app-1")
+
+		const response = await callAction(fd)
+		expect(getStatus(response)).toBe(409)
+		expect(response).toMatchObject({ data: { conflictError: expect.stringContaining("GitHub-tilgangsgjennomgang") } })
+		expect((response as { data: { conflictError: string } }).data.conflictError).not.toContain(
+			"Oracle Unified Audit-konfigurasjon",
+		)
 	})
 })

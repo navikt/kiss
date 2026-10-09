@@ -11,6 +11,7 @@ import {
 	getAppsRequiringRoutine,
 	getRoutine,
 	getRoutineActivityLinks,
+	isReviewConflictResponse,
 } from "~/db/queries/routines.server"
 import { getSectionBySlug, isAppEffectiveInSection } from "~/db/queries/sections.server"
 import { activityTypeLabels } from "~/lib/activity-types"
@@ -117,6 +118,15 @@ export async function createDraftReview(params: {
 					"Det finnes allerede en aktiv gjennomgang for denne rutinen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.",
 				status: 409,
 			}
+		}
+		if (isReviewConflictResponse(err)) {
+			// Taper-siden av et cross-routine-race: spør på nytt for å finne den faktiske
+			// konflikterende aktivitetstypen (kan tilhøre en annen rutine enn denne).
+			const conflict = await findActiveReviewConflict(routineId, effectiveAppId, activityTypes)
+			const error = conflict?.activityType
+				? `Det finnes allerede en aktiv gjennomgang for «${activityTypeLabels[conflict.activityType] ?? conflict.activityType}». Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.`
+				: "Det finnes allerede en aktiv gjennomgang for denne rutinen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny."
+			return { ok: false, error, status: 409 }
 		}
 		throw err
 	}
