@@ -37,7 +37,6 @@ vi.mock("~/db/queries/nais.server", () => ({
 	getApplicationDetail: (...args: unknown[]) => mockGetApplicationDetail(...args),
 	getGroupAssessmentsForApp: vi.fn(() => []),
 	getManualGroupsForApp: vi.fn(() => []),
-	getAppPersistence: vi.fn(() => []),
 }))
 
 vi.mock("~/lib/graph.server", () => ({
@@ -198,6 +197,51 @@ describe("screening session loader", () => {
 				{ teamName: "Team A", members: [{ navIdent: "Z990001", name: "Glad Fjord" }] },
 			])
 			expect(mockGetTeamMembersForApp).toHaveBeenCalledWith("app-1")
+		})
+
+		it("uses the application detail persistence list for draft screenings", async () => {
+			const persistence = [
+				{
+					id: "persistence-1",
+					type: "cloud_sql_postgres",
+					name: "database",
+					dataClassification: "critical",
+					manuallyAdded: false,
+				},
+			]
+			mockGetScreeningSession.mockResolvedValue({
+				id: "session-1",
+				applicationId: "app-1",
+				status: "draft",
+				title: "Test screening",
+				participants: [],
+				answers: [],
+			})
+			mockGetScreeningDataForApp.mockResolvedValue({
+				questions: [
+					{
+						id: "q-persistence",
+						questionText: "Databaser",
+						description: null,
+						displayOrder: 1,
+						answerType: "persistence",
+						choices: [],
+						affectedControls: [],
+						sectionId: null,
+					},
+				],
+				sectionIds: [],
+			})
+			mockGetApplicationDetail.mockResolvedValue({
+				app: { name: "test-app" },
+				authIntegrations: [],
+				persistence,
+			})
+
+			const result = await callLoader()
+			const payload = "data" in result ? (result as { data: Record<string, unknown> }).data : result
+
+			expect(payload).toHaveProperty("persistence", persistence)
 		})
 
 		it("does not fail the loader when getTeamMembersForApp rejects", async () => {
