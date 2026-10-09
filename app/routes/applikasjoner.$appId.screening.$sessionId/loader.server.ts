@@ -91,9 +91,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		if (snapshot?.persistence) {
 			persistence = snapshot.persistence as typeof persistence
 		} else if (!useSnapshot) {
-			const { getAppPersistence } = await import("~/db/queries/nais.server")
-			const raw = await getAppPersistence(appId)
-			persistence = raw.map((p) => ({
+			persistence = appDetail.persistence.map((p) => ({
 				id: p.id,
 				type: p.type,
 				name: p.name,

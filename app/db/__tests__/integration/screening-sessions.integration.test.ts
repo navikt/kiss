@@ -29,6 +29,7 @@ const testUser: NavUser = {
 
 const {
 	createScreeningSession,
+	captureStateSnapshot,
 	getScreeningSession,
 	getScreeningSessionsForApp,
 	saveScreeningSessionAnswer,
@@ -36,6 +37,7 @@ const {
 	archiveScreeningSession,
 	updateScreeningSessionParticipants,
 } = await import("~/db/queries/screening-sessions.server")
+const { upsertAppPersistence } = await import("~/db/queries/nais.server")
 
 async function createApp(name: string) {
 	const db = getTestDb()
@@ -121,11 +123,37 @@ describe("screening-sessions", () => {
 		await db.execute(/* sql */ `DELETE FROM screening_questions`)
 		await db.execute(/* sql */ `DELETE FROM routine_controls`)
 		await db.execute(/* sql */ `DELETE FROM routines`)
+		await db.execute(/* sql */ `DELETE FROM application_persistence`)
 		await db.execute(/* sql */ `DELETE FROM application_environments`)
+		await db.execute(/* sql */ `DELETE FROM section_environments`)
 		await db.execute(/* sql */ `DELETE FROM nais_teams`)
 		await db.execute(/* sql */ `DELETE FROM sections`)
 		await db.execute(/* sql */ `DELETE FROM framework_controls`)
 		await db.execute(/* sql */ `DELETE FROM monitored_applications`)
+	})
+
+	describe("captureStateSnapshot", () => {
+		it("includes only persistence entries for active or clusterless resources", async () => {
+			const db = getTestDb()
+			const sectionId = await createSection("snapshot-persistence-section")
+			const teamId = await createNaisTeam("snapshot-persistence-team", sectionId)
+			const appId = await createApp("snapshot-persistence-app")
+			await createAppEnvironment(appId, teamId, "dev-gcp")
+
+			await db.execute(
+				/* sql */ `INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES ('${sectionId}', 'prod-gcp', false, 'test', 'test')`,
+			)
+
+			await upsertAppPersistence(appId, "cloud_sql_postgres", "active-db", { cluster: "dev-gcp" })
+			await upsertAppPersistence(appId, "cloud_sql_postgres", "excluded-db", { cluster: "prod-gcp" })
+			await upsertAppPersistence(appId, "cloud_sql_postgres", "inactive-db", { cluster: "old-gcp" })
+			await upsertAppPersistence(appId, "cloud_sql_postgres", "legacy-db")
+
+			const snapshot = await captureStateSnapshot(appId)
+			const persistence = snapshot.persistence as Array<{ name: string }>
+
+			expect(persistence.map((entry) => entry.name)).toEqual(["active-db", "legacy-db"])
+		})
 	})
 
 	describe("createScreeningSession", () => {

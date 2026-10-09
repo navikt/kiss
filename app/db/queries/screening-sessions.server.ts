@@ -21,6 +21,7 @@ import {
 	screeningSessions,
 } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
+import { getApplicationDetail, getGroupAssessmentsForApp, getManualGroupsForApp } from "./nais.server"
 import { getSectionIdsForApp } from "./routines.server"
 import { getRulesetsForSection } from "./rulesets.server"
 import { getPresetRoutinesForAnswers, getScreeningQuestionsForSnapshot, saveRoutineSelection } from "./screening.server"
@@ -29,18 +30,13 @@ import { getPresetRoutinesForAnswers, getScreeningQuestionsForSnapshot, saveRout
 
 /** Captures the current application state (persistence, groups, oracle roles, economy) as a snapshot for a screening session. */
 export async function captureStateSnapshot(appId: string, userGroups: string[] = []) {
-	const [{ getAppPersistence, getManualGroupsForApp, getGroupAssessmentsForApp, getApplicationDetail }] =
-		await Promise.all([import("~/db/queries/nais.server")])
-
-	const [persistenceRaw, manualGroups, groupAssessments, appDetail] = await Promise.all([
-		getAppPersistence(appId),
+	const [manualGroups, groupAssessments, appDetail] = await Promise.all([
 		getManualGroupsForApp(appId),
 		getGroupAssessmentsForApp(appId),
 		getApplicationDetail(appId),
 	])
 
-	// Persistence
-	const persistence = persistenceRaw.map((p) => ({
+	const persistence = (appDetail?.persistence ?? []).map((p) => ({
 		id: p.id,
 		type: p.type,
 		name: p.name,
