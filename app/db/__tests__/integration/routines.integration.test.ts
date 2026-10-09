@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
 
@@ -61,7 +62,12 @@ const {
 	getFollowUpReviewsForSection,
 	getFollowUpReviewsForApps,
 	copyRoutineToSection,
+	savePeriodConfig,
 } = await import("~/db/queries/routines.server")
+
+const { getNdaAppParamsGroup } = await import("~/db/queries/deployment-audit.server")
+const { linkApplication, unlinkApplication } = await import("~/db/queries/nais.server")
+const { routineReviewActivities } = await import("~/db/schema/routines")
 
 const { recordManualEvidenceUpload } = await import("~/db/queries/evidence-downloads.server")
 
@@ -2327,7 +2333,7 @@ describe("Routines integration tests", () => {
 			expect(completed.status).toBe("completed")
 		})
 
-		it("should reject completing an evidence-provider activity (deployment_evidence_report) without any recorded evidence download", async () => {
+		it("should reject completing a deployment_evidence_report activity that has no application association, even with a recorded evidence download", async () => {
 			const sectionId = await createTestSection("act-deployment-evidence-section", "act-deployment-evidence-section")
 			const routine = await createRoutine({
 				sectionId,
@@ -2359,12 +2365,11 @@ describe("Routines integration tests", () => {
 
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
 
-			const error = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
-			expect(error).toBeInstanceOf(Response)
-			expect((error as Response).status).toBe(400)
-			expect(await (error as Response).text()).toMatch(/Følgende bevis må lastes ned eller lastes opp/)
+			const errorMissingEvidence = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
+			expect(errorMissingEvidence).toBeInstanceOf(Response)
+			expect((errorMissingEvidence as Response).status).toBe(400)
+			expect(await (errorMissingEvidence as Response).text()).toMatch(/Følgende bevis må lastes ned eller lastes opp/)
 
-			// Etter at det påkrevde beviset er lastet opp, skal aktiviteten kunne fullføres.
 			await recordManualEvidenceUpload({
 				activityId: activity.id,
 				providerType: "deployments",
@@ -2385,8 +2390,776 @@ describe("Routines integration tests", () => {
 				performedBy: "test",
 			})
 
+			const errorMissingApplication = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
+			expect(errorMissingApplication).toBeInstanceOf(Response)
+			expect((errorMissingApplication as Response).status).toBe(400)
+			expect(await (errorMissingApplication as Response).text()).toMatch(/må være knyttet til en applikasjon/)
+		})
+
+		it("should reject recording evidence when the review's periodConfig changed since the caller validated access (closes TOCTOU window)", async () => {
+			const sectionId = await createTestSection("act-period-toctou-section", "act-period-toctou-section")
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-rutine periode-TOCTOU",
+				description: "Rutine for periode-race-test",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+
+			await markRoutineApproved(routine.id)
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: null,
+				title: "Leveranserapport-gjennomgang periode-TOCTOU",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+
+			// Simulerer at periode ble validert av kallstedet før en periodeendring rakk å committe —
+			// kallet forventer fortsatt Q1 2026, men den lagrede perioden er nå en annen.
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-04-01" })
+
+			const error = await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "test-team",
+					environment: "prod",
+					appName: "test-app",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "test-team",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("leveranserapport-innhold"),
+				fileName: "rapport.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+				expectedPeriodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
+			}).catch((e) => e)
+
+			expect(error).toBeInstanceOf(Response)
+			expect((error as Response).status).toBe(409)
+		})
+
+		it("should reject completing a deployment_evidence_report activity until every linked application in the NDA group has its own report", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("act-deployment-group-section", "act-deployment-group-section")
+			const naisTeamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-deployment-group', '${sectionId}') RETURNING id`,
+			)
+			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
+			const primaryId = await createTestApp("primary-app-deployment-group")
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${primaryId}', 'prod-gcp', 'default', '${naisTeamId}')`,
+			)
+			const linkedResult = await db.execute(
+				/* sql */ `INSERT INTO monitored_applications (name, primary_application_id, created_by, updated_by)
+				VALUES ('linked-app-deployment-group', '${primaryId}', 'test', 'test') RETURNING id`,
+			)
+			const linkedId = (linkedResult.rows[0] as { id: string }).id
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${linkedId}', 'prod-fss', 'default', '${naisTeamId}')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-gruppe-rutine",
+				description: "Rutine med leveranserapport-bevis for lenket gruppe",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: primaryId,
+				title: "Leveranserapport-gruppe-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "team-deployment-group",
+					environment: "prod-gcp",
+					appName: "primary-app-deployment-group",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "team-deployment-group",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("leveranserapport-innhold-primary"),
+				fileName: "rapport-primary.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			const error = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
+			expect(error).toBeInstanceOf(Response)
+			expect((error as Response).status).toBe(400)
+			expect(await (error as Response).text()).toMatch(/Leveranserapport mangler for følgende applikasjon/)
+
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "team-deployment-group",
+					environment: "prod-fss",
+					appName: "linked-app-deployment-group",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "team-deployment-group",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("leveranserapport-innhold-linked"),
+				fileName: "rapport-linked.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
 			const completed = await completeReviewActivity(activity.id, null, "test")
 			expect(completed.status).toBe("completed")
+		})
+
+		it("should reject completing a deployment_evidence_report activity when the app's NDA group has no current production environments, even with an old recorded download", async () => {
+			const sectionId = await createTestSection("act-deployment-empty-group", "act-deployment-empty-group")
+			const appId = await createTestApp("app-deployment-empty-group")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-tom-gruppe-rutine",
+				description: "Rutine med leveranserapport-bevis for app uten gjeldende produksjonsmiljø",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Leveranserapport-tom-gruppe-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "gammelt-team",
+					environment: "prod-gcp",
+					appName: "app-deployment-empty-group",
+					periodType: "quarterly",
+					periodStart: "2025-10-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "gammelt-team",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("gammel-leveranserapport"),
+				fileName: "gammel-rapport.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			const error = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
+			expect(error).toBeInstanceOf(Response)
+			expect((error as Response).status).toBe(400)
+			expect(await (error as Response).text()).toMatch(/ingen produksjonsmiljøer konfigurert/)
+		})
+
+		it("should complete a deployment_evidence_report activity once the review's own section's group members have reports, ignoring a linked member in a different section", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("act-deployment-cross-section-own", "act-deployment-cross-section-own")
+			const naisTeamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-cross-section-own', '${sectionId}') RETURNING id`,
+			)
+			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
+			const primaryId = await createTestApp("primary-app-cross-section")
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${primaryId}', 'prod-gcp', 'default', '${naisTeamId}')`,
+			)
+
+			const otherSectionId = await createTestSection(
+				"act-deployment-cross-section-other",
+				"act-deployment-cross-section-other",
+			)
+			const otherNaisTeamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-cross-section-other', '${otherSectionId}') RETURNING id`,
+			)
+			const otherNaisTeamId = (otherNaisTeamResult.rows[0] as { id: string }).id
+			const linkedResult = await db.execute(
+				/* sql */ `INSERT INTO monitored_applications (name, primary_application_id, created_by, updated_by)
+				VALUES ('linked-app-cross-section', '${primaryId}', 'test', 'test') RETURNING id`,
+			)
+			const linkedId = (linkedResult.rows[0] as { id: string }).id
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${linkedId}', 'prod-fss', 'default', '${otherNaisTeamId}')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-tverrseksjon-rutine",
+				description: "Rutine med leveranserapport-bevis for gruppe med lenket app i annen seksjon",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: primaryId,
+				title: "Leveranserapport-tverrseksjon-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "team-cross-section-own",
+					environment: "prod-gcp",
+					appName: "primary-app-cross-section",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "team-cross-section-own",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("leveranserapport-innhold-primary-cross-section"),
+				fileName: "rapport-primary-cross-section.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			const completed = await completeReviewActivity(activity.id, null, "test")
+			expect(completed.status).toBe("completed")
+		})
+
+		it("should snapshot the in-scope app group at completion time so a later change to the linked-app group doesn't alter a completed activity's recorded evidence scope", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("act-deployment-snapshot", "act-deployment-snapshot")
+			const naisTeamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-deployment-snapshot', '${sectionId}') RETURNING id`,
+			)
+			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
+			const primaryId = await createTestApp("primary-app-deployment-snapshot")
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${primaryId}', 'prod-gcp', 'default', '${naisTeamId}')`,
+			)
+
+			const linkedResult = await db.execute(
+				/* sql */ `INSERT INTO monitored_applications (name, primary_application_id, created_by, updated_by)
+				VALUES ('linked-app-deployment-snapshot', '${primaryId}', 'test', 'test') RETURNING id`,
+			)
+			const linkedId = (linkedResult.rows[0] as { id: string }).id
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${linkedId}', 'prod-fss', 'default', '${naisTeamId}')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-snapshot-rutine",
+				description: "Rutine med leveranserapport-bevis for snapshot-regresjonstest",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: primaryId,
+				title: "Leveranserapport-snapshot-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+
+			for (const [team, environment, appName] of [
+				["team-deployment-snapshot", "prod-gcp", "primary-app-deployment-snapshot"],
+				["team-deployment-snapshot", "prod-fss", "linked-app-deployment-snapshot"],
+			]) {
+				await recordManualEvidenceUpload({
+					activityId: activity.id,
+					providerType: "deployments",
+					providerMetadata: {
+						team,
+						environment,
+						appName,
+						periodType: "quarterly",
+						periodStart: "2026-01-01",
+						evidenceType: "deployment_evidence_report",
+					},
+					sourceId: team,
+					evidenceType: "deployment_evidence_report",
+					format: "pdf",
+					buffer: Buffer.from(`leveranserapport-${appName}`),
+					fileName: `rapport-${appName}.pdf`,
+					contentType: "application/pdf",
+					performedBy: "test",
+				})
+			}
+
+			const completed = await completeReviewActivity(activity.id, null, "test")
+			expect(completed.status).toBe("completed")
+			const snapshot = completed.snapshotAfter as Array<{ applicationId: string; appName: string }>
+			expect(snapshot).toHaveLength(2)
+			expect(new Set(snapshot.map((s) => s.appName))).toEqual(
+				new Set(["primary-app-deployment-snapshot", "linked-app-deployment-snapshot"]),
+			)
+
+			await db.execute(
+				/* sql */ `UPDATE monitored_applications SET primary_application_id = NULL WHERE id = '${linkedId}'`,
+			)
+
+			const liveGroupAfterUnlink = await getNdaAppParamsGroup(primaryId)
+			expect(liveGroupAfterUnlink).toHaveLength(1)
+
+			const [activityAfterUnlink] = await db
+				.select({ snapshotAfter: routineReviewActivities.snapshotAfter })
+				.from(routineReviewActivities)
+				.where(eq(routineReviewActivities.id, activity.id))
+			const snapshotAfterUnlink = activityAfterUnlink.snapshotAfter as Array<{ appName: string }>
+			expect(snapshotAfterUnlink).toHaveLength(2)
+			expect(new Set(snapshotAfterUnlink.map((s) => s.appName))).toEqual(
+				new Set(["primary-app-deployment-snapshot", "linked-app-deployment-snapshot"]),
+			)
+		})
+
+		it("should require a report for a group member whose deployment environment resolves to a different nais_teams section than the review, when a dev-team mapping puts the member's canonical scope in the review's section", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("act-deployment-devteam-scope-own", "act-deployment-devteam-scope-own")
+			const otherSectionId = await createTestSection(
+				"act-deployment-devteam-scope-env",
+				"act-deployment-devteam-scope-env",
+			)
+			const otherNaisTeamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-devteam-scope-env', '${otherSectionId}') RETURNING id`,
+			)
+			const otherNaisTeamId = (otherNaisTeamResult.rows[0] as { id: string }).id
+			const appId = await createTestApp("app-deployment-devteam-scope")
+			await assignAppToSection(appId, sectionId)
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${appId}', 'prod-fss', 'default', '${otherNaisTeamId}')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-devteam-scope-rutine",
+				description: "Rutine med leveranserapport-bevis for app med devteam-mapping i egen seksjon",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Leveranserapport-devteam-scope-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "unrelated-team",
+					environment: "prod-unrelated",
+					appName: "unrelated-app",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "unrelated-team",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("unrelated-leveranserapport"),
+				fileName: "unrelated-rapport.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			const error = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
+			expect(error).toBeInstanceOf(Response)
+			expect((error as Response).status).toBe(400)
+			expect(await (error as Response).text()).toMatch(/Leveranserapport mangler/)
+		})
+
+		it("should reject completing a deployment_evidence_report activity when the only matching download is for an older period than the activity's current period config", async () => {
+			const sectionId = await createTestSection("act-deployment-period-mismatch", "act-deployment-period-mismatch")
+			const appId = await createTestApp("app-deployment-period-mismatch")
+			const db = getTestDb()
+			const naisTeamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-period-mismatch', '${sectionId}') RETURNING id`,
+			)
+			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${appId}', 'prod-gcp', 'default', '${naisTeamId}')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-periode-rutine",
+				description: "Rutine med leveranserapport-bevis for periode-mismatch-test",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Leveranserapport-periode-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "team-period-mismatch",
+					environment: "prod-gcp",
+					appName: "app-deployment-period-mismatch",
+					periodType: "quarterly",
+					periodStart: "2025-10-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "team-period-mismatch",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("leveranserapport-innhold-q4"),
+				fileName: "rapport-q4.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+
+			const error = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
+			expect(error).toBeInstanceOf(Response)
+			expect((error as Response).status).toBe(400)
+			expect(await (error as Response).text()).toMatch(/Leveranserapport mangler for følgende applikasjon/)
+
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "team-period-mismatch",
+					environment: "prod-gcp",
+					appName: "app-deployment-period-mismatch",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "team-period-mismatch",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("leveranserapport-innhold-q1"),
+				fileName: "rapport-q1.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			const completed = await completeReviewActivity(activity.id, null, "test")
+			expect(completed.status).toBe("completed")
+		})
+
+		it("should reject savePeriodConfig on an already-completed activity, closing the TOCTOU window where a concurrent period change could land after completion", async () => {
+			const sectionId = await createTestSection(
+				"act-deployment-period-after-complete",
+				"act-deployment-period-after-complete",
+			)
+			const appId = await createTestApp("app-deployment-period-after-complete")
+			const db = getTestDb()
+			const naisTeamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-period-after-complete', '${sectionId}') RETURNING id`,
+			)
+			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${appId}', 'prod-gcp', 'default', '${naisTeamId}')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-periode-etter-fullført-rutine",
+				description: "Rutine med leveranserapport-bevis for periode-etter-fullført-test",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Leveranserapport-periode-etter-fullført-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "team-period-after-complete",
+					environment: "prod-gcp",
+					appName: "app-deployment-period-after-complete",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "team-period-after-complete",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("leveranserapport-innhold-q1"),
+				fileName: "rapport-q1.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			const completed = await completeReviewActivity(activity.id, null, "test")
+			expect(completed.status).toBe("completed")
+
+			const error = await savePeriodConfig(activity.id, {
+				periodType: "quarterly",
+				periodStart: "2026-04-01",
+			}).catch((e) => e)
+			expect(error).toBeInstanceOf(Response)
+			expect((error as Response).status).toBe(409)
+		})
+
+		it("should take a FOR UPDATE lock on every current deployments app-group member that conflicts with linkApplication()'s/unlinkApplication()'s own locks, closing the race where group membership could change between the group read and the completion commit", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("act-group-lock-section", "act-group-lock-section")
+			const naisTeamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-group-lock', '${sectionId}') RETURNING id`,
+			)
+			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
+			const primaryId = await createTestApp("app-group-lock-primary")
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${primaryId}', 'prod-gcp', 'default', '${naisTeamId}')`,
+			)
+			const childId = await createTestApp("app-group-lock-child")
+			await db.execute(
+				/* sql */ `UPDATE monitored_applications SET primary_application_id = '${primaryId}' WHERE id = '${childId}'`,
+			)
+			const outsiderId = await createTestApp("app-group-lock-outsider")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-gruppelås-rutine",
+				description: "Rutine med leveranserapport-bevis for gruppelås-regresjonstest",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: primaryId,
+				title: "Leveranserapport-gruppelås-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "team-group-lock",
+					environment: "prod-gcp",
+					appName: "app-group-lock-primary",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "team-group-lock",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("leveranserapport-innhold-gruppelas"),
+				fileName: "rapport-gruppelas.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			let releaseCompletion: () => void = () => {}
+			const heldOpen = new Promise<void>((resolve) => {
+				releaseCompletion = resolve
+			})
+			let signalLocksAcquired: () => void = () => {}
+			const locksAcquired = new Promise<void>((resolve) => {
+				signalLocksAcquired = resolve
+			})
+			const completionPromise = db.transaction(async (tx) => {
+				await completeReviewActivity(activity.id, null, "test", tx)
+				signalLocksAcquired()
+				await heldOpen
+			})
+
+			// Race against completionPromise so a rejection inside the transaction (e.g.
+			// completeReviewActivity() throwing before signalLocksAcquired() runs) surfaces
+			// as the real test failure instead of hanging forever on locksAcquired.
+			await Promise.race([locksAcquired, completionPromise])
+
+			const stillBlockedAfter = async (promise: Promise<unknown>) => {
+				const timeout = Symbol("timeout")
+				const result = await Promise.race([
+					promise.then(() => "resolved"),
+					new Promise((r) => setTimeout(() => r(timeout), 300)),
+				])
+				return result === timeout
+			}
+
+			const linkPromise = linkApplication(outsiderId, primaryId, "test")
+			const unlinkPromise = unlinkApplication(childId, primaryId, "test")
+			try {
+				expect(await stillBlockedAfter(linkPromise)).toBe(true)
+				expect(await stillBlockedAfter(unlinkPromise)).toBe(true)
+			} finally {
+				releaseCompletion()
+				await completionPromise
+				await Promise.allSettled([linkPromise, unlinkPromise])
+			}
+
+			await expect(linkPromise).resolves.toBeUndefined()
+			await expect(unlinkPromise).resolves.toBeUndefined()
 		})
 
 		it("should return empty for reviews with no activities", async () => {

@@ -92,8 +92,10 @@ import {
 	screeningRoutineSelections,
 } from "../schema/screening"
 import { syncApplicationControls } from "./application-controls.server"
+import { getAppScopeIdsForApps } from "./applications.server"
 import { writeAuditLog } from "./audit.server"
 import { getOracleInstancesForApp } from "./audit-evidence.server"
+import { getNdaAppParamsGroup, type NdaAppGroupSnapshotEntry } from "./deployment-audit.server"
 import { getEvidenceDownloadsForActivities, getEvidenceDownloadsForActivity } from "./evidence-downloads.server"
 import {
 	getAppAuthIntegrations,
@@ -6123,12 +6125,15 @@ export async function savePeriodConfig(activityId: string, periodConfig: PeriodC
 	const [updated] = await db
 		.update(routineReviewActivities)
 		.set({ periodConfig })
-		.where(eq(routineReviewActivities.id, activityId))
+		.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))
 		.returning({ id: routineReviewActivities.id })
 
 	if (!updated) {
-		throw new Error(`Activity ${activityId} not found`)
+		throw new Response("Aktiviteten finnes ikke eller er allerede fullført, og kan ikke få endret periode.", {
+			status: 409,
+		})
 	}
+
 	return updated
 }
 
@@ -6434,9 +6439,12 @@ export async function completeReviewActivity(
 			stagedData: routineReviewActivities.stagedData,
 			applicationId: routineReviews.applicationId,
 			reviewId: routineReviews.id,
+			sectionId: routines.sectionId,
+			periodConfig: routineReviewActivities.periodConfig,
 		})
 		.from(routineReviewActivities)
 		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
+		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 		.where(eq(routineReviewActivities.id, activityId))
 		.limit(1)
 
@@ -6466,6 +6474,48 @@ export async function completeReviewActivity(
 				`Vedlikeholdsaktiviteten kan ikke fullføres. Følgende bevis må lastes ned eller lastes opp: ${missingLabels.join(", ")}.`,
 				{ status: 400 },
 			)
+		}
+
+		if (evidenceProviderType === "deployments" && !activity.applicationId) {
+			throw new Response(
+				"Vedlikeholdsaktiviteten kan ikke fullføres. Leveranserapport-aktiviteter må være knyttet til en applikasjon.",
+				{ status: 400 },
+			)
+		}
+
+		if (evidenceProviderType === "deployments" && activity.applicationId) {
+			const appsGroup = await getNdaAppParamsGroup(activity.applicationId, activity.sectionId, tx ?? db)
+			const scopeByApp = await getAppScopeIdsForApps(
+				appsGroup.map((app) => app.applicationId),
+				tx ?? db,
+			)
+			const appsInSection = appsGroup.filter((app) =>
+				scopeByApp.get(app.applicationId)?.sectionIds.includes(activity.sectionId),
+			)
+			if (appsInSection.length === 0) {
+				throw new Response(
+					"Vedlikeholdsaktiviteten kan ikke fullføres. Applikasjonen har ingen produksjonsmiljøer konfigurert for leveranserapporter.",
+					{ status: 400 },
+				)
+			}
+			const appsMissingReports = appsInSection.filter(
+				(app) =>
+					!downloads.some(
+						(d) =>
+							d.providerMetadata.team === app.team &&
+							d.providerMetadata.environment === app.environment &&
+							d.providerMetadata.appName === app.appName &&
+							d.providerMetadata.periodType === activity.periodConfig?.periodType &&
+							d.providerMetadata.periodStart === activity.periodConfig?.periodStart,
+					),
+			)
+			if (appsMissingReports.length > 0) {
+				const missingNames = appsMissingReports.map((app) => app.appName).join(", ")
+				throw new Response(
+					`Vedlikeholdsaktiviteten kan ikke fullføres. Leveranserapport mangler for følgende applikasjon(er): ${missingNames}.`,
+					{ status: 400 },
+				)
+			}
 		}
 	}
 
@@ -6598,11 +6648,113 @@ export async function completeReviewActivity(
 	}
 
 	const runGeneric = async (exec: DbExecutor) => {
+		let deploymentsAppsSnapshot: NdaAppGroupSnapshotEntry[] | null = null
+		if (evidenceProviderType === "deployments" && activity.applicationId) {
+			const [locked] = await exec
+				.select({ status: routineReviewActivities.status, periodConfig: routineReviewActivities.periodConfig })
+				.from(routineReviewActivities)
+				.where(eq(routineReviewActivities.id, activityId))
+				.for("update", { of: [routineReviewActivities] })
+				.limit(1)
+			if (locked?.status !== "pending") {
+				throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+			}
+
+			const [root] = (
+				await exec.execute<{ primary_id: string }>(sql`
+					SELECT COALESCE(primary_application_id, id) AS primary_id
+					FROM ${monitoredApplications}
+					WHERE id = ${activity.applicationId}
+				`)
+			).rows
+			if (root) {
+				const { rows } = await exec.execute<{ id: string; primary_application_id: string | null }>(sql`
+					SELECT id, primary_application_id FROM ${monitoredApplications}
+					WHERE id = ${root.primary_id} AND archived_at IS NULL
+					FOR UPDATE
+				`)
+				const primaryLocked = rows[0]
+				if (primaryLocked && primaryLocked.primary_application_id !== null) {
+					throw new Response("Applikasjonsgruppen endret seg samtidig. Prøv igjen.", { status: 409 })
+				}
+				if (primaryLocked) {
+					const { rows: appRows } = await exec.execute<{ id: string; primary_application_id: string | null }>(sql`
+						SELECT id, primary_application_id FROM ${monitoredApplications}
+						WHERE id = ${activity.applicationId}
+						FOR UPDATE
+					`)
+					const appLocked = appRows[0]
+					if (
+						!appLocked ||
+						(appLocked.id !== primaryLocked.id && appLocked.primary_application_id !== primaryLocked.id)
+					) {
+						throw new Response("Applikasjonsgruppen endret seg samtidig. Prøv igjen.", { status: 409 })
+					}
+
+					const { rows: children } = await exec.execute<{ id: string }>(sql`
+						SELECT id FROM ${monitoredApplications}
+						WHERE archived_at IS NULL AND primary_application_id = ${primaryLocked.id}
+						ORDER BY id
+					`)
+					for (const child of children) {
+						await exec.execute(sql`SELECT id FROM ${monitoredApplications} WHERE id = ${child.id} FOR UPDATE`)
+					}
+				}
+			}
+
+			const freshDownloads = await getEvidenceDownloadsForActivity(activityId, exec)
+			const appsGroup = await getNdaAppParamsGroup(activity.applicationId, activity.sectionId, exec)
+			const scopeByApp = await getAppScopeIdsForApps(
+				appsGroup.map((app) => app.applicationId),
+				exec,
+			)
+			const appsInSection = appsGroup.filter((app) =>
+				scopeByApp.get(app.applicationId)?.sectionIds.includes(activity.sectionId),
+			)
+			if (appsInSection.length === 0) {
+				throw new Response(
+					"Vedlikeholdsaktiviteten kan ikke fullføres. Applikasjonen har ingen produksjonsmiljøer konfigurert for leveranserapporter.",
+					{ status: 400 },
+				)
+			}
+			if (!locked.periodConfig) {
+				throw new Response("Vedlikeholdsaktiviteten kan ikke fullføres. Periode er ikke valgt.", {
+					status: 400,
+				})
+			}
+			const periodConfig = locked.periodConfig
+			const appsMissingReports = appsInSection.filter(
+				(app) =>
+					!freshDownloads.some(
+						(d) =>
+							d.providerMetadata.team === app.team &&
+							d.providerMetadata.environment === app.environment &&
+							d.providerMetadata.appName === app.appName &&
+							d.providerMetadata.periodType === periodConfig.periodType &&
+							d.providerMetadata.periodStart === periodConfig.periodStart,
+					),
+			)
+			if (appsMissingReports.length > 0) {
+				const missingNames = appsMissingReports.map((app) => app.appName).join(", ")
+				throw new Response(
+					`Vedlikeholdsaktiviteten kan ikke fullføres. Leveranserapport mangler for følgende applikasjon(er): ${missingNames}.`,
+					{ status: 400 },
+				)
+			}
+
+			deploymentsAppsSnapshot = appsInSection.map(({ applicationId, team, environment, appName }) => ({
+				applicationId,
+				team,
+				environment,
+				appName,
+			}))
+		}
+
 		const [updated] = await exec
 			.update(routineReviewActivities)
 			.set({
 				status: "completed",
-				snapshotAfter,
+				snapshotAfter: deploymentsAppsSnapshot ?? snapshotAfter,
 				completedAt: new Date(),
 			})
 			.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))

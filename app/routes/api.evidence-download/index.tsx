@@ -185,6 +185,7 @@ async function handleDownloadFromApi(
 		collectedAt: evidenceStatus?.collectedAt ? new Date(evidenceStatus.collectedAt) : null,
 		forceFetchJustification,
 		performedBy: user.navIdent,
+		expectedPeriodConfig: providerType === "deployments" ? ctx.periodConfig : undefined,
 	})
 
 	return data({
@@ -257,6 +258,7 @@ async function handleManualUpload(
 		fileName: file.name,
 		contentType: file.type || "application/octet-stream",
 		performedBy: user.navIdent,
+		expectedPeriodConfig: providerType === "deployments" ? ctx.periodConfig : undefined,
 	})
 
 	return data({

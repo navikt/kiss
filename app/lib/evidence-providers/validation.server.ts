@@ -6,7 +6,8 @@
  */
 
 import { data } from "react-router"
-import { getNdaAppParams } from "~/db/queries/deployment-audit.server"
+import { getAppScopeIds } from "~/db/queries/applications.server"
+import { getNdaAppParamsGroup } from "~/db/queries/deployment-audit.server"
 import { type ActivityContext, isInstanceConfiguredForApp } from "~/db/queries/evidence-downloads.server"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity } from "~/lib/activity-types"
 import type { EvidenceProviderType } from "~/lib/evidence-providers/types"
@@ -164,8 +165,8 @@ async function validateDeploymentsAccess(params: Record<string, unknown>, ctx: A
 		throw data({ error: "Gjennomgangen mangler applikasjonstilknytning" }, { status: 400 })
 	}
 
-	const appParams = await getNdaAppParams(ctx.applicationId)
-	if (!appParams) {
+	const appParamsGroup = await getNdaAppParamsGroup(ctx.applicationId, ctx.sectionId)
+	if (appParamsGroup.length === 0) {
 		throw data(
 			{ error: "Applikasjonen har ingen produksjonsmiljøer konfigurert for leveranserapporter" },
 			{ status: 400 },
@@ -181,15 +182,15 @@ async function validateDeploymentsAccess(params: Record<string, unknown>, ctx: A
 		throw data({ error: "team, environment og appName er påkrevd for leveranserapporter" }, { status: 400 })
 	}
 
-	// Verify client-supplied params match the application's actual params
-	if (team !== appParams.team) {
-		throw data({ error: "team matcher ikke applikasjonen" }, { status: 403 })
+	const matchedGroupMember = appParamsGroup.find(
+		(p) => p.team === team && p.environment === environment && p.appName === appName,
+	)
+	if (!matchedGroupMember) {
+		throw data({ error: "team, environment og appName matcher ikke applikasjonen" }, { status: 403 })
 	}
-	if (environment !== appParams.environment) {
-		throw data({ error: "environment matcher ikke applikasjonen" }, { status: 403 })
-	}
-	if (appName !== appParams.appName) {
-		throw data({ error: "appName matcher ikke applikasjonen" }, { status: 403 })
+	const { sectionIds } = await getAppScopeIds(matchedGroupMember.applicationId)
+	if (!sectionIds.includes(ctx.sectionId)) {
+		throw data({ error: "team, environment og appName matcher ikke applikasjonen" }, { status: 403 })
 	}
 
 	// Require period params — all deployments flows need them
@@ -206,6 +207,12 @@ async function validateDeploymentsAccess(params: Record<string, unknown>, ctx: A
 	}
 	if (!isPeriodEnded(periodType as PeriodType, periodStart)) {
 		throw data({ error: "Perioden er ikke avsluttet ennå" }, { status: 400 })
+	}
+	if (!ctx.periodConfig) {
+		throw data({ error: "Ingen periode er valgt for denne gjennomgangen ennå" }, { status: 403 })
+	}
+	if (ctx.periodConfig.periodType !== periodType || ctx.periodConfig.periodStart !== periodStart) {
+		throw data({ error: "periodType og periodStart matcher ikke perioden valgt for gjennomgangen" }, { status: 403 })
 	}
 }
 

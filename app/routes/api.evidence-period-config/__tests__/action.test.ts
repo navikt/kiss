@@ -58,7 +58,7 @@ describe("api.evidence-period-config action", () => {
 		vi.clearAllMocks()
 
 		const user = {
-			navIdent: "Z123456",
+			navIdent: "Z990001",
 			name: "Test User",
 			token: "test-token",
 			groups: [],

@@ -186,7 +186,7 @@ const MOCK_ORACLE_EVIDENCE_DATA: OracleEvidenceDataProp = {
 }
 
 const MOCK_NDA_EVIDENCE_DATA: NdaEvidenceDataProp = {
-	appParams: { team: "mitt-team", environment: "prod", appName: "min-applikasjon" },
+	apps: [{ applicationId: "app-preview", team: "mitt-team", environment: "prod", appName: "min-applikasjon" }],
 	periodConfig: { periodType: "monthly", periodStart: "2025-01-01" },
 	downloads: [
 		{
@@ -198,6 +198,11 @@ const MOCK_NDA_EVIDENCE_DATA: NdaEvidenceDataProp = {
 			forceFetchJustification: null,
 			performedBy: "Z990001",
 			performedAt: new Date("2025-01-31T14:00:00Z").toISOString(),
+			team: "mitt-team",
+			environment: "prod",
+			appName: "min-applikasjon",
+			periodType: "monthly",
+			periodStart: "2025-01-01",
 		},
 	],
 }

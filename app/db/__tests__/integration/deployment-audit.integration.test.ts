@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
-import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
+import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase, truncateWithRetry } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
 	get db() {
@@ -36,6 +36,9 @@ const {
 	getDeploymentVerificationsForApps,
 	getDeploymentVerificationAggregate,
 	touchSyncAttempt,
+	getNdaAppParams,
+	getNdaAppParamsGroup,
+	buildReadOnlyNdaAppGroupSnapshot,
 } = await import("~/db/queries/deployment-audit.server")
 
 describe("Deployment audit queries integration tests", () => {
@@ -51,8 +54,13 @@ describe("Deployment audit queries integration tests", () => {
 
 	beforeEach(async () => {
 		const db = getTestDb()
-		await db.execute(/* sql */ `DELETE FROM deployment_verification_summaries`)
-		await db.execute(/* sql */ `DELETE FROM monitored_applications`)
+		await truncateWithRetry([
+			"deployment_verification_summaries",
+			"application_environments",
+			"nais_teams",
+			"monitored_applications",
+			"sections",
+		])
 
 		// Create a test application
 		const result = await db.execute(
@@ -360,6 +368,306 @@ describe("Deployment audit queries integration tests", () => {
 			expect(result.appsWithData).toBe(2)
 			expect(result.fourEyesTotal).toBe(20)
 			expect(result.fourEyesApproved).toBe(16)
+		})
+	})
+
+	describe("getNdaAppParams", () => {
+		async function createSection(slug: string) {
+			const db = getTestDb()
+			const r = await db.execute(
+				/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('${slug}', '${slug}', 'test', 'test') RETURNING id`,
+			)
+			return (r.rows[0] as { id: string }).id
+		}
+
+		async function createNaisTeam(sectionId: string, slug: string) {
+			const db = getTestDb()
+			const r = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('${slug}', '${sectionId}') RETURNING id`,
+			)
+			return (r.rows[0] as { id: string }).id
+		}
+
+		async function createApp(name: string, primaryApplicationId: string | null = null) {
+			const db = getTestDb()
+			const primaryVal = primaryApplicationId ? `'${primaryApplicationId}'` : "NULL"
+			const r = await db.execute(
+				/* sql */ `INSERT INTO monitored_applications (name, primary_application_id, created_by, updated_by)
+				VALUES ('${name}', ${primaryVal}, 'test', 'test') RETURNING id`,
+			)
+			return (r.rows[0] as { id: string }).id
+		}
+
+		async function createEnvironment(appId: string, naisTeamId: string, cluster: string) {
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${appId}', '${cluster}', 'default', '${naisTeamId}')`,
+			)
+		}
+
+		async function archiveApp(appId: string) {
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE monitored_applications SET archived_at = now() WHERE id = '${appId}'`)
+		}
+
+		it("resolves team/environment/appName for an application with its own production environment", async () => {
+			const sectionId = await createSection("sec-nda1")
+			const naisTeamId = await createNaisTeam(sectionId, "team-nda1")
+			const appId = await createApp("app-nda1")
+			await createEnvironment(appId, naisTeamId, "prod-gcp")
+
+			const result = await getNdaAppParams(appId)
+
+			expect(result).toEqual({ team: "team-nda1", environment: "prod-gcp", appName: "app-nda1", sectionId })
+		})
+
+		it("returns null when a linked application has no production environment of its own", async () => {
+			const sectionId = await createSection("sec-nda2")
+			const naisTeamId = await createNaisTeam(sectionId, "team-nda2")
+			const primaryId = await createApp("alderspensjon-endringssoknad-frontend")
+			await createEnvironment(primaryId, naisTeamId, "prod-gcp")
+			const linkedId = await createApp("alderspensjon-endringssoknad-frontend-borger", primaryId)
+
+			const result = await getNdaAppParams(linkedId)
+
+			expect(result).toBeNull()
+		})
+
+		it("returns null when the application has no production environment and is not linked", async () => {
+			const appId = await createApp("standalone-without-env")
+
+			const result = await getNdaAppParams(appId)
+
+			expect(result).toBeNull()
+		})
+
+		it("prefers the environment in preferredSectionId over alphabetical cluster ordering when the app has environments in multiple sections", async () => {
+			const otherSectionId = await createSection("sec-nda-multi-other")
+			const otherNaisTeamId = await createNaisTeam(otherSectionId, "team-nda-multi-other")
+			const appId = await createApp("app-nda-multi-section")
+			await createEnvironment(appId, otherNaisTeamId, "prod-aaa")
+
+			const reviewSectionId = await createSection("sec-nda-multi-review")
+			const reviewNaisTeamId = await createNaisTeam(reviewSectionId, "team-nda-multi-review")
+			await createEnvironment(appId, reviewNaisTeamId, "prod-zzz")
+
+			const result = await getNdaAppParams(appId, reviewSectionId)
+
+			expect(result).toEqual({
+				team: "team-nda-multi-review",
+				environment: "prod-zzz",
+				appName: "app-nda-multi-section",
+				sectionId: reviewSectionId,
+			})
+		})
+
+		it("falls back to alphabetical cluster ordering when no environment matches preferredSectionId", async () => {
+			const sectionId = await createSection("sec-nda-multi-fallback")
+			const naisTeamId = await createNaisTeam(sectionId, "team-nda-multi-fallback")
+			const appId = await createApp("app-nda-multi-fallback")
+			await createEnvironment(appId, naisTeamId, "prod-gcp")
+
+			const unrelatedSectionId = await createSection("sec-nda-multi-unrelated")
+
+			const result = await getNdaAppParams(appId, unrelatedSectionId)
+
+			expect(result).toEqual({
+				team: "team-nda-multi-fallback",
+				environment: "prod-gcp",
+				appName: "app-nda-multi-fallback",
+				sectionId,
+			})
+		})
+
+		describe("getNdaAppParamsGroup", () => {
+			it("returns only the primary's own params when a linked application has no environment of its own", async () => {
+				const sectionId = await createSection("sec-nda-group1")
+				const naisTeamId = await createNaisTeam(sectionId, "team-nda-group1")
+				const primaryId = await createApp("alderspensjon-endringssoknad-frontend-group1")
+				await createEnvironment(primaryId, naisTeamId, "prod-gcp")
+				const linkedId = await createApp("alderspensjon-endringssoknad-frontend-borger-group1", primaryId)
+
+				const result = await getNdaAppParamsGroup(linkedId)
+
+				expect(result).toEqual([
+					{
+						applicationId: primaryId,
+						team: "team-nda-group1",
+						environment: "prod-gcp",
+						appName: "alderspensjon-endringssoknad-frontend-group1",
+						sectionId,
+					},
+				])
+			})
+
+			it("returns a separate entry per member when both the primary and a linked application have deployed independently", async () => {
+				const sectionId = await createSection("sec-nda-group2")
+				const naisTeamId = await createNaisTeam(sectionId, "team-nda-group2")
+				const primaryId = await createApp("primary-with-own-deploy")
+				await createEnvironment(primaryId, naisTeamId, "prod-gcp")
+				const linkedId = await createApp("linked-with-own-deploy", primaryId)
+				await createEnvironment(linkedId, naisTeamId, "prod-fss")
+
+				const result = await getNdaAppParamsGroup(linkedId)
+
+				expect(result).toEqual(
+					expect.arrayContaining([
+						{
+							applicationId: primaryId,
+							team: "team-nda-group2",
+							environment: "prod-gcp",
+							appName: "primary-with-own-deploy",
+							sectionId,
+						},
+						{
+							applicationId: linkedId,
+							team: "team-nda-group2",
+							environment: "prod-fss",
+							appName: "linked-with-own-deploy",
+							sectionId,
+						},
+					]),
+				)
+				expect(result).toHaveLength(2)
+			})
+
+			it("preserves each member's own sectionId, even when a linked application belongs to a different section than the primary", async () => {
+				const primarySectionId = await createSection("sec-nda-group-primary")
+				const primaryNaisTeamId = await createNaisTeam(primarySectionId, "team-nda-group-primary")
+				const primaryId = await createApp("primary-cross-section")
+				await createEnvironment(primaryId, primaryNaisTeamId, "prod-gcp")
+
+				const linkedSectionId = await createSection("sec-nda-group-linked")
+				const linkedNaisTeamId = await createNaisTeam(linkedSectionId, "team-nda-group-linked")
+				const linkedId = await createApp("linked-cross-section", primaryId)
+				await createEnvironment(linkedId, linkedNaisTeamId, "prod-fss")
+
+				const result = await getNdaAppParamsGroup(primaryId)
+
+				expect(result).toEqual(
+					expect.arrayContaining([
+						{
+							applicationId: primaryId,
+							team: "team-nda-group-primary",
+							environment: "prod-gcp",
+							appName: "primary-cross-section",
+							sectionId: primarySectionId,
+						},
+						{
+							applicationId: linkedId,
+							team: "team-nda-group-linked",
+							environment: "prod-fss",
+							appName: "linked-cross-section",
+							sectionId: linkedSectionId,
+						},
+					]),
+				)
+				expect(primarySectionId).not.toBe(linkedSectionId)
+			})
+
+			it("returns an empty array when neither the application nor its linked primary has a production environment", async () => {
+				const primaryId = await createApp("primary-without-env-group")
+				const linkedId = await createApp("linked-without-env-group", primaryId)
+
+				const result = await getNdaAppParamsGroup(linkedId)
+
+				expect(result).toEqual([])
+			})
+
+			it("returns a single entry for a standalone application with no linked apps", async () => {
+				const sectionId = await createSection("sec-nda-group3")
+				const naisTeamId = await createNaisTeam(sectionId, "team-nda-group3")
+				const appId = await createApp("standalone-app-group3")
+				await createEnvironment(appId, naisTeamId, "prod-gcp")
+
+				const result = await getNdaAppParamsGroup(appId)
+
+				expect(result).toEqual([
+					{
+						applicationId: appId,
+						team: "team-nda-group3",
+						environment: "prod-gcp",
+						appName: "standalone-app-group3",
+						sectionId,
+					},
+				])
+			})
+
+			it("excludes an archived linked application even if it still has a production environment", async () => {
+				const sectionId = await createSection("sec-nda-group4")
+				const naisTeamId = await createNaisTeam(sectionId, "team-nda-group4")
+				const primaryId = await createApp("primary-with-archived-child")
+				await createEnvironment(primaryId, naisTeamId, "prod-gcp")
+				const archivedChildId = await createApp("archived-linked-app", primaryId)
+				await createEnvironment(archivedChildId, naisTeamId, "prod-fss")
+				await archiveApp(archivedChildId)
+
+				const result = await getNdaAppParamsGroup(primaryId)
+
+				expect(result).toEqual([
+					{
+						applicationId: primaryId,
+						team: "team-nda-group4",
+						environment: "prod-gcp",
+						appName: "primary-with-archived-child",
+						sectionId,
+					},
+				])
+			})
+
+			it("accepts an explicit executor so callers already inside a transaction don't need a second pool connection", async () => {
+				const sectionId = await createSection("sec-nda-group5")
+				const naisTeamId = await createNaisTeam(sectionId, "team-nda-group5")
+				const appId = await createApp("standalone-app-group5")
+				await createEnvironment(appId, naisTeamId, "prod-gcp")
+
+				const testDb = getTestDb()
+				const result = await testDb.transaction((tx) => getNdaAppParamsGroup(appId, undefined, tx))
+
+				expect(result).toEqual([
+					{
+						applicationId: appId,
+						team: "team-nda-group5",
+						environment: "prod-gcp",
+						appName: "standalone-app-group5",
+						sectionId,
+					},
+				])
+			})
+		})
+	})
+
+	describe("buildReadOnlyNdaAppGroupSnapshot", () => {
+		it("parses a valid snapshot array into app tuples", () => {
+			const snapshot = [
+				{ applicationId: "app-1", team: "team-a", environment: "prod-gcp", appName: "app-one" },
+				{ applicationId: "app-2", team: "team-b", environment: "prod-fss", appName: "app-two" },
+			]
+
+			expect(buildReadOnlyNdaAppGroupSnapshot(snapshot)).toEqual(snapshot)
+		})
+
+		it("returns an empty array for an empty snapshot", () => {
+			expect(buildReadOnlyNdaAppGroupSnapshot([])).toEqual([])
+		})
+
+		it("returns null for a non-array value", () => {
+			expect(buildReadOnlyNdaAppGroupSnapshot(null)).toBeNull()
+			expect(buildReadOnlyNdaAppGroupSnapshot(undefined)).toBeNull()
+			expect(buildReadOnlyNdaAppGroupSnapshot({ users: [] })).toBeNull()
+		})
+
+		it("returns null when an entry is missing a required field", () => {
+			const snapshot = [{ applicationId: "app-1", team: "team-a", environment: "prod-gcp" }]
+
+			expect(buildReadOnlyNdaAppGroupSnapshot(snapshot)).toBeNull()
+		})
+
+		it("returns null when an entry has a non-string field", () => {
+			const snapshot = [{ applicationId: "app-1", team: "team-a", environment: "prod-gcp", appName: 123 }]
+
+			expect(buildReadOnlyNdaAppGroupSnapshot(snapshot)).toBeNull()
 		})
 	})
 })

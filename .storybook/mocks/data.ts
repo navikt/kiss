@@ -2032,7 +2032,7 @@ export function mockGjennomgangMultiActivityData(overrides?: { status?: Gjennomg
 		entraGroupsData: null,
 		oracleEvidenceData: null,
 		ndaEvidenceData: {
-			appParams: { team: "starte-pensjon", environment: "prod", appName: "pensjon-sak" },
+			apps: [{ applicationId: "app-pensjon-sak", team: "starte-pensjon", environment: "prod", appName: "pensjon-sak" }],
 			periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
 			downloads: [
 				{
@@ -2044,6 +2044,11 @@ export function mockGjennomgangMultiActivityData(overrides?: { status?: Gjennomg
 					forceFetchJustification: null,
 					performedBy: "system",
 					performedAt: "2026-03-01T10:00:00Z",
+					team: "starte-pensjon",
+					environment: "prod",
+					appName: "pensjon-sak",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
 				},
 			],
 		},

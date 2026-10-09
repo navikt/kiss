@@ -305,7 +305,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 	}
 
 	type NdaEvidenceData = {
-		appParams: { team: string; environment: string; appName: string } | null
+		apps: Array<{ applicationId: string; team: string; environment: string; appName: string }>
 		periodConfig: { periodType: string; periodStart: string } | null
 		downloads: Array<{
 			id: string
@@ -316,6 +316,11 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 			forceFetchJustification: string | null
 			performedBy: string
 			performedAt: string
+			team: string
+			environment: string
+			appName: string
+			periodType: string
+			periodStart: string
 		}>
 	}
 
@@ -460,16 +465,47 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 			}
 
 			if (evidenceProviderType === "deployments") {
-				const { getNdaAppParams } = await import("~/db/queries/deployment-audit.server")
+				const { getNdaAppParamsGroup, buildReadOnlyNdaAppGroupSnapshot } = await import(
+					"~/db/queries/deployment-audit.server"
+				)
 				const { getEvidenceDownloadsForActivityWithBucketDetails } = await import(
 					"~/db/queries/evidence-downloads.server"
 				)
-				const [appParams, downloads] = await Promise.all([
-					review.applicationId ? getNdaAppParams(review.applicationId) : Promise.resolve(null),
-					getEvidenceDownloadsForActivityWithBucketDetails(activity.id),
-				])
+				const { getAppScopeIdsForApps } = await import("~/db/queries/applications.server")
+
+				const completedSnapshot =
+					activity.status === "completed" ? buildReadOnlyNdaAppGroupSnapshot(activity.snapshotAfter) : null
+
+				const downloads = await getEvidenceDownloadsForActivityWithBucketDetails(activity.id)
+				let apps: Array<{ applicationId: string; team: string; environment: string; appName: string }>
+				if (completedSnapshot) {
+					apps = completedSnapshot
+				} else if (activity.status === "completed") {
+					const seen = new Set<string>()
+					apps = []
+					for (const d of downloads) {
+						if (d.providerType !== "deployments") continue
+						const team = typeof d.providerMetadata.team === "string" ? d.providerMetadata.team : ""
+						const environment = typeof d.providerMetadata.environment === "string" ? d.providerMetadata.environment : ""
+						const appName = typeof d.providerMetadata.appName === "string" ? d.providerMetadata.appName : ""
+						if (!team || !environment || !appName) continue
+						const key = `${team}|${environment}|${appName}`
+						if (seen.has(key)) continue
+						seen.add(key)
+						apps.push({ applicationId: key, team, environment, appName })
+					}
+				} else {
+					const appsGroup = review.applicationId
+						? await getNdaAppParamsGroup(review.applicationId, routine.sectionId)
+						: []
+					const scopeByApp = await getAppScopeIdsForApps(appsGroup.map((app) => app.applicationId))
+					apps = appsGroup
+						.filter((app) => scopeByApp.get(app.applicationId)?.sectionIds.includes(routine.sectionId))
+						.map(({ applicationId, team, environment, appName }) => ({ applicationId, team, environment, appName }))
+				}
+
 				actNdaEvidenceData = {
-					appParams,
+					apps,
 					periodConfig: activity.periodConfig ?? null,
 					downloads: downloads
 						.filter((d) => d.providerType === "deployments")
@@ -482,6 +518,11 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 							forceFetchJustification: d.forceFetchJustification,
 							performedBy: d.performedBy,
 							performedAt: d.performedAt.toISOString(),
+							team: typeof d.providerMetadata.team === "string" ? d.providerMetadata.team : "",
+							environment: typeof d.providerMetadata.environment === "string" ? d.providerMetadata.environment : "",
+							appName: typeof d.providerMetadata.appName === "string" ? d.providerMetadata.appName : "",
+							periodType: typeof d.providerMetadata.periodType === "string" ? d.providerMetadata.periodType : "",
+							periodStart: typeof d.providerMetadata.periodStart === "string" ? d.providerMetadata.periodStart : "",
 						})),
 				}
 			}
@@ -1511,26 +1552,52 @@ export default function GjennomgangDetalj() {
 			const evidenceProviderType = getProviderTypeForActivity(activity.type)
 			if (evidenceProviderType && activity.status === "pending") {
 				const requiredEvidenceTypes = getEvidenceTypesForActivity(activity.type) ?? []
-				const downloads =
-					evidenceProviderType === "oracle"
-						? (activity.oracleEvidenceData?.downloads ?? [])
-						: (activity.ndaEvidenceData?.downloads ?? [])
-				const collectedEvidenceTypes = new Set(
-					evidenceProviderType === "oracle"
-						? downloads.map((d) => ("evidenceType" in d ? d.evidenceType : undefined))
-						: downloads.length > 0
-							? requiredEvidenceTypes
-							: [],
-				)
-				const missingEvidenceTypes = requiredEvidenceTypes.filter((et) => !collectedEvidenceTypes.has(et))
-				if (missingEvidenceTypes.length > 0) {
+				if (evidenceProviderType === "deployments") {
+					const apps = activity.ndaEvidenceData?.apps ?? []
+					const downloads = activity.ndaEvidenceData?.downloads ?? []
+					const periodConfig = activity.periodConfig
 					const labels = getProviderUiConfig(evidenceProviderType).evidenceTypeLabels
-					for (const et of missingEvidenceTypes) {
+					if (apps.length === 0) {
 						violations.push({
-							stepTitle: labels[et] ?? et,
+							stepTitle: labels.deployment_evidence_report ?? "Leveranserapport",
 							componentLabel: "Bevis",
 							stepId: `aktivitet-${stepIdx}`,
 						})
+					} else {
+						const appsMissingReports = apps.filter(
+							(app) =>
+								!downloads.some(
+									(d) =>
+										d.team === app.team &&
+										d.environment === app.environment &&
+										d.appName === app.appName &&
+										d.periodType === periodConfig?.periodType &&
+										d.periodStart === periodConfig?.periodStart,
+								),
+						)
+						for (const app of appsMissingReports) {
+							violations.push({
+								stepTitle: `${labels.deployment_evidence_report ?? "Leveranserapport"} (${app.appName})`,
+								componentLabel: "Bevis",
+								stepId: `aktivitet-${stepIdx}`,
+							})
+						}
+					}
+				} else {
+					const downloads = activity.oracleEvidenceData?.downloads ?? []
+					const collectedEvidenceTypes = new Set(
+						downloads.map((d) => ("evidenceType" in d ? d.evidenceType : undefined)),
+					)
+					const missingEvidenceTypes = requiredEvidenceTypes.filter((et) => !collectedEvidenceTypes.has(et))
+					if (missingEvidenceTypes.length > 0) {
+						const labels = getProviderUiConfig(evidenceProviderType).evidenceTypeLabels
+						for (const et of missingEvidenceTypes) {
+							violations.push({
+								stepTitle: labels[et] ?? et,
+								componentLabel: "Bevis",
+								stepId: `aktivitet-${stepIdx}`,
+							})
+						}
 					}
 				}
 			}

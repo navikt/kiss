@@ -21,6 +21,8 @@ import { devTeams, sectionEnvironments, userRoles, users } from "../schema/organ
 import { writeAuditLog } from "./audit.server"
 import { getScreeningDerivedControlIds } from "./screening.server"
 
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
+
 /** Search applications while excluding auto-discovered apps that only exist in deactivated environments. */
 export async function searchApplications(query: string, limit = 200) {
 	const pattern = `%${query}%`
@@ -292,17 +294,21 @@ export async function getAvailableAppsForTeam(devTeamId: string, sectionId: stri
 /** Get dev team IDs and section IDs for an application — used for authorization checks.
  * Section IDs are derived from both dev-team mappings and NAIS-team environments.
  * Delegates to getAppScopeIdsForApps to avoid maintaining two copies of the same join logic. */
-export async function getAppScopeIds(appId: string): Promise<{ devTeamIds: string[]; sectionIds: string[] }> {
-	const scopeByApp = await getAppScopeIdsForApps([appId])
+export async function getAppScopeIds(
+	appId: string,
+	executor: DbExecutor = db,
+): Promise<{ devTeamIds: string[]; sectionIds: string[] }> {
+	const scopeByApp = await getAppScopeIdsForApps([appId], executor)
 	return scopeByApp.get(appId) ?? { devTeamIds: [], sectionIds: [] }
 }
 export async function getAppScopeIdsForApps(
 	appIds: string[],
+	executor: DbExecutor = db,
 ): Promise<Map<string, { devTeamIds: string[]; sectionIds: string[] }>> {
 	if (appIds.length === 0) return new Map()
 
 	const [devTeamRows, naisTeamRows, naisLinkedDevTeamRows, naisDirectDevTeamRows] = await Promise.all([
-		db
+		executor
 			.select({
 				appId: applicationTeamMappings.applicationId,
 				devTeamId: devTeams.id,
@@ -311,7 +317,7 @@ export async function getAppScopeIdsForApps(
 			.from(applicationTeamMappings)
 			.innerJoin(devTeams, and(eq(applicationTeamMappings.devTeamId, devTeams.id), isNull(devTeams.archivedAt)))
 			.where(and(inArray(applicationTeamMappings.applicationId, appIds), isNull(applicationTeamMappings.archivedAt))),
-		db
+		executor
 			.selectDistinct({ appId: applicationEnvironments.applicationId, sectionId: naisTeams.sectionId })
 			.from(applicationEnvironments)
 			.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
@@ -334,7 +340,7 @@ export async function getAppScopeIdsForApps(
 					),
 				),
 			),
-		db
+		executor
 			.selectDistinct({
 				appId: applicationEnvironments.applicationId,
 				devTeamId: devTeams.id,
@@ -350,7 +356,7 @@ export async function getAppScopeIdsForApps(
 			)
 			.innerJoin(devTeams, and(eq(devTeams.id, devTeamNaisTeamMappings.devTeamId), isNull(devTeams.archivedAt)))
 			.where(and(inArray(applicationEnvironments.applicationId, appIds), isNull(applicationEnvironments.archivedAt))),
-		db
+		executor
 			.selectDistinct({
 				appId: applicationEnvironments.applicationId,
 				devTeamId: devTeams.id,

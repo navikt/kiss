@@ -5,6 +5,8 @@ import { bucketObjects } from "../schema/buckets"
 import {
 	type EvidenceDownloadSource,
 	type EvidenceProviderType,
+	type PeriodConfig,
+	routineReviewActivities,
 	routineReviewEvidenceDownloads,
 } from "../schema/routines"
 import { writeAuditLog } from "./audit.server"
@@ -114,6 +116,47 @@ export interface EvidenceDownloadWithBucketDetails extends EvidenceDownloadRecor
 	contentType: string
 }
 
+type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+/**
+ * Locks the activity row and verifies it's still pending with the period that was
+ * validated before the (potentially slow) provider download/upload work started.
+ * Closes a TOCTOU window where a concurrent `savePeriodConfig()` could otherwise
+ * commit a new period between validation and persistence of the evidence record.
+ */
+async function lockAndRevalidateActivity(
+	tx: DbTransaction,
+	activityId: string,
+	expectedPeriodConfig: PeriodConfig | null | undefined,
+): Promise<void> {
+	const [activity] = await tx
+		.select({ status: routineReviewActivities.status, periodConfig: routineReviewActivities.periodConfig })
+		.from(routineReviewActivities)
+		.where(eq(routineReviewActivities.id, activityId))
+		.for("update", { of: [routineReviewActivities] })
+		.limit(1)
+
+	if (!activity || activity.status !== "pending") {
+		throw new Response("Aktiviteten er ikke lenger åpen for registrering av bevis.", { status: 409 })
+	}
+
+	if (expectedPeriodConfig !== undefined) {
+		const current = activity.periodConfig
+		const matches =
+			expectedPeriodConfig === null
+				? current === null
+				: current !== null &&
+					current.periodType === expectedPeriodConfig.periodType &&
+					current.periodStart === expectedPeriodConfig.periodStart
+
+		if (!matches) {
+			throw new Response("Perioden for gjennomgangen ble endret mens beviset ble hentet. Prøv igjen.", {
+				status: 409,
+			})
+		}
+	}
+}
+
 // ─── Commands ─────────────────────────────────────────────────────────────
 
 export async function recordEvidenceDownload(params: {
@@ -129,6 +172,7 @@ export async function recordEvidenceDownload(params: {
 	collectedAt: Date | null
 	forceFetchJustification?: string
 	performedBy: string
+	expectedPeriodConfig?: PeriodConfig | null
 }): Promise<EvidenceDownloadRecord> {
 	const storage = getStorageProvider()
 	const normalizedFormat = params.format.toLowerCase()
@@ -151,6 +195,8 @@ export async function recordEvidenceDownload(params: {
 		const bucketObjectId = crypto.randomUUID()
 
 		record = await db.transaction(async (tx) => {
+			await lockAndRevalidateActivity(tx, params.activityId, params.expectedPeriodConfig)
+
 			await tx.insert(bucketObjects).values({
 				id: bucketObjectId,
 				bucketName: getBucketName(),
@@ -228,6 +274,7 @@ export async function recordManualEvidenceUpload(params: {
 	fileName: string
 	contentType: string
 	performedBy: string
+	expectedPeriodConfig?: PeriodConfig | null
 }): Promise<EvidenceDownloadRecord> {
 	const storage = getStorageProvider()
 	const normalizedFormat = params.format.toLowerCase()
@@ -250,6 +297,8 @@ export async function recordManualEvidenceUpload(params: {
 		const bucketObjectId = crypto.randomUUID()
 
 		record = await db.transaction(async (tx) => {
+			await lockAndRevalidateActivity(tx, params.activityId, params.expectedPeriodConfig)
+
 			await tx.insert(bucketObjects).values({
 				id: bucketObjectId,
 				bucketName: getBucketName(),
@@ -333,6 +382,7 @@ export interface ActivityContext {
 	activityType: string
 	activityStatus: string
 	providerConfig?: Record<string, unknown> | null
+	periodConfig?: PeriodConfig | null
 	reviewId: string
 	reviewStatus: string
 	routineId: string
@@ -348,6 +398,7 @@ a.id as activity_id,
 a.type as activity_type,
 a.status as activity_status,
 a.provider_config as provider_config,
+a.period_config as period_config,
 rv.id as review_id,
 rv.status as review_status,
 r.id as routine_id,
@@ -366,6 +417,7 @@ WHERE a.id = ${activityId}
 		activityType: row.activity_type as string,
 		activityStatus: row.activity_status as string,
 		providerConfig: isRecord(row.provider_config) ? row.provider_config : null,
+		periodConfig: isRecord(row.period_config) ? (row.period_config as unknown as PeriodConfig) : null,
 		reviewId: row.review_id as string,
 		reviewStatus: row.review_status as string,
 		routineId: row.routine_id as string,
