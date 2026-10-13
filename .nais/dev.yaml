@@ -1,0 +1,95 @@
+apiVersion: nais.io/v1alpha1
+kind: Application
+metadata:
+  name: kiss
+  namespace: proaktiv
+  labels:
+    team: proaktiv
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+spec:
+  image: "{{image}}"
+  port: 3000
+  replicas:
+    min: 1
+    max: 1
+  liveness:
+    path: /api/isalive
+    initialDelay: 20
+    timeout: 60
+  readiness:
+    path: /api/isready
+    initialDelay: 20
+    timeout: 60
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      cpu: 50m
+      memory: 256Mi
+  ingresses:
+    - https://kiss.intern.dev.nav.no
+  azure:
+    application:
+      enabled: true
+      allowAllUsers: true
+    sidecar:
+      enabled: true
+      autoLogin: true
+  gcp:
+    sqlInstances:
+      - type: POSTGRES_18
+        tier: db-f1-micro
+        databases:
+          - name: kiss
+    buckets:
+      - name: kiss-data-dev
+        cascadingDelete: false
+  observability:
+    autoInstrumentation:
+      enabled: true
+      runtime: nodejs
+    logging:
+      destinations:
+        - id: loki
+  accessPolicy:
+    outbound:
+      external:
+        - host: graph.microsoft.com
+        - host: console.nav.cloud.nais.io
+        - host: api.github.com
+  env:
+    - name: NODE_ENV
+      value: production
+    - name: TZ
+      value: Europe/Oslo
+    - name: NAIS_API_URL
+      value: https://console.nav.cloud.nais.io/graphql
+    - name: ENABLE_NAIS_SYNC
+      value: "true"
+    - name: ENABLE_SYNC_JOB_RETENTION_CLEANUP
+      value: "true"
+    - name: SYNC_JOB_RETENTION_DAYS
+      value: "90"
+    - name: SYNC_JOB_RETENTION_BATCH_SIZE
+      value: "500"
+    - name: KISS_ADMIN_GROUP_IDS
+      value: ""
+    - name: KISS_AUDITOR_GROUP_IDS
+      value: ""
+    - name: GCS_BUCKET_NAME
+      value: kiss-data-dev
+    - name: ENABLE_AUDIT_SUMMARY_SYNC
+      value: "true"
+    - name: ENABLE_DEPLOYMENT_AUDIT_SYNC
+      value: "true"
+    - name: ENABLE_GITHUB_ACCESS_SYNC
+      value: "true"
+    - name: ENABLE_ENTRA_TEAM_SYNC
+      value: "true"
+    - name: ENABLE_RPA_SYNC
+      value: "true"
+    - name: SHOW_COMPLIANCE_STATS
+      value: "false"
+  envFrom:
+    - secret: kiss-github-app
