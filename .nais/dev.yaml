@@ -80,9 +80,9 @@ spec:
     - name: GCS_BUCKET_NAME
       value: kiss-data-dev
     - name: ENABLE_AUDIT_SUMMARY_SYNC
-      value: "true"
+      value: "false"
     - name: ENABLE_DEPLOYMENT_AUDIT_SYNC
-      value: "true"
+      value: "false"
     - name: ENABLE_GITHUB_ACCESS_SYNC
       value: "true"
     - name: ENABLE_ENTRA_TEAM_SYNC
