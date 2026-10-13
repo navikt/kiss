@@ -28,7 +28,7 @@ spec:
       cpu: 50m
       memory: 256Mi
   ingresses:
-    - https://kiss.intern.dev.nav.no
+    - https://kiss.ansatt.dev.nav.no
   azure:
     application:
       enabled: true
