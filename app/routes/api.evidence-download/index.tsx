@@ -73,6 +73,10 @@ export async function action({ request }: Route.ActionArgs) {
 		return data({ error: "Ugyldig eller manglende providerType" }, { status: 400 })
 	}
 
+	if ((intent === "download-from-api" || intent === "upload-manual") && providerType === "deployments") {
+		return data({ error: "Leveranserapporter lagres når gjennomgangen fullføres" }, { status: 400 })
+	}
+
 	if (intent === "download-from-api") {
 		return handleDownloadFromApi(formData, providerType, authedUser)
 	}
@@ -459,16 +463,23 @@ async function handlePollJob(
 		return data({ error: "Denne leverandøren støtter ikke jobbstatus" }, { status: 400 })
 	}
 
+	const currentState =
+		providerType === "deployments"
+			? ctx.periodConfig?.reportGeneration?.apps.find(
+					(app) =>
+						app.jobId === jobId &&
+						app.team === String(providerParams.team) &&
+						app.environment === String(providerParams.environment) &&
+						app.appName === String(providerParams.appName),
+				)
+			: undefined
+	if (providerType === "deployments" && !currentState) {
+		return data({ error: "Jobben tilhører ikke gjeldende rapportgenerering. Last siden på nytt." }, { status: 409 })
+	}
+
 	try {
 		const result = await provider.getJobStatus(providerParams, jobId)
 		if (providerType === "deployments" && (result.status === "completed" || result.status === "failed")) {
-			const currentState = ctx.periodConfig?.reportGeneration?.apps.find(
-				(app) =>
-					app.jobId === jobId &&
-					app.team === String(providerParams.team) &&
-					app.environment === String(providerParams.environment) &&
-					app.appName === String(providerParams.appName),
-			)
 			if (currentState && ctx.periodConfig) {
 				let nextState: NdaReportGenerationState
 				if (result.status === "failed") {

@@ -223,6 +223,14 @@ describe("api.evidence-download action", () => {
 		})
 	})
 
+	describe("legacy persistence intents", () => {
+		it.each(["download-from-api", "upload-manual"])("rejects %s for deployments", async (intent) => {
+			const result = await callAction({ intent, activityId: ACTIVITY_ID })
+
+			expect(getStatus(result)).toBe(400)
+		})
+	})
+
 	describe("poll-job", () => {
 		const pollRequest = {
 			intent: "poll-job",
@@ -296,6 +304,13 @@ describe("api.evidence-download action", () => {
 			const result = await callAction(pollRequest)
 
 			expect(getStatus(result)).toBe(409)
+		})
+
+		it("rejects jobs that are not part of the current generation", async () => {
+			const result = await callAction({ ...pollRequest, jobId: "unknown-job" })
+
+			expect(getStatus(result)).toBe(409)
+			expect(mockProvider.getJobStatus).not.toHaveBeenCalled()
 		})
 
 		it("does not persist anything while the job is running", async () => {
