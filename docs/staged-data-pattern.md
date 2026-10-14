@@ -45,14 +45,18 @@ For hvert element-flagg: hva skal skje med primærtabellen ved commit?
 
 ### 0.5 Audit-actions er lagt til i `auditLogActionEnum` FØR bruk
 Sjekk `app/db/schema/audit.ts`. Alle planlagte actions (`xxx_activity_seeded`,
-`xxx_activity_completed`, `xxx_item_changed`, osv.) skal finnes i enumen.
+`xxx_activity_completed`, osv.) som brukes med `writeAuditLog` skal finnes i enumen.
+Reviewerens løpende staged-data-endringer er ikke audit-actions.
 
 ### 0.6 Change log vs audit log: ansvar er avklart
-- **`audit_log`** — system-intern sporbarhet, alle CRUD-operasjoner, vises i admin-UI
+- **`audit_log`** — system-intern sporbarhet for aktivitetens livssyklushendelser
+  (inkludert seeding og fullføring) og CRUD-endringer i primærtabeller ved commit; vises i admin-UI.
+  Løpende patcher som kun endrer `staged_data` skal ikke audit-logges.
 - **`routine_review_activity_xxx_changes`** (eller tilsvarende) — brukervendt endringslogg
-  som viser hva revieweren faktisk endret i løpet av gjennomgangen
+  som viser reviewerens faktiske, ikke-no-op endringer i `staged_data` i løpet av gjennomgangen.
 
-Avklar om en separat endringslogg-tabell er nødvendig, eller om `audit_log` er tilstrekkelig.
+Staged-data-patcher skal skrive til endringsloggen, ikke `audit_log`. Seeding og commit
+skal fortsatt audit-logges atomisk med tilhørende DB-mutasjoner.
 
 ---
 
@@ -260,8 +264,8 @@ audit-logges i transaksjonen **før** wasNoOp-sjekken:
 // 5. recordXxxChange (endringslogg for selve patchen)
 ```
 
-Begrunnelse: wasNoOp-return hopper over endringslogg-kallet, men seeding SKAL alltid logges
-uansett om patchen er en no-op.
+Begrunnelse: wasNoOp-return hopper over endringslogg-kallet for reviewerens patch,
+men seeding SKAL alltid audit-logges uansett om patchen er en no-op.
 
 ### B3. No-op-deteksjon krever deterministisk rekkefølge
 ```ts
@@ -592,8 +596,7 @@ Props til React-komponenter **SKAL** bruke spesifikke typer (f.eks. `XxxStatus |
 
 ## F. Endringslogg (change log)
 
-> Gjelder kun hvis det er besluttet å ha en brukervendt endringslogg (se 0.6).
-> Dersom `audit_log` er tilstrekkelig, kan denne seksjonen hoppes over.
+> Brukervendt endringslogg er påkrevd for reviewerens staged-data-endringer (se 0.6).
 
 **Definisjon:** Endringslogg er brukervendt historikk over hva revieweren endret i løpet
 av gjennomgangen. Skiller seg fra `audit_log` (system-intern sporbarhet):
@@ -602,7 +605,7 @@ av gjennomgangen. Skiller seg fra `audit_log` (system-intern sporbarhet):
 |-|------------|--------------|
 | Målgruppe | Admin, system | Reviewer, seksjonsleder |
 | Vises i | Admin-UI | Gjennomgangs-UI |
-| Innhold | Alle CRUD-operasjoner | Kun review-endringer |
+| Innhold | Livssyklushendelser og CRUD i primærtabeller ved commit | Faktiske staged-data-endringer |
 
 ### F1. Endringslogg skrives i query-laget i samme transaksjon som patch
 `recordXxxChange(...)` **SKAL** kalles inne i `db.transaction(tx)` i patch-funksjonen —
@@ -612,8 +615,9 @@ ikke i route-laget etter at funksjonen returnerer.
 Skriv endringslogg kun når `staged_data` faktisk endres (se B3 — JSON.stringify etter deterministisk sortering).
 
 ### F3. Actor i endringslogg matcher faktisk utfører
-`performedBy` i endringslogg og audit **SKAL** alltid matche hvem som utførte operasjonen
-på det tidspunktet (autentisert bruker eller `"system"`). Ikke bruk gammel vurdering (`assessedBy` fra earlier patch).
+`performedBy` i endringslogg **SKAL** matche den autentiserte brukeren som gjorde patchen.
+Audit-loggoppføringer for seeding, fullføring og commit skal bruke riktig utfører
+(autentisert bruker eller `"system"`). Ikke bruk gammel vurdering (`assessedBy` fra earlier patch).
 
 ---
 
@@ -759,9 +763,10 @@ SEED
 [ ] [T] waitForXxxSeed venter 4–10 sekunder (hensyn til API-latens)
 
 AUDIT / ATOMISITET
-[ ] writeAuditLog kalles i SAMME db.transaction som alle DB-mutasjoner
+[ ] writeAuditLog kalles i SAMME db.transaction som de audit-loggede DB-mutasjonene
 [ ] Seeding audit-logges uansett kaller (seed/patch/commit)
 [ ] Seeding-audit logges FØR wasNoOp-sjekk i patch
+[ ] Reviewerens staged-data-patcher audit-logges ikke; faktiske endringer går i endringsloggen
 [ ] performedBy settes fra autentisert kontekst, ikke klientpayload
 
 PATCH
