@@ -12,7 +12,14 @@ export function createSpreadsheetPreviewHtml(buffer: Buffer, title: string): str
 
 	let workbook: XLSX.WorkBook
 	try {
-		workbook = XLSX.read(buffer, { type: "buffer", cellDates: true, sheetRows: MAX_PREVIEW_ROWS + 1 })
+		const sheetNames = XLSX.read(buffer, { type: "buffer", bookSheets: true }).SheetNames
+		workbook = XLSX.read(buffer, {
+			type: "buffer",
+			cellDates: true,
+			sheetRows: MAX_PREVIEW_ROWS + 1,
+			sheets: Array.from({ length: Math.min(sheetNames.length, MAX_PREVIEW_SHEETS) }, (_, index) => index),
+		})
+		workbook.SheetNames = sheetNames
 	} catch {
 		throw new Response("Regnearket kunne ikke vises.", { status: 422 })
 	}
@@ -22,10 +29,18 @@ export function createSpreadsheetPreviewHtml(buffer: Buffer, title: string): str
 		.map((sheetName) => {
 			const worksheet = workbook.Sheets[sheetName]
 			if (!worksheet) return ""
+			let columnsClamped = false
+			if (worksheet["!ref"]) {
+				const range = XLSX.utils.decode_range(worksheet["!ref"])
+				if (range.e.c - range.s.c + 1 > MAX_PREVIEW_COLUMNS) {
+					range.e.c = range.s.c + MAX_PREVIEW_COLUMNS - 1
+					worksheet["!ref"] = XLSX.utils.encode_range(range)
+					columnsClamped = true
+				}
+			}
 			const rows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, defval: "", raw: false })
-			const fullColumnCount = rows.reduce((maximum, row) => Math.max(maximum, row.length), 0)
-			const columnCount = Math.min(fullColumnCount, MAX_PREVIEW_COLUMNS)
-			if (rows.length > MAX_PREVIEW_ROWS || fullColumnCount > MAX_PREVIEW_COLUMNS) truncated = true
+			const columnCount = rows.reduce((maximum, row) => Math.max(maximum, row.length), 0)
+			if (rows.length > MAX_PREVIEW_ROWS || columnsClamped) truncated = true
 			const body = rows
 				.slice(0, MAX_PREVIEW_ROWS)
 				.map(
