@@ -365,6 +365,33 @@ export async function getNdaAuditJobStatus(
 	return { ...json, retryAfterSeconds: Number.isNaN(retryAfterSeconds) ? null : retryAfterSeconds }
 }
 
+const MAX_NDA_REPORT_DOWNLOAD_BYTES = 50 * 1024 * 1024
+
+async function readResponseWithLimit(response: Response, maxBytes: number): Promise<Buffer> {
+	const tooLarge = () => new Response("Rapportfilen fra NDA er for stor.", { status: 413 })
+	const declaredLength = Number(response.headers.get("content-length"))
+	if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+		await response.body?.cancel()
+		throw tooLarge()
+	}
+	if (!response.body) return Buffer.alloc(0)
+
+	const reader = response.body.getReader()
+	const chunks: Buffer[] = []
+	let received = 0
+	for (;;) {
+		const { done, value } = await reader.read()
+		if (done) break
+		received += value.byteLength
+		if (received > maxBytes) {
+			await reader.cancel()
+			throw tooLarge()
+		}
+		chunks.push(Buffer.from(value))
+	}
+	return Buffer.concat(chunks, received)
+}
+
 /**
  * Download a report as PDF (binary).
  * Maps to `GET /api/v1/apps/{team}/{env}/{app}/audit-reports/{reportId}/download`
@@ -395,7 +422,7 @@ export async function downloadNdaAuditReport(
 		await handleErrorResponse(response, "download report")
 	}
 
-	const buffer = Buffer.from(await response.arrayBuffer())
+	const buffer = await readResponseWithLimit(response, MAX_NDA_REPORT_DOWNLOAD_BYTES)
 	const contentType = response.headers.get("content-type") ?? "application/pdf"
 	const disposition = response.headers.get("content-disposition") ?? ""
 	const fileNameMatch = disposition.match(/filename="?([^";\n]+)"?/)

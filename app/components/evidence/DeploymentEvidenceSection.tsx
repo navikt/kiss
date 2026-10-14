@@ -242,7 +242,9 @@ function ReportSnapshotsTable({
 						{apps.map((app) => {
 							const state = states.find((item) => item.applicationId === app.applicationId)
 							const readyReport =
-								state?.status === "ready" && state.report ? { attemptId: state.attemptId, report: state.report } : null
+								state?.report && isNdaReportReadyForApp(state, app, periodConfig)
+									? { attemptId: state.attemptId, report: state.report }
+									: null
 							return (
 								<Table.Row key={app.applicationId}>
 									<Table.DataCell>
@@ -256,6 +258,7 @@ function ReportSnapshotsTable({
 									<Table.DataCell>
 										<ReportGenerationStatus
 											state={state}
+											isCurrent={readyReport !== null}
 											pollError={pollErrors[app.applicationId]}
 											activityId={activityId}
 											periodConfig={periodConfig}
@@ -307,6 +310,7 @@ function ReportSnapshotsTable({
 
 function ReportGenerationStatus({
 	state,
+	isCurrent,
 	pollError,
 	activityId,
 	periodConfig,
@@ -315,6 +319,7 @@ function ReportGenerationStatus({
 	onRetryStatus,
 }: {
 	state: NdaReportGenerationState | undefined
+	isCurrent: boolean
 	pollError: string | undefined
 	activityId: string
 	periodConfig: PeriodConfig
@@ -458,6 +463,16 @@ function ReportGenerationStatus({
 			<VStack gap="space-8" align="start">
 				<Tag variant="error" size="small">
 					Rapportgenerering ble ikke fullført
+				</Tag>
+				<Detail>Generer rapportene på nytt.</Detail>
+			</VStack>
+		)
+	}
+	if (state?.status === "ready" && !isCurrent) {
+		return (
+			<VStack gap="space-8" align="start">
+				<Tag variant="warning" size="small">
+					Utdatert
 				</Tag>
 				<Detail>Generer rapportene på nytt.</Detail>
 			</VStack>
