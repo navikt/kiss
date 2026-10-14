@@ -272,7 +272,7 @@ export const GenereringEtterPeriodevalg: Story = {
 		if (!firstAvailablePeriod) throw new Error("Storybook-fiksturen må ha minst én tilgjengelig periode")
 		await userEvent.selectOptions(periodSelect, firstAvailablePeriod)
 		await userEvent.click(canvas.getByRole("button", { name: "Generer rapporter for valgt periode" }))
-		expect(await canvas.findByText("42 godkjent", { exact: false })).toBeTruthy()
+		expect(await canvas.findByText(/42 av \d+ leveranser godkjent/)).toBeTruthy()
 		expect(canvas.queryByText("Periodevalg lagret.")).toBeNull()
 		expect(canvas.queryByRole("button", { name: "Oppdater rapporter" })).toBeNull()
 		expect(await canvas.findByRole("button", { name: "Generer rapporter for valgt periode" })).toBeTruthy()
@@ -374,7 +374,7 @@ export const StatusfeilFraApi: Story = {
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement)
 		await userEvent.click(await canvas.findByRole("button", { name: "Generer rapporter for valgt periode" }))
-		expect(await canvas.findByRole("alert")).toBeTruthy()
+		expect(await canvas.findByText("Kunne ikke hente rapporter fra NDA.")).toBeTruthy()
 	},
 }
 
