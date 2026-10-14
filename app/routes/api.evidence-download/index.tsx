@@ -569,6 +569,7 @@ function parseNdaReportSnapshot(value: unknown): NdaReportSnapshot | null {
 		typeof periodEnd !== "string" ||
 		typeof periodLabel !== "string" ||
 		typeof generatedAt !== "string" ||
+		Number.isNaN(new Date(generatedAt).getTime()) ||
 		!(generatedBy === null || typeof generatedBy === "string") ||
 		typeof totalDeployments !== "number" ||
 		typeof approvedCount !== "number" ||
