@@ -28,15 +28,16 @@ Dette gjelder i alle query-funksjoner i `app/db/queries/`. Sjekk spesielt:
 
 ### 2. Audit-logging påkrevd for CRUD-operasjoner
 
-Alle ny opprettelse, endring og sletting **SKAL** kalle `writeAuditLog()` fra
-`app/db/queries/audit.server.ts`, med unntak av løpende patcher som kun endrer `staged_data`
-i en rutinegjennomgang. Slike patcher **SKAL IKKE** kalle `writeAuditLog()` for reviewerens
-endringer; faktiske endringer registreres i gjennomgangens brukervendte endringslogg.
+Alle CRUD-operasjoner utenfor en rutinegjennomgang **SKAL** kalle `writeAuditLog()` fra
+`app/db/queries/audit.server.ts`.
 
-Seeding og fullføring av aktiviteten, samt CRUD-endringer i primærtabeller ved commit,
-skal fortsatt audit-logges.
+Inne i en rutinegjennomgang skal stegene og enkeltendringene **IKKE** audit-logges —
+inkludert seeding, patching, fullføring av enkeltaktiviteter og enkeltvise CRUD-endringer
+i primærtabeller ved commit. Audit-loggen skal i stedet få én hendelse når
+rutinegjennomgangen avsluttes (`routine_review_completed`), atomisk med avslutningen.
+Eventuell brukervendt endringslogg er separat fra dette kravet.
 
-Obligatoriske felt i audit-kallet når logging kreves:
+Obligatoriske felt i audit-kallet:
 - `action` — må finnes i `auditLogActionEnum` i `app/db/schema/audit.ts`
 - `entityType` — f.eks. `"application"`, `"routine_review_activity"`
 - `entityId` — primærnøkkelen til entiteten
