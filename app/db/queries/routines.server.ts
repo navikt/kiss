@@ -2482,6 +2482,41 @@ export async function updateFollowUpPointStatus(params: {
 			throw new Response("Oppfølgingspunkt ikke funnet", { status: 404 })
 		}
 
+		// Oppfølging etter ferdigstilling skjer utenfor selve gjennomgangen og skal audit-logges.
+		if (snapshot.reviewStatus !== "draft") {
+			if (statusChanged) {
+				await writeAuditLog(
+					{
+						action: "review_follow_up_status_changed",
+						entityType: "review_follow_up_point",
+						entityId: pointId,
+						previousValue: existing.status,
+						newValue: status,
+						metadata: {
+							reviewId: expectedReviewId,
+							...(resolutionProvided ? { resolution: trimmedResolution } : {}),
+						},
+						performedBy,
+					},
+					tx,
+				)
+			}
+			if (resolutionChanged) {
+				await writeAuditLog(
+					{
+						action: "review_follow_up_resolution_updated",
+						entityType: "review_follow_up_point",
+						entityId: pointId,
+						previousValue: existing.resolution,
+						newValue: trimmedResolution ?? null,
+						metadata: { reviewId: expectedReviewId },
+						performedBy,
+					},
+					tx,
+				)
+			}
+		}
+
 		// Recompute review-status hvis review er i et oppfølgingsfølsomt
 		// stadium (needs_follow_up eller completed). Draft skal forbli draft.
 		let newReviewStatus = snapshot.reviewStatus
@@ -2820,6 +2855,20 @@ export async function addFollowUpPointAttachment(params: {
 				uploadedBy: params.uploadedBy,
 			})
 			.returning()
+
+		if (point.reviewStatus !== "draft") {
+			await writeAuditLog(
+				{
+					action: "review_follow_up_attachment_uploaded",
+					entityType: "routine_review_follow_up_point_attachment",
+					entityId: attachment.id,
+					newValue: params.fileName,
+					metadata: { pointId: params.pointId, kind: params.kind, contentType: params.contentType },
+					performedBy: params.uploadedBy,
+				},
+				tx,
+			)
+		}
 
 		return attachment
 	})

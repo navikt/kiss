@@ -444,6 +444,51 @@ describe("Review follow-up points integration tests", () => {
 		expect(actions).toEqual([])
 	})
 
+	it("audits follow-up status, resolution and attachments after the review is completed", async () => {
+		const { review } = await newDraftReview()
+		const p1 = await addFollowUpPoint({
+			reviewId: review.id,
+			text: "P1",
+			description: "Beskrivelse",
+			performedBy: "Z990001",
+		})
+		const p2 = await addFollowUpPoint({
+			reviewId: review.id,
+			text: "P2",
+			description: "Beskrivelse",
+			performedBy: "Z990001",
+		})
+		await completeReview(review.id, "Z990001")
+
+		await addFollowUpPointAttachment({
+			pointId: p2.id,
+			kind: "resolution",
+			fileName: "oppfolging.pdf",
+			bucketPath: "test/audited-resolution.pdf",
+			bucketName: "kiss-test",
+			contentType: "application/pdf",
+			sizeBytes: 10,
+			uploadedBy: "Z990002",
+		})
+		await updateFollowUpPointStatus({
+			pointId: p1.id,
+			expectedReviewId: review.id,
+			status: "completed",
+			resolution: "Fikset",
+			performedBy: "Z990001",
+		})
+
+		const db = getTestDb()
+		const audits = await db.execute(
+			/* sql */ `SELECT action FROM audit_log WHERE action LIKE 'review_follow_up_%' ORDER BY action`,
+		)
+		expect(audits.rows.map((r) => (r as { action: string }).action)).toEqual([
+			"review_follow_up_attachment_uploaded",
+			"review_follow_up_resolution_updated",
+			"review_follow_up_status_changed",
+		])
+	})
+
 	it("supports adding a description with a follow-up and editing it later", async () => {
 		const { review } = await newDraftReview()
 		const p1 = await addFollowUpPoint({

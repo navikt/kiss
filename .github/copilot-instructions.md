@@ -38,6 +38,8 @@ rutinegjennomgang:
 - Endringer i data som eies av gjennomgangen — review-felter, deltakere,
   oppfølgingspunkter, lenker, vedlegg og aktivitetsarbeidsdata som `staged_data`,
   seeding, patching og snapshots — trenger **IKKE** egne audit-rader per endring.
+- Oppfølging av oppfølgingspunkter etter at gjennomgangen er ferdigstilt (status, oppsummering og vedlegg) skjer
+  utenfor selve gjennomgangen og **SKAL** audit-logges. Endringer mens gjennomgangen er utkast trenger det ikke.
 - Opprettelse og avbrytelse av rutinegjennomgangen **SKAL** audit-logges som
   livsløpshendelser.
 - Ved fullføring **SKAL** fullføringen og hver faktisk primærlagringsmutasjon
