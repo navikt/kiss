@@ -651,26 +651,16 @@ function NdaDownloadsTable({
 												preview ? (
 													<Detail key={file.id}>{file.format.toUpperCase()}</Detail>
 												) : (
-													<HStack key={file.id} gap="space-8" align="center">
-														<Detail>
-															<Link
-																href={`/api/evidence-file/${file.id}?view=true`}
-																target="_blank"
-																rel="noopener noreferrer"
-																aria-label={`Vis ${file.format.toUpperCase()}-rapport for ${download.appName} i ny fane`}
-															>
-																{file.format.toUpperCase()}
-															</Link>
-														</Detail>
-														<Detail>
-															<Link
-																href={`/api/evidence-file/${file.id}`}
-																aria-label={`Last ned ${file.format.toUpperCase()}-rapport for ${download.appName}`}
-															>
-																Last ned
-															</Link>
-														</Detail>
-													</HStack>
+													<Detail key={file.id}>
+														<Link
+															href={`/api/evidence-file/${file.id}?view=true`}
+															target="_blank"
+															rel="noopener noreferrer"
+															aria-label={`Vis ${file.format.toUpperCase()}-rapport for ${download.appName} i ny fane`}
+														>
+															{file.format.toUpperCase()}
+														</Link>
+													</Detail>
 												),
 											)}
 										</HStack>
