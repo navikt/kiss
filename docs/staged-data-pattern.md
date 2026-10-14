@@ -56,8 +56,8 @@ arbeidsdata skal normalt ikke ha egne audit-actions.
 - **`routine_review_activity_xxx_changes`** (eller tilsvarende) — brukervendt endringslogg
   som viser hva revieweren faktisk endret i løpet av gjennomgangen. Data som eies
   av gjennomgangen (review-felter, deltakere, oppfølgingspunkter, lenker, vedlegg
-  og aktiviteter) får ikke audit-rader for hvert enkelt arbeidssteg. Unntak er oppfølging av
-  oppfølgingspunkter etter ferdigstilling, som audit-logges.
+  og aktiviteter) får ikke audit-rader for hvert enkelt arbeidssteg. Dette gjelder kun mens gjennomgangen er utkast: endringer
+  etter ferdigstilling (inkl. oppfølgingspunkter, lenker og vedlegg) audit-logges, og fullføring skriver én audit-rad per punkt.
 
 Avklar om en separat endringslogg-tabell er nødvendig, eller om `audit_log` er tilstrekkelig.
 

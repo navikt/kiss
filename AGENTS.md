@@ -116,8 +116,9 @@ pnpm check            # Biome + React Router typegen + tsc (kjør før commit)
 5. **Historikk** skal bevares – data slettes aldri, bare arkiveres
 6. **Audit-logging følger domenescope.** Endringer i data som eies av en rutinegjennomgang — review-felter,
    deltakere, oppfølgingspunkter, lenker, vedlegg og aktivitetsarbeidsdata som `staged_data` — trenger ikke egne
-   audit-rader per endring. Unntak: oppfølging av oppfølgingspunkter etter ferdigstilling (status, oppsummering,
-   vedlegg) skjer utenfor gjennomgangen og audit-logges. Opprettelse, avbrytelse og fullføring av gjennomgangen skal fortsatt audit-logges.
+   audit-rader per endring mens gjennomgangen er utkast. Etter ferdigstilling skal alle endringer på gjennomgangen
+   audit-logges (oppfølging av oppfølgingspunkter, lenker, vedlegg, bekreftelser), og ved fullføring audit-logges
+   hvert oppfølgingspunkt (én rad per punkt). Opprettelse, avbrytelse og fullføring av gjennomgangen skal fortsatt audit-logges.
    Endringer i delte/primære data audit-logges atomisk når de skjer; endringer som committes fra gjennomgangen
    audit-logges per faktisk primærlagringsmutasjon i samme transaksjon som fullføringen. Innhenting og opplasting
    av revisjonsbevis (`evidence_downloaded`/`evidence_uploaded`) skal fortsatt audit-logges når de skjer for å

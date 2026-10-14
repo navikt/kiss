@@ -2092,6 +2092,32 @@ export async function completeReview(reviewId: string, performedBy: string) {
 	// Audit + compliance-sync hopper over
 	// hvis status-UPDATE matchet 0 rader (samtidig completion-race).
 	const result = await db.transaction(async (tx) => {
+		// Lås gjennomgangen først slik at oppfølgingspunktene leses etter samtidige statusendringer.
+		const [locked] = await tx
+			.select({ status: routineReviews.status })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, reviewId))
+			.for("update", { of: [routines, routineReviews] })
+			.limit(1)
+		// Gjennomgangen er forkastet eller fullført av en samtidig operasjon — ingenting skal committes.
+		if (!locked || locked.status !== "draft") {
+			return { statusChanged: false, newStatus: "needs_follow_up" as const }
+		}
+
+		const lockedPoints = await tx
+			.select({ text: routineReviewFollowUpPoints.text, description: routineReviewFollowUpPoints.description })
+			.from(routineReviewFollowUpPoints)
+			.where(and(eq(routineReviewFollowUpPoints.reviewId, reviewId), isNull(routineReviewFollowUpPoints.archivedAt)))
+		const lockedMissingDescription = lockedPoints.filter((p) => !p.description || p.description.trim().length === 0)
+		if (lockedMissingDescription.length > 0) {
+			throw new Response(
+				"Alle oppfølgingspunkter må ha en beskrivelse før gjennomgangen kan fullføres. Mangler beskrivelse på: " +
+					lockedMissingDescription.map((p) => p.text).join(", "),
+				{ status: 400 },
+			)
+		}
+
 		// Fullfør alle ventende aktiviteter innenfor tx slik at de rolles
 		// tilbake ved transaksjonsfeil (f.eks. statusvakt i UPDATE matchet 0 rader).
 		for (const activity of allActivities) {
@@ -2138,6 +2164,26 @@ export async function completeReview(reviewId: string, performedBy: string) {
 			},
 			tx,
 		)
+
+		// Punktene blir en reell oppfølgingsforpliktelse først ved ferdigstilling.
+		const completedPoints = await tx
+			.select()
+			.from(routineReviewFollowUpPoints)
+			.where(and(eq(routineReviewFollowUpPoints.reviewId, reviewId), isNull(routineReviewFollowUpPoints.archivedAt)))
+			.orderBy(routineReviewFollowUpPoints.createdAt)
+		for (const point of completedPoints) {
+			await writeAuditLog(
+				{
+					action: "review_follow_up_added",
+					entityType: "review_follow_up_point",
+					entityId: point.id,
+					newValue: point.text,
+					metadata: { reviewId, status: point.status, description: point.description },
+					performedBy,
+				},
+				tx,
+			)
+		}
 		return { statusChanged: true, newStatus }
 	})
 
@@ -2654,6 +2700,20 @@ export async function addReviewLink(params: {
 			})
 			.returning()
 
+		// Endringer etter ferdigstilling skjer utenfor selve gjennomgangen og skal audit-logges.
+		if (snapshot.reviewStatus !== "draft") {
+			await writeAuditLog(
+				{
+					action: "review_link_added",
+					entityType: "routine_review",
+					entityId: params.reviewId,
+					newValue: params.url,
+					performedBy: params.addedBy,
+				},
+				tx,
+			)
+		}
+
 		return link
 	})
 }
@@ -2674,12 +2734,13 @@ export async function deleteReviewLink(linkId: string, expectedReviewId: string,
 			.select({
 				reviewId: routineReviewLinks.reviewId,
 				linkArchivedAt: routineReviewLinks.archivedAt,
+				reviewStatus: routineReviews.status,
 			})
 			.from(routineReviewLinks)
 			.innerJoin(routineReviews, eq(routineReviewLinks.reviewId, routineReviews.id))
 			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 			.where(eq(routineReviewLinks.id, linkId))
-			.for("share", { of: [routines] })
+			.for("share", { of: [routines, routineReviews] })
 			.limit(1)
 		if (!linkSnapshot) return null
 		if (linkSnapshot.reviewId !== expectedReviewId) {
@@ -2695,24 +2756,61 @@ export async function deleteReviewLink(linkId: string, expectedReviewId: string,
 			.returning()
 		if (!link) return null
 
+		if (linkSnapshot.reviewStatus !== "draft") {
+			await writeAuditLog(
+				{
+					action: "review_link_deleted",
+					entityType: "routine_review",
+					entityId: expectedReviewId,
+					newValue: link.url,
+					performedBy,
+				},
+				tx,
+			)
+		}
+
 		return link
 	})
 }
 
 export async function confirmParticipation(reviewId: string, userIdent: string) {
-	const [participant] = await db
-		.update(routineReviewParticipants)
-		.set({ confirmedAt: new Date() })
-		.where(
-			and(
-				eq(routineReviewParticipants.reviewId, reviewId),
-				eq(routineReviewParticipants.userIdent, userIdent),
-				isNull(routineReviewParticipants.archivedAt),
-			),
-		)
-		.returning()
+	return db.transaction(async (tx) => {
+		const [snapshot] = await tx
+			.select({ reviewStatus: routineReviews.status })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, reviewId))
+			.for("share", { of: [routines, routineReviews] })
+			.limit(1)
 
-	return participant ?? null
+		const [participant] = await tx
+			.update(routineReviewParticipants)
+			.set({ confirmedAt: new Date() })
+			.where(
+				and(
+					eq(routineReviewParticipants.reviewId, reviewId),
+					eq(routineReviewParticipants.userIdent, userIdent),
+					isNull(routineReviewParticipants.archivedAt),
+				),
+			)
+			.returning()
+
+		if (participant && snapshot && snapshot.reviewStatus !== "draft") {
+			await writeAuditLog(
+				{
+					action: "routine_review_confirmed",
+					entityType: "routine_review_participant",
+					entityId: participant.id,
+					newValue: userIdent,
+					metadata: { reviewId },
+					performedBy: userIdent,
+				},
+				tx,
+			)
+		}
+
+		return participant ?? null
+	})
 }
 
 // ─── Review Attachments ──────────────────────────────────────────────────
@@ -2726,20 +2824,44 @@ export async function addReviewAttachment(params: {
 	uploadedBy: string
 	activityStepId?: string | null
 }) {
-	const [attachment] = await db
-		.insert(routineReviewAttachments)
-		.values({
-			reviewId: params.reviewId,
-			fileName: params.fileName,
-			bucketPath: params.bucketPath,
-			contentType: params.contentType,
-			sizeBytes: params.sizeBytes,
-			uploadedBy: params.uploadedBy,
-			activityStepId: params.activityStepId ?? null,
-		})
-		.returning()
+	return db.transaction(async (tx) => {
+		const [snapshot] = await tx
+			.select({ reviewStatus: routineReviews.status })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, params.reviewId))
+			.for("share", { of: [routines, routineReviews] })
+			.limit(1)
 
-	return attachment
+		const [attachment] = await tx
+			.insert(routineReviewAttachments)
+			.values({
+				reviewId: params.reviewId,
+				fileName: params.fileName,
+				bucketPath: params.bucketPath,
+				contentType: params.contentType,
+				sizeBytes: params.sizeBytes,
+				uploadedBy: params.uploadedBy,
+				activityStepId: params.activityStepId ?? null,
+			})
+			.returning()
+
+		if (snapshot && snapshot.reviewStatus !== "draft") {
+			await writeAuditLog(
+				{
+					action: "routine_attachment_uploaded",
+					entityType: "routine_review_attachment",
+					entityId: attachment.id,
+					newValue: params.fileName,
+					metadata: { reviewId: params.reviewId, contentType: params.contentType },
+					performedBy: params.uploadedBy,
+				},
+				tx,
+			)
+		}
+
+		return attachment
+	})
 }
 
 /** Lightweight scope lookup for a review — used to determine access control without loading the full enriched review. */

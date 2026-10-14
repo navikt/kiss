@@ -21,6 +21,8 @@ const {
 	updateFollowUpPointText,
 	updateFollowUpPointDescription,
 	deleteFollowUpPoint,
+	addReviewLink,
+	deleteReviewLink,
 	getReview,
 	getLatestNonDiscardedReviewForApp,
 	getLatestNonDiscardedSectionReview,
@@ -444,7 +446,7 @@ describe("Review follow-up points integration tests", () => {
 		expect(actions).toEqual([])
 	})
 
-	it("audits follow-up status, resolution and attachments after the review is completed", async () => {
+	it("audits one row per follow-up at completion, plus status, resolution and attachments afterwards", async () => {
 		const { review } = await newDraftReview()
 		const p1 = await addFollowUpPoint({
 			reviewId: review.id,
@@ -483,10 +485,42 @@ describe("Review follow-up points integration tests", () => {
 			/* sql */ `SELECT action FROM audit_log WHERE action LIKE 'review_follow_up_%' ORDER BY action`,
 		)
 		expect(audits.rows.map((r) => (r as { action: string }).action)).toEqual([
+			"review_follow_up_added",
+			"review_follow_up_added",
 			"review_follow_up_attachment_uploaded",
 			"review_follow_up_resolution_updated",
 			"review_follow_up_status_changed",
 		])
+	})
+
+	it("audits review links only after the review is completed", async () => {
+		const { review } = await newDraftReview()
+		const draftLink = await addReviewLink({
+			reviewId: review.id,
+			url: "https://example.com/utkast",
+			title: null,
+			addedBy: "Z990001",
+		})
+		await deleteReviewLink(draftLink.id, review.id, "Z990001")
+		await completeReview(review.id, "Z990001")
+
+		const db = getTestDb()
+		const countAudits = async () => {
+			const rows = await db.execute(
+				/* sql */ `SELECT action FROM audit_log WHERE action IN ('review_link_added', 'review_link_deleted') ORDER BY action`,
+			)
+			return rows.rows.map((r) => (r as { action: string }).action)
+		}
+		expect(await countAudits()).toEqual([])
+
+		const link = await addReviewLink({
+			reviewId: review.id,
+			url: "https://example.com/etter",
+			title: null,
+			addedBy: "Z990001",
+		})
+		await deleteReviewLink(link.id, review.id, "Z990001")
+		expect(await countAudits()).toEqual(["review_link_added", "review_link_deleted"])
 	})
 
 	it("supports adding a description with a follow-up and editing it later", async () => {
