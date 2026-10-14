@@ -243,6 +243,11 @@ describe("Entra staged data integration tests", () => {
 				expect.objectContaining({ groupId: "group-new", isAddedDuringReview: true }),
 			]),
 		})
+		expect(activity?.changes.length).toBeGreaterThan(0)
+		const stagedAuditRows = await db.execute(
+			/* sql */ `SELECT id FROM audit_log WHERE entity_id = '${activityId}' AND action IN ('review_activity_seeded', 'review_activity_entra_change')`,
+		)
+		expect(stagedAuditRows.rows).toHaveLength(0)
 	})
 
 	it("commits staged data on completeReview", async () => {
@@ -328,5 +333,18 @@ describe("Entra staged data integration tests", () => {
 			]),
 		})
 		expect(manualOnlyId).toBeTruthy()
+
+		const reviewCompletion = await db.execute(
+			/* sql */ `SELECT id FROM audit_log WHERE entity_type = 'routine_review' AND entity_id = '${reviewId}' AND action = 'routine_review_completed'`,
+		)
+		expect(reviewCompletion.rows).toHaveLength(1)
+		const activityAudit = await db.execute(
+			/* sql */ `SELECT id FROM audit_log WHERE entity_type = 'routine_review_activity' AND entity_id = '${activityId}'`,
+		)
+		expect(activityAudit.rows).toHaveLength(0)
+		const primaryDataAudit = await db.execute(
+			/* sql */ `SELECT action FROM audit_log WHERE entity_type = 'application' AND entity_id = '${appId}'`,
+		)
+		expect(primaryDataAudit.rows.length).toBeGreaterThan(0)
 	})
 })

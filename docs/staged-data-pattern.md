@@ -51,9 +51,12 @@ arbeidsdata skal normalt ikke ha egne audit-actions.
 
 ### 0.6 Change log vs audit log: ansvar er avklart
 - **`audit_log`** — system-intern sporbarhet for endringer utenfor gjennomgangen,
-  commit av primærlagring og livsløpshendelser, vises i admin-UI
+  livsløpshendelser, primærlagringsendringer ved commit og revisjonsbevis som
+  lastes ned eller opp
 - **`routine_review_activity_xxx_changes`** (eller tilsvarende) — brukervendt endringslogg
-  som viser hva revieweren faktisk endret i løpet av gjennomgangen
+  som viser hva revieweren faktisk endret i løpet av gjennomgangen. Data som eies
+  av gjennomgangen (review-felter, deltakere, oppfølgingspunkter, lenker, vedlegg
+  og aktiviteter) får ikke audit-rader for hvert enkelt arbeidssteg.
 
 Avklar om en separat endringslogg-tabell er nødvendig, eller om `audit_log` er tilstrekkelig.
 

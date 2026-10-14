@@ -170,7 +170,7 @@ describe("Routine review links archive (soft-delete) integration tests", () => {
 		expect(enriched?.links[0]?.id).toBe(second.id)
 	})
 
-	it("deleteReviewLink() er idempotent: kall to ganger gir én audit-rad", async () => {
+	it("deleteReviewLink() er idempotent without audit rows for review-owned links", async () => {
 		const { review } = await setupReview()
 		const link = await addReviewLink({
 			reviewId: review.id,
@@ -186,10 +186,10 @@ describe("Routine review links archive (soft-delete) integration tests", () => {
 
 		const audits = await getAuditByEntity("routine_review", review.id)
 		const removed = audits.filter((a) => a.action === "review_link_deleted")
-		expect(removed).toHaveLength(1)
+		expect(removed).toHaveLength(0)
 	})
 
-	it("addReviewLink() og deleteReviewLink() skriver audit-rader med riktig payload", async () => {
+	it("addReviewLink() and deleteReviewLink() do not create per-change audit rows", async () => {
 		const { review } = await setupReview()
 		const link = await addReviewLink({
 			reviewId: review.id,
@@ -202,12 +202,8 @@ describe("Routine review links archive (soft-delete) integration tests", () => {
 		const audits = await getAuditByEntity("routine_review", review.id)
 		const added = audits.find((a) => a.action === "review_link_added")
 		const removed = audits.find((a) => a.action === "review_link_deleted")
-		expect(added).toBeDefined()
-		expect(added?.new_value).toBe("https://audit.example")
-		expect(added?.performed_by).toBe("creator")
-		expect(removed).toBeDefined()
-		expect(removed?.new_value).toBe("https://audit.example")
-		expect(removed?.performed_by).toBe("remover")
+		expect(added).toBeUndefined()
+		expect(removed).toBeUndefined()
 	})
 
 	it("deleteReviewLink() på ukjent linkId skriver ingen audit", async () => {

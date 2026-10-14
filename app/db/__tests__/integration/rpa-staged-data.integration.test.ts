@@ -173,12 +173,11 @@ describe("RPA staged data integration tests", () => {
 
 		expect(second.seededAt).toBe(first.seededAt)
 
-		// audit_log should have only one review_activity_seeded entry
 		const db = getTestDb()
 		const auditRows = await db.execute(
 			/* sql */ `SELECT id FROM audit_log WHERE action = 'review_activity_seeded' AND entity_id = '${activityId}'`,
 		)
-		expect(auditRows.rows).toHaveLength(1)
+		expect(auditRows.rows).toHaveLength(0)
 	})
 
 	it("patches staged_data without touching routine_rpa_user_assessments", async () => {
@@ -200,6 +199,11 @@ describe("RPA staged data integration tests", () => {
 		const staged = activity?.stagedData as { users: Array<{ userObjectId: string; owner: string | null }> }
 		const user = staged?.users.find((u) => u.userObjectId === "user-ccc")
 		expect(user?.owner).toBe("Ny eier")
+
+		const patchAudits = await db.execute(
+			/* sql */ `SELECT id FROM audit_log WHERE action = 'review_activity_rpa_patched' AND entity_id = '${activityId}'`,
+		)
+		expect(patchAudits.rows).toHaveLength(0)
 	})
 
 	it("patch auto-seeds if staged_data is null", async () => {
@@ -246,6 +250,19 @@ describe("RPA staged data integration tests", () => {
 			users: expect.arrayContaining([expect.objectContaining({ userObjectId: "user-eee" })]),
 		})
 		expect(activity?.status).toBe("completed")
+
+		const reviewAudit = await db.execute(
+			/* sql */ `SELECT id FROM audit_log WHERE entity_type = 'routine_review' AND entity_id = '${reviewId}' AND action = 'routine_review_completed'`,
+		)
+		expect(reviewAudit.rows).toHaveLength(1)
+		const activityAudit = await db.execute(
+			/* sql */ `SELECT id FROM audit_log WHERE entity_type = 'routine_review_activity' AND entity_id = '${activityId}'`,
+		)
+		expect(activityAudit.rows).toHaveLength(0)
+		const primaryAudit = await db.execute(
+			/* sql */ `SELECT id FROM audit_log WHERE action = 'rpa_user_assessment_saved' AND metadata::jsonb ->> 'reviewId' = '${reviewId}'`,
+		)
+		expect(primaryAudit.rows.length).toBeGreaterThan(0)
 	})
 
 	it("ghost users (isGone=true) do not require decision for completion", async () => {
