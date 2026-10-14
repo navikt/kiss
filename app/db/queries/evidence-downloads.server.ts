@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { desc, eq, getTableColumns, inArray, sql } from "drizzle-orm"
 import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
@@ -41,7 +42,7 @@ function buildEvidenceBucketPath(params: {
 	evidenceType?: string
 	fileName?: string
 }): string {
-	const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
+	const timestamp = `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID()}`
 	const prefix = `${sanitizePathSegment(params.providerType)}-evidence`
 	const segments = [prefix, params.activityId]
 
