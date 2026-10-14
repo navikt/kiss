@@ -1,6 +1,5 @@
 import type { NdaReportGenerationState } from "~/db/schema/routines"
 
-// Jobber som verken er fullført eller feilet etter dette regnes som mistet, slik at generering kan startes på nytt
 export const NDA_REPORT_GENERATION_STALE_MS = 5 * 60 * 1000
 
 export function getNdaReportGenerationDeadline(state: Pick<NdaReportGenerationState, "updatedAt">): number {
