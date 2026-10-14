@@ -44,11 +44,14 @@ For hvert element-flagg: hva skal skje med primærtabellen ved commit?
 - Persisted-only element (finnes i KISS, ikke lenger i eksternt API) → beholdes som `isGone = true`
 
 ### 0.5 Audit-actions er lagt til i `auditLogActionEnum` FØR bruk
-Sjekk `app/db/schema/audit.ts`. Alle planlagte actions (`xxx_activity_seeded`,
-`xxx_activity_completed`, `xxx_item_changed`, osv.) skal finnes i enumen.
+Sjekk `app/db/schema/audit.ts`. Alle planlagte actions for livsløpshendelser og
+committede primærlagringsendringer (`xxx_activity_completed`, `xxx_item_created`,
+`xxx_item_updated`, osv.) skal finnes i enumen. Seeding og patching av intern
+arbeidsdata skal normalt ikke ha egne audit-actions.
 
 ### 0.6 Change log vs audit log: ansvar er avklart
-- **`audit_log`** — system-intern sporbarhet, alle CRUD-operasjoner, vises i admin-UI
+- **`audit_log`** — system-intern sporbarhet for endringer utenfor gjennomgangen,
+  commit av primærlagring og livsløpshendelser, vises i admin-UI
 - **`routine_review_activity_xxx_changes`** (eller tilsvarende) — brukervendt endringslogg
   som viser hva revieweren faktisk endret i løpet av gjennomgangen
 
@@ -90,8 +93,6 @@ const result = await withAdvisoryLock(lockName, async () => {
       .returning({ stagedData: col.stagedData })
 
     if (updated?.stagedData) {
-      await writeAuditLog({ action: "xxx_activity_seeded", entityType: "routine_review_activity",
-        entityId: activityId, performedBy }, tx)
       return parseXxx(updated.stagedData)
     }
     // Fallback: annen pod vant løpet
@@ -131,10 +132,14 @@ Brukes til å sammenligne "før" og "etter" i UI og rapporter.
 Hent og sjekk `status === "pending"` i precheck. Completed-aktiviteter skal aldri
 få overskrevet `staged_data` eller `snapshotBefore`.
 
-### A5. Audit-logging for seeding er atomisk
-`writeAuditLog({ action: "xxx_activity_seeded", ... }, tx)` **SKAL** kalles i **samme
-`db.transaction(tx)`** som UPDATE, og **kun** når UPDATE faktisk satte verdien
-(sjekk `updated?.stagedData`). Seeding uten audit-logg er et brudd på repoets krav.
+### A5. Seeding av intern arbeidsdata audit-logges ikke
+Seeding oppdaterer `staged_data` og `snapshotBefore`, som er arbeidsdata for
+gjennomgangen. Denne oppdateringen trenger **IKKE** en egen audit-rad. Den skal
+fortsatt være atomisk og idempotent. Hvis seeding eller en annen operasjon også
+muterer data utenfor gjennomgangens arbeidsdata, skal mutasjonen og audit-raden
+skrives atomisk i samme kall — audit-loggen skal ikke utsettes til gjennomgangen
+fullføres. Endringer i primærlagring som oppstår når staged-verdiene committes
+ved fullføring, audit-logges atomisk i commit-transaksjonen (se C2).
 
 ### A6. Normalisering av matching-nøkler
 Alle string-nøkler fra eksterne API-er **SKAL** normaliseres før lagring:
@@ -246,22 +251,23 @@ Dersom `stagedData === null` og seeding trengs før patch, følg samme mønster 
 precheck → bygg seed-resultat utenfor lock → lock → re-sjekk (bruk eksisterende data
 hvis annen pod seeded i mellomtiden) → skriv.
 
-### B2. Seeding i patch audit-logges FØR wasNoOp-sjekk
-Dersom patchen trigger seeding (fordi `stagedData` var null), **SKAL** seeding
-audit-logges i transaksjonen **før** wasNoOp-sjekken:
+### B2. Seeding i patch er ikke en audit-hendelse
+Dersom patchen trigger seeding (fordi `stagedData` var null), skal seeding og
+patch fortsatt lagres atomisk, men det skal ikke opprettes en audit-rad for
+seeding. En eventuell brukervendt endringslogg for patchen følger no-op-regelen:
 
 ```ts
 // Rekkefølge inne i db.transaction(tx):
-// 1. seed-UPDATE (hvis stagedData er null) → seededInThisCall = true
+// 1. seed-UPDATE (hvis stagedData er null)
 //    NB: seed-UPDATE SKAL også sette snapshotBefore med COALESCE (se A2)
 // 2. patch-UPDATE (applyXxxStagedDataPatch)
-// 3. writeAuditLog for seeding (hvis seededInThisCall) ← FØR wasNoOp
-// 4. wasNoOp-sjekk → return tidlig hvis ingen endring i items
-// 5. recordXxxChange (endringslogg for selve patchen)
+// 3. wasNoOp-sjekk → return tidlig hvis ingen endring i items
+// 4. recordXxxChange (brukervendt endringslogg for selve patchen)
 ```
 
-Begrunnelse: wasNoOp-return hopper over endringslogg-kallet, men seeding SKAL alltid logges
-uansett om patchen er en no-op.
+Mutasjoner av data utenfor gjennomgangens interne arbeidsdata skal fortsatt
+audit-logges atomisk i samme kall, også når de skjer i samme patch-operasjon.
+De skal ikke utsettes til gjennomgangen fullføres.
 
 ### B3. No-op-deteksjon krever deterministisk rekkefølge
 ```ts
@@ -355,7 +361,8 @@ Hele commit-sekvensen **SKAL** være atomisk:
 - Upsert/arkivering i primærtabeller
 - `snapshotAfter`-skriving (kanonisk snapshot-funksjon, se A2)
 - `status = "completed"`
-- `writeAuditLog`
+- Audit-rader for fullføring og endringene i primærlagringen som committes fra
+  `staged_data`
 
 ### C3. Status-overgang er betinget og konflikt-sikker
 ```ts
@@ -437,9 +444,10 @@ Entra/Xxx-commit-path **SKAL** trigges basert på `activity.type === "<aktivitet
 ikke på `activity.stagedData !== null`. Seeding håndteres inne i commit-funksjonen om nødvendig.
 Begrunnelse: legacy-rader har `stagedData === null` men er fortsatt av korrekt type.
 
-### C12. Seeding ved commit audit-logges
-Hvis `completeXxxReviewActivity` seeder `staged_data` (legacy-rader), **SKAL** seeding
-audit-logges atomisk i samme transaksjon (se A5).
+### C12. Seeding ved commit er ikke en egen audit-hendelse
+Hvis `completeXxxReviewActivity` seeder `staged_data` for legacy-rader, skal
+seeding ikke få en egen audit-rad. Audit-logg skal dekke fullføringen og
+mutasjonene som faktisk skrives til primærlagring, atomisk i commit-transaksjonen.
 
 ### C13. Fallback-seeding i commit gjør IKKE eksterne kall under lock/tx
 Dersom commit seeder, **SKAL** seed-resultatet bygges *utenfor* advisory lock og/eller
@@ -592,8 +600,9 @@ Props til React-komponenter **SKAL** bruke spesifikke typer (f.eks. `XxxStatus |
 
 ## F. Endringslogg (change log)
 
-> Gjelder kun hvis det er besluttet å ha en brukervendt endringslogg (se 0.6).
-> Dersom `audit_log` er tilstrekkelig, kan denne seksjonen hoppes over.
+Når reviewerens endringer i `staged_data` vises som historikk i gjennomgangs-UI,
+**SKAL** denne historikken lagres i en egen brukervendt endringslogg. `audit_log`
+er ikke en erstatning: interne patcher audit-logges ikke etter reglene i 0.6.
 
 **Definisjon:** Endringslogg er brukervendt historikk over hva revieweren endret i løpet
 av gjennomgangen. Skiller seg fra `audit_log` (system-intern sporbarhet):
@@ -602,18 +611,21 @@ av gjennomgangen. Skiller seg fra `audit_log` (system-intern sporbarhet):
 |-|------------|--------------|
 | Målgruppe | Admin, system | Reviewer, seksjonsleder |
 | Vises i | Admin-UI | Gjennomgangs-UI |
-| Innhold | Alle CRUD-operasjoner | Kun review-endringer |
+| Innhold | Endringer utenfor gjennomgangen, livsløpshendelser og committede primærdata | Review-patcher som vises som historikk |
 
-### F1. Endringslogg skrives i query-laget i samme transaksjon som patch
-`recordXxxChange(...)` **SKAL** kalles inne i `db.transaction(tx)` i patch-funksjonen —
-ikke i route-laget etter at funksjonen returnerer.
+### F1. Endringslogg for viste patcher skrives i query-laget
+Når patch-historikk vises, `recordXxxChange(...)` **SKAL** kalles inne i samme
+`db.transaction(tx)` som patchen i query-funksjonen — ikke i route-laget etter at
+funksjonen returnerer.
 
 ### F2. No-op gir ingen endringslogg
 Skriv endringslogg kun når `staged_data` faktisk endres (se B3 — JSON.stringify etter deterministisk sortering).
 
-### F3. Actor i endringslogg matcher faktisk utfører
-`performedBy` i endringslogg og audit **SKAL** alltid matche hvem som utførte operasjonen
-på det tidspunktet (autentisert bruker eller `"system"`). Ikke bruk gammel vurdering (`assessedBy` fra earlier patch).
+### F3. Actor i endringsloggen er den som utførte patchen
+`performedBy` i endringsloggen **SKAL** være den autentiserte brukeren eller `"system"`
+som utførte patchen. Ikke bruk gammel vurdering (`assessedBy` fra tidligere patch).
+Audit-hendelsen ved fullføring identifiserer den som fullførte gjennomgangen og kan
+være en annen person enn den som gjorde en tidligere patch.
 
 ---
 
@@ -759,9 +771,10 @@ SEED
 [ ] [T] waitForXxxSeed venter 4–10 sekunder (hensyn til API-latens)
 
 AUDIT / ATOMISITET
-[ ] writeAuditLog kalles i SAMME db.transaction som alle DB-mutasjoner
-[ ] Seeding audit-logges uansett kaller (seed/patch/commit)
-[ ] Seeding-audit logges FØR wasNoOp-sjekk i patch
+[ ] writeAuditLog og tilhørende mutasjoner er i SAMME db.transaction
+[ ] Seeding og patching av intern arbeidsdata lager ikke egne audit-rader
+[ ] Endringer utenfor arbeidsdata audit-logges når de skjer
+[ ] Fullføring og endringer committet til primærlagring audit-logges atomisk
 [ ] performedBy settes fra autentisert kontekst, ikke klientpayload
 
 PATCH
@@ -776,7 +789,7 @@ PATCH
 
 COMMIT
 [ ] Lock holdes gjennom hele commit + status-overgang
-[ ] Alt i én db.transaction (primærtabell + snapshotBefore + snapshotAfter + status + audit)
+[ ] Alt i én db.transaction (primærtabell + snapshotBefore + snapshotAfter + status + audit for commit)
 [ ] snapshotAfter skrives atomisk i commit-transaksjonen (ikke separat UPDATE etterpå)
 [ ] Status-UPDATE er betinget (WHERE status = 'pending') og håndterer 0 rader → 409
 [ ] isGone-elementer soft-deletes (archivedAt/archivedBy)
