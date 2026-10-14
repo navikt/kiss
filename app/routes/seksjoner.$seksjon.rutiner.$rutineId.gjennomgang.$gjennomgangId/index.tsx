@@ -877,6 +877,9 @@ async function prepareNdaEvidenceUploads(
 							`NDA report download failed during review completion [reviewId=${reviewId}, app=${app.appName}, format=${format}]`,
 							error instanceof Error ? error : new Error(String(error)),
 						)
+						if (error instanceof Response && error.status === 413) {
+							throw new Response(`Rapportfilen for ${app.appName} overskrider maksgrensen på 50 MB.`, { status: 400 })
+						}
 						throw new Response(
 							`Kunne ikke hente ${format.toUpperCase()}-rapporten for ${app.appName} fra NDA. Prøv igjen.`,
 							{ status: 502 },

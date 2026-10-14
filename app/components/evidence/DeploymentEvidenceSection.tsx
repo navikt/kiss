@@ -56,6 +56,25 @@ interface Props {
 type GenerationMode = "initial" | "refresh"
 type GenerationResponse = { success?: boolean; error?: string }
 
+const MAX_CONCURRENT_POLLS = 3
+let activePolls = 0
+const pollWaiters: Array<() => void> = []
+
+async function limitPollConcurrency<T>(run: () => Promise<T>): Promise<T> {
+	if (activePolls >= MAX_CONCURRENT_POLLS) {
+		await new Promise<void>((resolve) => pollWaiters.push(resolve))
+	} else {
+		activePolls++
+	}
+	try {
+		return await run()
+	} finally {
+		const next = pollWaiters.shift()
+		if (next) next()
+		else activePolls--
+	}
+}
+
 export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, preview = false }: Props) {
 	const { revalidate } = useRevalidator()
 	const generationFetcher = useFetcher<GenerationResponse>()
@@ -363,7 +382,9 @@ function ReportGenerationStatus({
 				formData.set("periodType", periodConfig.periodType)
 				formData.set("periodStart", periodConfig.periodStart)
 				formData.set("jobId", jobId)
-				const response = await fetch("/api/evidence-download", { method: "POST", body: formData })
+				const response = await limitPollConcurrency(() =>
+					fetch("/api/evidence-download", { method: "POST", body: formData }),
+				)
 				if (cancelled) return
 				if (response.status === 409) {
 					revalidate()
@@ -630,16 +651,26 @@ function NdaDownloadsTable({
 												preview ? (
 													<Detail key={file.id}>{file.format.toUpperCase()}</Detail>
 												) : (
-													<Detail key={file.id}>
-														<Link
-															href={`/api/evidence-file/${file.id}?view=true`}
-															target="_blank"
-															rel="noopener noreferrer"
-															aria-label={`Vis ${file.format.toUpperCase()}-rapport for ${download.appName} i ny fane`}
-														>
-															{file.format.toUpperCase()}
-														</Link>
-													</Detail>
+													<HStack key={file.id} gap="space-8" align="center">
+														<Detail>
+															<Link
+																href={`/api/evidence-file/${file.id}?view=true`}
+																target="_blank"
+																rel="noopener noreferrer"
+																aria-label={`Vis ${file.format.toUpperCase()}-rapport for ${download.appName} i ny fane`}
+															>
+																{file.format.toUpperCase()}
+															</Link>
+														</Detail>
+														<Detail>
+															<Link
+																href={`/api/evidence-file/${file.id}`}
+																aria-label={`Last ned ${file.format.toUpperCase()}-rapport for ${download.appName}`}
+															>
+																Last ned
+															</Link>
+														</Detail>
+													</HStack>
 												),
 											)}
 										</HStack>
