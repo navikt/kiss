@@ -32,7 +32,12 @@ spec:
   azure:
     application:
       enabled: true
-      allowAllUsers: true
+      tenant: nav.no
+      claims:
+        groups:
+          - id: 1e97cbc6-0687-4d23-aebd-c611035279c1  # pensjon-revisjon (admin)
+          - id: 44e8f280-31f5-4d38-b4d6-d0d7ff10d137  # nais-team-pensjon-kiss-revisjon (revisor)
+          - id: 70c6e964-e265-4f1d-a55e-1c8d8b60ffcb  # nais-team-pensjon-kiss (user)
     sidecar:
       enabled: true
       autoLogin: true
@@ -74,9 +79,9 @@ spec:
     - name: SYNC_JOB_RETENTION_BATCH_SIZE
       value: "500"
     - name: KISS_ADMIN_GROUP_IDS
-      value: ""
+      value: "1e97cbc6-0687-4d23-aebd-c611035279c1"
     - name: KISS_AUDITOR_GROUP_IDS
-      value: ""
+      value: "44e8f280-31f5-4d38-b4d6-d0d7ff10d137"
     - name: GCS_BUCKET_NAME
       value: kiss-data-dev
     - name: ENABLE_AUDIT_SUMMARY_SYNC
