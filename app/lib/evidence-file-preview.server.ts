@@ -7,7 +7,7 @@ const MAX_PREVIEW_COLUMNS = 50
 
 export function createSpreadsheetPreviewHtml(buffer: Buffer, title: string): string {
 	if (buffer.length > MAX_PREVIEW_BYTES) {
-		throw new Response("Regnearket er for stort til å vises. Last ned filen i stedet.", { status: 413 })
+		throw new Response("Regnearket er for stort til å vises.", { status: 413 })
 	}
 
 	let workbook: XLSX.WorkBook
