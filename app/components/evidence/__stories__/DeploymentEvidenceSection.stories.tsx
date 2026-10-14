@@ -211,18 +211,19 @@ export const GenereringEtterPeriodevalg: Story = {
 					const body = init?.body
 					if (url.includes("/api/evidence-download") && body instanceof FormData && body.get("intent") === "poll-job") {
 						const state = storyState.config?.reportGeneration?.apps[0]
-						if (state) {
-							storyState.config = periodConfig([
-								{
-									...state,
-									status: "ready",
-									jobId: null,
-									report: reportSnapshot("generated-report", {
-										periodType: storyState.config?.periodType ?? period.periodType,
-										periodStart: storyState.config?.periodStart ?? period.periodStart,
-									}),
-								},
-							])
+						if (state && storyState.config) {
+							const { periodType, periodStart } = storyState.config
+							storyState.config = periodConfig(
+								[
+									{
+										...state,
+										status: "ready",
+										jobId: null,
+										report: reportSnapshot("generated-report", { periodType, periodStart }),
+									},
+								],
+								{ periodType, periodStart },
+							)
 						}
 						return new Response(JSON.stringify({ success: true, status: "completed" }), {
 							headers: { "Content-Type": "application/json" },
