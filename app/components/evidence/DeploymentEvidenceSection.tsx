@@ -61,7 +61,20 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, pre
 	const { apps, periodConfig, downloads } = evidenceData
 	const generation = periodConfig?.reportGeneration
 	const generationStates = generation?.apps ?? []
+	const [, setExpiryTick] = useState(0)
 	const hasPending = generationStates.some((app) => isNdaReportGenerationInProgress(app))
+
+	useEffect(() => {
+		const deadlines = generationStates
+			.filter((app) => isNdaReportGenerationInProgress(app))
+			.map((app) => getNdaReportGenerationDeadline(app))
+		if (deadlines.length === 0) return
+		const timeout = setTimeout(
+			() => setExpiryTick((tick) => tick + 1),
+			Math.max(0, Math.min(...deadlines) - Date.now()) + 50,
+		)
+		return () => clearTimeout(timeout)
+	}, [generationStates])
 	const allReady =
 		apps.length > 0 &&
 		apps.every((app) =>

@@ -7,9 +7,9 @@ vi.mock("~/lib/auth.server", () => ({
 	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
-const mockRequireAnySectionRole = vi.fn()
+const mockRequireReviewAccess = vi.fn()
 vi.mock("~/lib/authorization.server", () => ({
-	requireAnySectionRole: mockRequireAnySectionRole,
+	requireReviewAccess: mockRequireReviewAccess,
 }))
 
 const mockGetActivityContext = vi.fn()
@@ -151,7 +151,7 @@ describe("api.evidence-download action", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
 		mockRequireAuthenticatedUser.mockResolvedValue({ navIdent: "Z990001", name: "Glad Fjord", groups: [] })
-		mockRequireAnySectionRole.mockImplementation(() => {})
+		mockRequireReviewAccess.mockResolvedValue(undefined)
 		mockGetActivityContext.mockResolvedValue(activityContext())
 		mockGetNdaAppParamsGroup.mockResolvedValue([app])
 		mockGetAppScopeIdsForApps.mockResolvedValue(new Map([["app-1", { sectionIds: ["section-1"] }]]))
@@ -234,7 +234,7 @@ describe("api.evidence-download action", () => {
 		}
 
 		it("rejects users without write access to the activity", async () => {
-			mockGetActivityContext.mockResolvedValue(activityContext({ reviewStatus: "completed" }))
+			mockRequireReviewAccess.mockRejectedValue(new Response("Ikke autorisert", { status: 403 }))
 
 			const result = await callAction(pollRequest)
 

@@ -15,7 +15,7 @@ import {
 import type { EvidenceProviderType, NdaReportGenerationState, NdaReportSnapshot } from "~/db/schema/routines"
 import { getProviderTypeForActivity } from "~/lib/activity-types"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireAnySectionRole } from "~/lib/authorization.server"
+import { requireReviewAccess } from "~/lib/authorization.server"
 import { getEvidenceProvider, isEvidenceProviderType } from "~/lib/evidence-providers/index.server"
 import {
 	buildProviderMetadata,
@@ -36,11 +36,11 @@ const VALID_UPLOAD_EXTENSIONS = [".pdf", ".xlsx", ".xls"]
 
 async function requireWritableActivity(
 	activityId: string,
-	user: Parameters<typeof requireAnySectionRole>[0],
+	user: Parameters<typeof requireReviewAccess>[0],
 ): Promise<ActivityContext> {
 	const ctx = await getActivityContext(activityId)
 	if (!ctx) throw data({ error: "Aktivitet ikke funnet" }, { status: 404 })
-	requireAnySectionRole(user, ctx.sectionId)
+	await requireReviewAccess(user, { applicationId: ctx.applicationId, sectionId: ctx.sectionId })
 	if (ctx.reviewStatus !== "draft") {
 		throw data({ error: `Gjennomgangen kan ikke endres (status: ${ctx.reviewStatus})` }, { status: 403 })
 	}
@@ -48,6 +48,18 @@ async function requireWritableActivity(
 		throw data({ error: "Aktiviteten er allerede fullført" }, { status: 403 })
 	}
 	return ctx
+}
+
+const NDA_GENERATION_CONCURRENCY = 3
+
+async function mapWithConcurrency<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+	const queue = [...items]
+	const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+		for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
+			await fn(item)
+		}
+	})
+	await Promise.all(workers)
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -141,40 +153,38 @@ async function handleGenerateReportSet(
 				return true
 			}
 
-			await Promise.all(
-				targets.map(async (target) => {
-					let nextState: NdaReportGenerationState
-					try {
-						const providerParams = {
-							team: target.team,
-							environment: target.environment,
-							appName: target.appName,
-							periodType,
-							periodStart,
-						}
-						await validateProviderAccess(providerType, providerParams, ctx)
-						const response = await provider.requestGeneration?.(providerParams, makeNdaGenerationReason(ctx, user.name))
-						if (!response?.jobId) throw new Error("NDA startet ikke rapportgenereringen.")
-						nextState = { ...target, jobId: response.jobId, status: "pending", error: null }
-					} catch (error) {
-						const message = await getGenerationErrorMessage(error)
-						logger.warn(
-							`NDA report generation request failed [activityId=${activityId}, app=${target.appName}]`,
-							error instanceof Error ? error : new Error(message),
-						)
-						nextState = { ...target, jobId: null, status: "failed", error: message }
+			await mapWithConcurrency(targets, NDA_GENERATION_CONCURRENCY, async (target) => {
+				let nextState: NdaReportGenerationState
+				try {
+					const providerParams = {
+						team: target.team,
+						environment: target.environment,
+						appName: target.appName,
+						periodType,
+						periodStart,
 					}
+					await validateProviderAccess(providerType, providerParams, ctx)
+					const response = await provider.requestGeneration?.(providerParams, makeNdaGenerationReason(ctx, user.name))
+					if (!response?.jobId) throw new Error("NDA startet ikke rapportgenereringen.")
+					nextState = { ...target, jobId: response.jobId, status: "pending", error: null }
+				} catch (error) {
+					const message = await getGenerationErrorMessage(error)
+					logger.warn(
+						`NDA report generation request failed [activityId=${activityId}, app=${target.appName}]`,
+						error instanceof Error ? error : new Error(message),
+					)
+					nextState = { ...target, jobId: null, status: "failed", error: message }
+				}
 
-					const saved = await saveNdaReportGenerationState({
-						activityId,
-						periodConfig: { periodType, periodStart },
-						state: nextState,
-					})
-					if (!saved) {
-						throw new Response("Rapportene ble oppdatert i en annen fane. Last siden på nytt.", { status: 409 })
-					}
-				}),
-			)
+				const saved = await saveNdaReportGenerationState({
+					activityId,
+					periodConfig: { periodType, periodStart },
+					state: nextState,
+				})
+				if (!saved) {
+					throw new Response("Rapportene ble oppdatert i en annen fane. Last siden på nytt.", { status: 409 })
+				}
+			})
 
 			return true
 		})
@@ -212,7 +222,7 @@ async function getGenerationErrorMessage(error: unknown): Promise<string> {
 async function handleDownloadFromApi(
 	formData: FormData,
 	providerType: EvidenceProviderType,
-	user: Parameters<typeof requireAnySectionRole>[0] & { navIdent: string },
+	user: Parameters<typeof requireReviewAccess>[0] & { navIdent: string },
 ) {
 	const evidenceType = (formData.get("evidenceType") as string)?.trim()
 	const format = (formData.get("format") as string)?.trim()?.toLowerCase()
@@ -341,7 +351,7 @@ async function handleDownloadFromApi(
 async function handleManualUpload(
 	formData: FormData,
 	providerType: EvidenceProviderType,
-	user: Parameters<typeof requireAnySectionRole>[0] & { navIdent: string },
+	user: Parameters<typeof requireReviewAccess>[0] & { navIdent: string },
 ) {
 	const evidenceType = (formData.get("evidenceType") as string)?.trim()
 	const activityId = (formData.get("activityId") as string)?.trim()
@@ -414,7 +424,7 @@ async function handleManualUpload(
 async function handlePollJob(
 	formData: FormData,
 	providerType: EvidenceProviderType,
-	user: Parameters<typeof requireAnySectionRole>[0],
+	user: Parameters<typeof requireReviewAccess>[0],
 ) {
 	const activityId = (formData.get("activityId") as string)?.trim()
 	const jobId = (formData.get("jobId") as string)?.trim()
