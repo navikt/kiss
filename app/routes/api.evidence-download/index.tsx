@@ -50,7 +50,7 @@ async function requireWritableActivity(
 	return ctx
 }
 
-const NDA_GENERATION_CONCURRENCY = 3
+const NDA_GENERATION_CONCURRENCY = 2
 
 async function mapWithConcurrency<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
 	const queue = [...items]

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { desc, eq, getTableColumns, inArray, sql } from "drizzle-orm"
+import { and, desc, eq, getTableColumns, inArray, sql } from "drizzle-orm"
 import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
 import { bucketObjects } from "../schema/buckets"
@@ -207,8 +207,23 @@ export async function uploadEvidenceFileForReviewCompletion(
 export async function deletePreparedEvidenceUploads(uploads: PreparedEvidenceDownloadUpload[]): Promise<void> {
 	if (uploads.length === 0) return
 	const storage = getStorageProvider()
+	// En avbrutt COMMIT kan likevel ha lyktes; filer som allerede er referert må aldri slettes
+	const referenced = await db
+		.select({ objectPath: bucketObjects.objectPath })
+		.from(bucketObjects)
+		.where(
+			and(
+				eq(bucketObjects.bucketName, getBucketName()),
+				inArray(
+					bucketObjects.objectPath,
+					uploads.map((upload) => upload.objectPath),
+				),
+			),
+		)
+	const referencedPaths = new Set(referenced.map((row) => row.objectPath))
 	const failures: unknown[] = []
 	for (const upload of uploads) {
+		if (referencedPaths.has(upload.objectPath)) continue
 		try {
 			await storage.delete(upload.objectPath)
 		} catch (error) {
@@ -224,6 +239,23 @@ export async function insertPreparedEvidenceDownloads(
 	uploads: PreparedEvidenceDownloadUpload[],
 	tx: DbTransaction,
 ): Promise<void> {
+	const reportFormats = new Map<string, Set<string>>()
+	for (const upload of uploads) {
+		if (upload.evidenceType !== "deployment_evidence_report") continue
+		if (!upload.expectedReportSnapshot) {
+			throw new Response("Rapportbeviset mangler referanse til generert rapport.", { status: 409 })
+		}
+		const key = `${upload.activityId}:${upload.expectedReportSnapshot.applicationId}`
+		const formats = reportFormats.get(key) ?? new Set<string>()
+		formats.add(upload.format.toLowerCase())
+		reportFormats.set(key, formats)
+	}
+	for (const formats of reportFormats.values()) {
+		if (!formats.has("pdf") || !formats.has("excel")) {
+			throw new Response("Både PDF og Excel må registreres for hver rapport.", { status: 409 })
+		}
+	}
+
 	for (const upload of uploads) {
 		const periodConfig = await lockAndRevalidateActivity(tx, upload.activityId, upload.expectedPeriodConfig)
 		if (upload.expectedReportSnapshot) {
