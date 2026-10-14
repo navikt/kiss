@@ -67,6 +67,7 @@ import {
 import { logger } from "~/lib/logger.server"
 import type { ComponentConfig } from "~/lib/manual-activity-staged-data"
 import { renderMarkdown } from "~/lib/markdown.server"
+import { isNdaReportReadyForApp } from "~/lib/nda-report-generation"
 import { parseOracleRoleCriticalitySnapshot, parseOracleRoleCriticalityStagedData } from "~/lib/oracle-role-staged-data"
 import { parseParticipantsFormValue } from "~/lib/participants"
 import type { Route } from "./+types/index"
@@ -1760,15 +1761,7 @@ export default function GjennomgangDetalj() {
 							const generated = periodConfig?.reportGeneration?.apps.find(
 								(state) => state.applicationId === app.applicationId,
 							)
-							return (
-								!periodConfig ||
-								generated?.status !== "ready" ||
-								!generated.report ||
-								generated.report.periodType !== periodConfig.periodType ||
-								generated.report.periodStart !== periodConfig.periodStart ||
-								!generated.report.availableFormats.some((format) => format.toLowerCase() === "pdf") ||
-								!generated.report.availableFormats.some((format) => ["excel", "xlsx"].includes(format.toLowerCase()))
-							)
+							return !periodConfig || !isNdaReportReadyForApp(generated, app, periodConfig)
 						})
 						for (const app of appsMissingReports) {
 							violations.push({

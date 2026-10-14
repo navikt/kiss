@@ -13,6 +13,7 @@ import {
 	getNdaReportGenerationDeadline,
 	isNdaReportGenerationInProgress,
 	isNdaReportGenerationStale,
+	isNdaReportReadyForApp,
 } from "~/lib/nda-report-generation"
 import { PeriodSelector } from "./PeriodSelector"
 
@@ -77,9 +78,13 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, pre
 	}, [generationStates])
 	const allReady =
 		apps.length > 0 &&
+		periodConfig !== null &&
+		periodConfig !== undefined &&
 		apps.every((app) =>
-			generationStates.some(
-				(state) => state.applicationId === app.applicationId && state.status === "ready" && state.report !== null,
+			isNdaReportReadyForApp(
+				generationStates.find((state) => state.applicationId === app.applicationId),
+				app,
+				periodConfig,
 			),
 		)
 	const [pollErrors, setPollErrors] = useState<Record<string, string>>({})

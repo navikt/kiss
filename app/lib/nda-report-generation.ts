@@ -21,3 +21,16 @@ export function isNdaReportGenerationStale(
 ): boolean {
 	return (state.status === "starting" || state.status === "pending") && !isNdaReportGenerationInProgress(state, now)
 }
+
+export function isNdaReportReadyForApp(
+	state: NdaReportGenerationState | undefined,
+	app: { team: string; environment: string; appName: string },
+	period: { periodType: string; periodStart: string },
+): boolean {
+	const report = state?.report
+	if (state?.status !== "ready" || !report) return false
+	if (state.team !== app.team || state.environment !== app.environment || state.appName !== app.appName) return false
+	if (report.periodType !== period.periodType || report.periodStart !== period.periodStart) return false
+	const formats = new Set(report.availableFormats.map((format) => format.toLowerCase()))
+	return formats.has("pdf") && (formats.has("excel") || formats.has("xlsx"))
+}

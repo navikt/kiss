@@ -3,6 +3,7 @@ import {
 	getNdaReportGenerationDeadline,
 	isNdaReportGenerationInProgress,
 	isNdaReportGenerationStale,
+	isNdaReportReadyForApp,
 	NDA_REPORT_GENERATION_STALE_MS,
 } from "../nda-report-generation"
 
@@ -33,5 +34,37 @@ describe("nda-report-generation", () => {
 	it("computes the deadline from updatedAt", () => {
 		expect(getNdaReportGenerationDeadline({ updatedAt: recent })).toBe(now - 60_000 + NDA_REPORT_GENERATION_STALE_MS)
 		expect(getNdaReportGenerationDeadline({})).toBe(0)
+	})
+})
+
+describe("isNdaReportReadyForApp", () => {
+	const app = { team: "team-a", environment: "prod-gcp", appName: "app-a" }
+	const period = { periodType: "quarterly", periodStart: "2026-01-01" }
+	const readyState = (overrides: Record<string, unknown> = {}) =>
+		({
+			applicationId: "app-1",
+			...app,
+			attemptId: "a",
+			jobId: null,
+			status: "ready",
+			error: null,
+			report: { ...period, availableFormats: ["pdf", "excel"] },
+			...overrides,
+		}) as unknown as Parameters<typeof isNdaReportReadyForApp>[0]
+
+	it("accepts a matching ready report with both formats", () => {
+		expect(isNdaReportReadyForApp(readyState(), app, period)).toBe(true)
+	})
+
+	it("rejects a report generated for a renamed or moved application", () => {
+		expect(isNdaReportReadyForApp(readyState({ appName: "gammelt-navn" }), app, period)).toBe(false)
+		expect(isNdaReportReadyForApp(readyState({ environment: "dev-gcp" }), app, period)).toBe(false)
+	})
+
+	it("rejects other periods and missing formats", () => {
+		expect(isNdaReportReadyForApp(readyState(), app, { ...period, periodStart: "2026-04-01" })).toBe(false)
+		expect(isNdaReportReadyForApp(readyState({ report: { ...period, availableFormats: ["pdf"] } }), app, period)).toBe(
+			false,
+		)
 	})
 })
