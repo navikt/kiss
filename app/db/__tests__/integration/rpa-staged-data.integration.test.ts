@@ -173,12 +173,12 @@ describe("RPA staged data integration tests", () => {
 
 		expect(second.seededAt).toBe(first.seededAt)
 
-		// audit_log should have only one review_activity_seeded entry
+		// Staging changes are not written to audit_log.
 		const db = getTestDb()
 		const auditRows = await db.execute(
 			/* sql */ `SELECT id FROM audit_log WHERE action = 'review_activity_seeded' AND entity_id = '${activityId}'`,
 		)
-		expect(auditRows.rows).toHaveLength(1)
+		expect(auditRows.rows).toHaveLength(0)
 	})
 
 	it("patches staged_data without touching routine_rpa_user_assessments", async () => {

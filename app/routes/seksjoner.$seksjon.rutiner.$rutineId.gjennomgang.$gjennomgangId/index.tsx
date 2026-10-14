@@ -2,6 +2,14 @@ import { Alert, BodyLong, BodyShort, Box, Heading, HStack, Tag, VStack } from "@
 import { useCallback, useMemo } from "react"
 import { data, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { getAppScopeIdsForApps as getAppScopesForNdaApps } from "~/db/queries/applications.server"
+import { getNdaAppParamsGroup as getNdaAppsGroup } from "~/db/queries/deployment-audit.server"
+import {
+	deletePreparedEvidenceUploads,
+	getActivityContext,
+	type PreparedEvidenceDownloadUpload,
+	uploadEvidenceFileForReviewCompletion,
+} from "~/db/queries/evidence-downloads.server"
 import {
 	addFollowUpPoint,
 	addReviewLink,
@@ -34,7 +42,12 @@ import {
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applications"
-import { FOLLOW_UP_POINT_STATUSES, type FollowUpPointStatus, RPA_DECISION_VALUES } from "~/db/schema/routines"
+import {
+	FOLLOW_UP_POINT_STATUSES,
+	type FollowUpPointStatus,
+	type PeriodConfig,
+	RPA_DECISION_VALUES,
+} from "~/db/schema/routines"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity, type RoutineActivityType } from "~/lib/activity-types"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireReviewAccess, requireReviewReadAccess } from "~/lib/authorization.server"
@@ -44,7 +57,13 @@ import {
 	parseEntraGroupSnapshot,
 	parseEntraStagedData,
 } from "~/lib/entra-staged-data"
+import { getEvidenceProvider } from "~/lib/evidence-providers/index.server"
 import { getProviderUiConfig } from "~/lib/evidence-providers/ui-config"
+import {
+	buildProviderMetadata,
+	getProviderSourceId,
+	validateProviderAccess,
+} from "~/lib/evidence-providers/validation.server"
 import { logger } from "~/lib/logger.server"
 import type { ComponentConfig } from "~/lib/manual-activity-staged-data"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -306,7 +325,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 
 	type NdaEvidenceData = {
 		apps: Array<{ applicationId: string; team: string; environment: string; appName: string }>
-		periodConfig: { periodType: string; periodStart: string } | null
+		periodConfig: PeriodConfig | null
 		downloads: Array<{
 			id: string
 			format: string
@@ -321,6 +340,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 			appName: string
 			periodType: string
 			periodStart: string
+			reportId: string | null
 		}>
 	}
 
@@ -331,7 +351,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 		completedAt: string | null
 		createdAt: string
 		providerConfig: unknown
-		periodConfig: { periodType: string; periodStart: string } | null
+		periodConfig: PeriodConfig | null
 		changes: Array<{
 			id: string
 			changeType: string
@@ -523,6 +543,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 							appName: typeof d.providerMetadata.appName === "string" ? d.providerMetadata.appName : "",
 							periodType: typeof d.providerMetadata.periodType === "string" ? d.providerMetadata.periodType : "",
 							periodStart: typeof d.providerMetadata.periodStart === "string" ? d.providerMetadata.periodStart : "",
+							reportId: typeof d.providerMetadata.reportId === "string" ? d.providerMetadata.reportId : null,
 						})),
 				}
 			}
@@ -780,6 +801,138 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 	})
 }
 
+async function prepareNdaEvidenceUploads(
+	reviewId: string,
+	performedBy: string,
+	sectionId: string,
+): Promise<PreparedEvidenceDownloadUpload[]> {
+	const activities = await getReviewActivities(reviewId)
+	const deploymentActivities = activities.filter(
+		(activity) => activity.status === "pending" && getProviderTypeForActivity(activity.type) === "deployments",
+	)
+	if (deploymentActivities.length === 0) return []
+	const provider = await getEvidenceProvider("deployments")
+	const uploads: PreparedEvidenceDownloadUpload[] = []
+	const maxFileSize = 50 * 1024 * 1024
+
+	try {
+		for (const activity of deploymentActivities) {
+			const ctx = await getActivityContext(activity.id)
+			if (!ctx?.applicationId || !ctx.periodConfig?.reportGeneration) {
+				throw new Response("Velg periode og hent rapportene for alle applikasjonene før fullføring.", { status: 400 })
+			}
+
+			const appGroup = await getNdaAppsGroup(ctx.applicationId, sectionId)
+			const scopeByApp = await getAppScopesForNdaApps(appGroup.map((app) => app.applicationId))
+			const apps = appGroup.filter((app) => scopeByApp.get(app.applicationId)?.sectionIds.includes(sectionId))
+			if (apps.length === 0) {
+				throw new Response("Fant ingen applikasjoner med leveranserapporter i valgt periode.", { status: 400 })
+			}
+
+			for (const app of apps) {
+				const generated = ctx.periodConfig.reportGeneration.apps.find(
+					(state) => state.applicationId === app.applicationId,
+				)
+				const report = generated?.report
+				const availableFormats = new Set(report?.availableFormats.map((format) => format.toLowerCase()))
+				if (
+					generated?.status !== "ready" ||
+					!report ||
+					generated.team !== app.team ||
+					generated.environment !== app.environment ||
+					generated.appName !== app.appName ||
+					report.periodType !== ctx.periodConfig.periodType ||
+					report.periodStart !== ctx.periodConfig.periodStart ||
+					!availableFormats.has("pdf") ||
+					!(availableFormats.has("excel") || availableFormats.has("xlsx"))
+				) {
+					throw new Response(
+						`Rapporten for ${app.appName} er ikke klar for valgt periode. Oppdater rapportene og prøv igjen.`,
+						{ status: 400 },
+					)
+				}
+
+				const collectedAt = new Date(report.generatedAt)
+				if (Number.isNaN(collectedAt.getTime())) {
+					throw new Response(`Rapporten for ${app.appName} har ugyldig genereringstidspunkt.`, { status: 400 })
+				}
+
+				const providerParams = {
+					team: app.team,
+					environment: app.environment,
+					appName: app.appName,
+					periodType: ctx.periodConfig.periodType,
+					periodStart: ctx.periodConfig.periodStart,
+				}
+				await validateProviderAccess("deployments", providerParams, ctx)
+				const sourceId = getProviderSourceId("deployments", providerParams)
+
+				for (const format of ["pdf", "excel"] as const) {
+					let file: Awaited<ReturnType<typeof provider.downloadFile>>
+					try {
+						file = await provider.downloadFile(providerParams, report.reportId, format)
+					} catch (error) {
+						logger.error(
+							`NDA report download failed during review completion [reviewId=${reviewId}, app=${app.appName}, format=${format}]`,
+							error instanceof Error ? error : new Error(String(error)),
+						)
+						throw new Response(
+							`Kunne ikke hente ${format.toUpperCase()}-rapporten for ${app.appName} fra NDA. Prøv igjen.`,
+							{ status: 502 },
+						)
+					}
+					if (file.buffer.length > maxFileSize) {
+						throw new Response(`Rapportfilen for ${app.appName} overskrider maksgrensen på 50 MB.`, {
+							status: 400,
+						})
+					}
+
+					const providerMetadata = buildProviderMetadata("deployments", providerParams, {
+						evidenceType: "deployment_evidence_report",
+						apiInstanceName: `${app.team}/${app.appName} (${app.environment})`,
+						reviewProgressSnapshot: null,
+						reportId: report.reportId,
+						reportGeneratedAt: report.generatedAt,
+					})
+					uploads.push(
+						await uploadEvidenceFileForReviewCompletion({
+							activityId: activity.id,
+							providerType: "deployments",
+							providerMetadata,
+							sourceId,
+							evidenceType: "deployment_evidence_report",
+							format,
+							buffer: file.buffer,
+							fileName: file.fileName,
+							contentType: file.contentType,
+							collectedAt,
+							performedBy,
+							expectedPeriodConfig: ctx.periodConfig,
+							expectedReportSnapshot: {
+								applicationId: app.applicationId,
+								attemptId: generated.attemptId,
+								reportId: report.reportId,
+							},
+						}),
+					)
+				}
+			}
+		}
+		return uploads
+	} catch (error) {
+		try {
+			await deletePreparedEvidenceUploads(uploads)
+		} catch (cleanupError) {
+			logger.error(
+				`Failed to clean up NDA report uploads for review ${reviewId}`,
+				cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError)),
+			)
+			throw new AggregateError([error, cleanupError], "Kunne ikke rydde opp i midlertidige rapportfiler.")
+		}
+		throw error
+	}
+}
+
 export async function action({ request, params }: Route.ActionArgs) {
 	const { gjennomgangId } = params
 	if (!gjennomgangId) {
@@ -849,6 +1002,18 @@ export async function action({ request, params }: Route.ActionArgs) {
 				intent: "complete",
 			})
 		}
+		const pointsMissingDescription = review.followUpPoints.filter(
+			(point) => !point.description || point.description.trim().length === 0,
+		)
+		if (pointsMissingDescription.length > 0) {
+			return data<ActionResult>({
+				success: false,
+				error:
+					"Alle oppfølgingspunkter må ha en beskrivelse før gjennomgangen kan fullføres. Mangler beskrivelse på: " +
+					pointsMissingDescription.map((point) => point.text).join(", "),
+				intent: "complete",
+			})
+		}
 
 		// ── Validate required components on manual activity steps ────────────────
 		const { parseManualActivityStagedData, isManualActivity } = await import("~/lib/manual-activity-staged-data")
@@ -895,18 +1060,46 @@ export async function action({ request, params }: Route.ActionArgs) {
 		}
 		// ── End validation ───────────────────────────────────────────────────────
 
-		const updated = await completeReview(gjennomgangId, authedUser.navIdent).catch((err) => {
-			if (err instanceof Response) return err
+		let evidenceUploads: PreparedEvidenceDownloadUpload[]
+		try {
+			evidenceUploads = await prepareNdaEvidenceUploads(gjennomgangId, authedUser.navIdent, scope.sectionId)
+		} catch (err) {
+			if (err instanceof Response) {
+				return data<ActionResult>({
+					success: false,
+					error: (await err.text()) || "Kunne ikke hente rapportfilene fra NDA.",
+					intent: "complete",
+				})
+			}
 			throw err
-		})
+		}
 
-		if (updated instanceof Response) {
-			const errorText = await updated.text()
-			return data<ActionResult>({
-				success: false,
-				error: errorText || "Kunne ikke fullføre gjennomgang.",
-				intent: "complete",
+		let evidenceCommitted = false
+		try {
+			await completeReview(gjennomgangId, authedUser.navIdent, evidenceUploads, () => {
+				evidenceCommitted = true
 			})
+			if (!evidenceCommitted) await deletePreparedEvidenceUploads(evidenceUploads)
+		} catch (err) {
+			if (!evidenceCommitted) {
+				try {
+					await deletePreparedEvidenceUploads(evidenceUploads)
+				} catch (cleanupError) {
+					logger.error(
+						`Failed to clean up prepared NDA report uploads for review ${gjennomgangId}`,
+						cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError)),
+					)
+					throw new AggregateError([err, cleanupError], "Kunne ikke rydde opp i rapportfiler etter fullføringsfeil.")
+				}
+			}
+			if (err instanceof Response) {
+				return data<ActionResult>({
+					success: false,
+					error: (await err.text()) || "Kunne ikke fullføre gjennomgang.",
+					intent: "complete",
+				})
+			}
+			throw err
 		}
 
 		return data<ActionResult>({
@@ -1554,7 +1747,6 @@ export default function GjennomgangDetalj() {
 				const requiredEvidenceTypes = getEvidenceTypesForActivity(activity.type) ?? []
 				if (evidenceProviderType === "deployments") {
 					const apps = activity.ndaEvidenceData?.apps ?? []
-					const downloads = activity.ndaEvidenceData?.downloads ?? []
 					const periodConfig = activity.periodConfig
 					const labels = getProviderUiConfig(evidenceProviderType).evidenceTypeLabels
 					if (apps.length === 0) {
@@ -1564,17 +1756,20 @@ export default function GjennomgangDetalj() {
 							stepId: `aktivitet-${stepIdx}`,
 						})
 					} else {
-						const appsMissingReports = apps.filter(
-							(app) =>
-								!downloads.some(
-									(d) =>
-										d.team === app.team &&
-										d.environment === app.environment &&
-										d.appName === app.appName &&
-										d.periodType === periodConfig?.periodType &&
-										d.periodStart === periodConfig?.periodStart,
-								),
-						)
+						const appsMissingReports = apps.filter((app) => {
+							const generated = periodConfig?.reportGeneration?.apps.find(
+								(state) => state.applicationId === app.applicationId,
+							)
+							return (
+								!periodConfig ||
+								generated?.status !== "ready" ||
+								!generated.report ||
+								generated.report.periodType !== periodConfig.periodType ||
+								generated.report.periodStart !== periodConfig.periodStart ||
+								!generated.report.availableFormats.some((format) => format.toLowerCase() === "pdf") ||
+								!generated.report.availableFormats.some((format) => ["excel", "xlsx"].includes(format.toLowerCase()))
+							)
+						})
 						for (const app of appsMissingReports) {
 							violations.push({
 								stepTitle: `${labels.deployment_evidence_report ?? "Leveranserapport"} (${app.appName})`,

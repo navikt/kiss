@@ -177,9 +177,9 @@ export class NdaEvidenceProvider implements EvidenceProvider {
 	}
 
 	async getJobStatus(params: Record<string, unknown>, jobId: string): Promise<EvidenceJobResult> {
-		const { team, environment, appName } = assertNdaParams(params)
+		const { team, environment, appName, periodType, periodStart } = assertNdaParams(params)
 
-		const result = await getNdaAuditJobStatus(team, environment, appName, jobId)
+		const result = await getNdaAuditJobStatus(team, environment, appName, jobId, periodType, periodStart)
 
 		return {
 			jobId: result.jobId,

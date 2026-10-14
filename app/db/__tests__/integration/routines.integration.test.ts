@@ -1,5 +1,7 @@
 import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import type { NdaReportGenerationState, NdaReportSnapshot, PeriodConfig } from "~/db/schema/routines"
+import { NDA_REPORT_GENERATION_STALE_MS } from "~/lib/nda-report-generation"
 import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
@@ -36,6 +38,7 @@ const {
 	updateRoutinePriority,
 	archiveRoutine,
 	createReview,
+	completeReview,
 	getSectionIdsForApp,
 	getReviewsForRoutine,
 	getReviewsForApp,
@@ -47,6 +50,7 @@ const {
 	getAppsRequiringRoutine,
 	getLatestReviewForApp,
 	calculateDeadline,
+	beginNdaReportGeneration,
 	isOverdue,
 	createReviewActivity,
 	getReviewActivity,
@@ -62,14 +66,16 @@ const {
 	getFollowUpReviewsForSection,
 	getFollowUpReviewsForApps,
 	copyRoutineToSection,
-	savePeriodConfig,
+	saveNdaReportGenerationState,
 } = await import("~/db/queries/routines.server")
 
 const { getNdaAppParamsGroup } = await import("~/db/queries/deployment-audit.server")
 const { linkApplication, unlinkApplication } = await import("~/db/queries/nais.server")
 const { routineReviewActivities } = await import("~/db/schema/routines")
 
-const { recordManualEvidenceUpload } = await import("~/db/queries/evidence-downloads.server")
+const { getEvidenceDownloadsForActivity, recordManualEvidenceUpload } = await import(
+	"~/db/queries/evidence-downloads.server"
+)
 
 const { getRoutineDeadlinesWithControls } = await import("~/db/queries/routine-deadlines.server")
 const { upsertUser } = await import("~/db/queries/users.server")
@@ -90,6 +96,13 @@ async function createTestApp(name: string) {
 		/* sql */ `INSERT INTO monitored_applications (name, created_by, updated_by) VALUES ('${name}', 'test', 'test') RETURNING id`,
 	)
 	return (result.rows[0] as { id: string }).id
+}
+
+async function setPeriodConfigForTest(activityId: string, periodConfig: PeriodConfig) {
+	await getTestDb()
+		.update(routineReviewActivities)
+		.set({ periodConfig })
+		.where(eq(routineReviewActivities.id, activityId))
 }
 
 /** Makes an app an effective member of a section via a dev team, matching how
@@ -2428,11 +2441,11 @@ describe("Routines integration tests", () => {
 
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
 
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+			await setPeriodConfigForTest(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			// Simulerer at periode ble validert av kallstedet før en periodeendring rakk å committe —
 			// kallet forventer fortsatt Q1 2026, men den lagrede perioden er nå en annen.
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-04-01" })
+			await setPeriodConfigForTest(activity.id, { periodType: "quarterly", periodStart: "2026-04-01" })
 
 			const error = await recordManualEvidenceUpload({
 				activityId: activity.id,
@@ -2509,7 +2522,7 @@ describe("Routines integration tests", () => {
 				participants: [],
 			})
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+			await setPeriodConfigForTest(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			await recordManualEvidenceUpload({
 				activityId: activity.id,
@@ -2678,7 +2691,7 @@ describe("Routines integration tests", () => {
 				participants: [],
 			})
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+			await setPeriodConfigForTest(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			await recordManualEvidenceUpload({
 				activityId: activity.id,
@@ -2755,7 +2768,7 @@ describe("Routines integration tests", () => {
 				participants: [],
 			})
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+			await setPeriodConfigForTest(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			for (const [team, environment, appName] of [
 				["team-deployment-snapshot", "prod-gcp", "primary-app-deployment-snapshot"],
@@ -2808,6 +2821,312 @@ describe("Routines integration tests", () => {
 			)
 		})
 
+		it("should regenerate all NDA reports and reject another request while jobs are pending", async () => {
+			const sectionId = await createTestSection("act-nda-refresh-all", "act-nda-refresh-all")
+			const routine = await createRoutine({
+				sectionId,
+				name: "Oppdater leveranserapporter",
+				description: "Regenererer rapporter for alle applikasjonene",
+				frequency: "quarterly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: null,
+				title: "NDA-rapportgjennomgang for lenkede applikasjoner",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+			const selectedPeriod = { periodType: "quarterly", periodStart: "2026-01-01" } as const
+			await setPeriodConfigForTest(activity.id, selectedPeriod)
+			const apps = [
+				{
+					applicationId: crypto.randomUUID(),
+					team: "team-nda-refresh-all",
+					environment: "prod-gcp",
+					appName: "app-nda-refresh-all",
+				},
+				{
+					applicationId: crypto.randomUUID(),
+					team: "team-nda-refresh-all",
+					environment: "prod-gcp",
+					appName: "app-nda-refresh-all-linked",
+				},
+			]
+			const { targets } = await beginNdaReportGeneration({
+				activityId: activity.id,
+				periodConfig: selectedPeriod,
+				apps,
+				mode: "initial",
+			})
+			expect(targets).toHaveLength(2)
+			const reportFor = (target: (typeof targets)[number], reportId: string): NdaReportGenerationState => ({
+				...target,
+				status: "ready",
+				jobId: null,
+				report: {
+					reportId,
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					periodEnd: "2026-03-31",
+					periodLabel: "Q1 2026",
+					generatedAt: "2026-04-01T10:00:00Z",
+					generatedBy: "Z990001",
+					totalDeployments: 10,
+					approvedCount: 9,
+					withChangeOriginCount: 8,
+					contentHash: `sha256:${reportId}`,
+					availableFormats: ["pdf", "excel"],
+				} satisfies NdaReportSnapshot,
+				error: null,
+			})
+			const readyStates = targets.map((target, index) => reportFor(target, `report-${index + 1}`))
+			for (const state of readyStates) {
+				await saveNdaReportGenerationState({
+					activityId: activity.id,
+					periodConfig: selectedPeriod,
+					state,
+				})
+			}
+
+			const { targets: refreshTargets, generation: refreshedGeneration } = await beginNdaReportGeneration({
+				activityId: activity.id,
+				periodConfig: selectedPeriod,
+				apps,
+				mode: "refresh",
+			})
+
+			expect(refreshTargets.map((target) => target.applicationId)).toEqual(apps.map((app) => app.applicationId))
+			expect(refreshedGeneration?.apps).toHaveLength(apps.length)
+			for (const [index, state] of refreshedGeneration?.apps.entries() ?? []) {
+				expect(state.status).toBe("starting")
+				expect(state.report).toBeNull()
+				expect(state.attemptId).not.toBe(readyStates[index]?.attemptId)
+			}
+
+			const duplicateRefresh = await beginNdaReportGeneration({
+				activityId: activity.id,
+				periodConfig: selectedPeriod,
+				apps,
+				mode: "refresh",
+			}).catch((error) => error)
+			expect(duplicateRefresh).toBeInstanceOf(Response)
+			expect((duplicateRefresh as Response).status).toBe(409)
+
+			const staleAt = new Date(Date.now() - NDA_REPORT_GENERATION_STALE_MS - 1000).toISOString()
+			await setPeriodConfigForTest(activity.id, {
+				...selectedPeriod,
+				reportGeneration: {
+					apps: refreshTargets.map((target) => ({
+						...target,
+						status: "pending",
+						jobId: "lost-job",
+						updatedAt: staleAt,
+					})),
+				},
+			})
+			const recovered = await beginNdaReportGeneration({
+				activityId: activity.id,
+				periodConfig: selectedPeriod,
+				apps,
+				mode: "initial",
+			})
+			expect(recovered.targets.map((target) => target.applicationId)).toEqual(apps.map((app) => app.applicationId))
+
+			for (const [index, target] of recovered.targets.entries()) {
+				await saveNdaReportGenerationState({
+					activityId: activity.id,
+					periodConfig: selectedPeriod,
+					state: reportFor(target, `refreshed-report-${index + 1}`),
+				})
+			}
+
+			const nextPeriod = { periodType: "quarterly", periodStart: "2026-04-01" } as const
+			const nextPeriodGeneration = await beginNdaReportGeneration({
+				activityId: activity.id,
+				periodConfig: nextPeriod,
+				apps,
+				mode: "initial",
+			})
+			expect(nextPeriodGeneration.targets.map((target) => target.applicationId)).toEqual(
+				apps.map((app) => app.applicationId),
+			)
+			expect(nextPeriodGeneration.generation?.apps.every((state) => state.status === "starting")).toBe(true)
+
+			const database = getTestDb()
+			const [updatedActivity] = await database
+				.select({ periodConfig: routineReviewActivities.periodConfig })
+				.from(routineReviewActivities)
+				.where(eq(routineReviewActivities.id, activity.id))
+				.limit(1)
+			expect(updatedActivity?.periodConfig).toMatchObject({
+				...nextPeriod,
+				reportGeneration: {
+					apps: apps.map((app) =>
+						expect.objectContaining({ applicationId: app.applicationId, status: "starting", report: null }),
+					),
+				},
+			})
+		})
+
+		it("should persist generated NDA files in the same transaction as review completion", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("act-nda-finalize", "act-nda-finalize")
+			const teamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('team-nda-finalize', '${sectionId}') RETURNING id`,
+			)
+			const naisTeamId = (teamResult.rows[0] as { id: string }).id
+			const applicationId = await createTestApp("app-nda-finalize")
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${applicationId}', 'prod-gcp', 'default', '${naisTeamId}')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport ved fullføring",
+				description: "Lagrer NDA-rapportfiler sammen med fullføring",
+				frequency: "quarterly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+			await markRoutineApproved(routine.id)
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId,
+				title: "NDA-rapportgjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+			const selectedPeriod = { periodType: "quarterly", periodStart: "2026-01-01" } as const
+			await setPeriodConfigForTest(activity.id, selectedPeriod)
+			const { targets } = await beginNdaReportGeneration({
+				activityId: activity.id,
+				periodConfig: selectedPeriod,
+				apps: [
+					{
+						applicationId,
+						team: "team-nda-finalize",
+						environment: "prod-gcp",
+						appName: "app-nda-finalize",
+					},
+				],
+				mode: "initial",
+			})
+			const report = {
+				reportId: "nda-report-finalize",
+				periodType: selectedPeriod.periodType,
+				periodStart: selectedPeriod.periodStart,
+				periodEnd: "2026-03-31",
+				periodLabel: "Q1 2026",
+				generatedAt: "2026-04-01T10:00:00Z",
+				generatedBy: "Z990001",
+				totalDeployments: 10,
+				approvedCount: 9,
+				withChangeOriginCount: 8,
+				contentHash: "sha256:test",
+				availableFormats: ["pdf", "excel"],
+			}
+			const [startingState] = targets
+			if (!startingState) throw new Error("Expected NDA report generation target")
+			const readyState = {
+				...startingState,
+				status: "ready" as const,
+				jobId: null,
+				report,
+				error: null,
+			}
+			await saveNdaReportGenerationState({
+				activityId: activity.id,
+				periodConfig: selectedPeriod,
+				state: readyState,
+			})
+			const transientAuditRows = await db.execute(
+				/* sql */ `SELECT id FROM audit_log
+				WHERE entity_id = '${activity.id}'
+				AND action IN (
+					'review_activity_seeded',
+					'report_generation_requested',
+					'report_generated'
+				)`,
+			)
+			expect(transientAuditRows.rows).toHaveLength(0)
+			await addFollowUpPoint({
+				reviewId: review.id,
+				text: "Testoppfølging",
+				description: "Beskrivelse av testoppfølging",
+				performedBy: "Z990001",
+			})
+
+			const reportMetadata = {
+				team: "team-nda-finalize",
+				environment: "prod-gcp",
+				appName: "app-nda-finalize",
+				periodType: selectedPeriod.periodType,
+				periodStart: selectedPeriod.periodStart,
+				evidenceType: "deployment_evidence_report",
+				reportId: "nda-report-finalize",
+			}
+			const uploads = (["pdf", "excel"] as const).map((format) => ({
+				activityId: activity.id,
+				providerType: "deployments" as const,
+				providerMetadata: reportMetadata,
+				sourceId: reportMetadata.team,
+				evidenceType: "deployment_evidence_report",
+				format,
+				fileName: `nda-report-finalize.${format === "excel" ? "xlsx" : "pdf"}`,
+				contentType:
+					format === "excel" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "application/pdf",
+				collectedAt: new Date("2026-04-01T10:00:00Z"),
+				performedBy: "Z990001",
+				expectedPeriodConfig: selectedPeriod,
+				expectedReportSnapshot: {
+					applicationId,
+					attemptId: readyState.attemptId,
+					reportId: report.reportId,
+				},
+				objectPath: `test/nda-finalize/${format}`,
+				sizeBytes: 100,
+			}))
+			let evidenceCommitted = false
+
+			const completed = await completeReview(review.id, "Z990001", uploads, () => {
+				evidenceCommitted = true
+			})
+			const savedDownloads = await getEvidenceDownloadsForActivity(activity.id)
+
+			expect(completed?.status).toBe("needs_follow_up")
+			expect(evidenceCommitted).toBe(true)
+			expect(savedDownloads.map((download) => download.format).sort()).toEqual(["excel", "pdf"])
+			expect(savedDownloads.every((download) => download.providerMetadata.reportId === "nda-report-finalize")).toBe(
+				true,
+			)
+		})
+
 		it("should require a report for a group member whose deployment environment resolves to a different nais_teams section than the review, when a dev-team mapping puts the member's canonical scope in the review's section", async () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("act-deployment-devteam-scope-own", "act-deployment-devteam-scope-own")
@@ -2854,7 +3173,7 @@ describe("Routines integration tests", () => {
 				participants: [],
 			})
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+			await setPeriodConfigForTest(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			await recordManualEvidenceUpload({
 				activityId: activity.id,
@@ -2944,7 +3263,7 @@ describe("Routines integration tests", () => {
 				performedBy: "test",
 			})
 
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+			await setPeriodConfigForTest(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			const error = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
 			expect(error).toBeInstanceOf(Response)
@@ -2975,7 +3294,7 @@ describe("Routines integration tests", () => {
 			expect(completed.status).toBe("completed")
 		})
 
-		it("should reject savePeriodConfig on an already-completed activity, closing the TOCTOU window where a concurrent period change could land after completion", async () => {
+		it("should reject starting report generation on an already-completed activity", async () => {
 			const sectionId = await createTestSection(
 				"act-deployment-period-after-complete",
 				"act-deployment-period-after-complete",
@@ -3019,7 +3338,7 @@ describe("Routines integration tests", () => {
 				participants: [],
 			})
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+			await setPeriodConfigForTest(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 
 			await recordManualEvidenceUpload({
 				activityId: activity.id,
@@ -3044,9 +3363,11 @@ describe("Routines integration tests", () => {
 			const completed = await completeReviewActivity(activity.id, null, "test")
 			expect(completed.status).toBe("completed")
 
-			const error = await savePeriodConfig(activity.id, {
-				periodType: "quarterly",
-				periodStart: "2026-04-01",
+			const error = await beginNdaReportGeneration({
+				activityId: activity.id,
+				periodConfig: { periodType: "quarterly", periodStart: "2026-04-01" },
+				apps: [],
+				mode: "initial",
 			}).catch((e) => e)
 			expect(error).toBeInstanceOf(Response)
 			expect((error as Response).status).toBe(409)
@@ -3098,7 +3419,7 @@ describe("Routines integration tests", () => {
 				participants: [],
 			})
 			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
-			await savePeriodConfig(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
+			await setPeriodConfigForTest(activity.id, { periodType: "quarterly", periodStart: "2026-01-01" })
 			await recordManualEvidenceUpload({
 				activityId: activity.id,
 				providerType: "deployments",

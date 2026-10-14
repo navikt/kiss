@@ -8,6 +8,8 @@
  * verification status (four-eyes, change origin tracking).
  */
 
+import PDFDocument from "pdfkit"
+import * as XLSX from "xlsx"
 import { getClientCredentialToken } from "./azure.server"
 import { loggedFetch } from "./http-logger.server"
 import { logger } from "./logger.server"
@@ -305,9 +307,24 @@ export async function getNdaAuditJobStatus(
 	env: string,
 	app: string,
 	jobId: string,
+	periodType: PeriodType = "yearly",
+	periodStart = `${new Date().getFullYear()}-01-01`,
 ): Promise<NdaJobResponse & { retryAfterSeconds: number | null }> {
 	if (isDevMode()) {
 		logger.warn("NDA_AUDIT_REPORTS_BASE_URL not set — returning mock completed job", { team, env, app, jobId })
+		const [year, month] = periodStart.split("-").map(Number)
+		const periodMonths = { yearly: 12, tertiary: 4, quarterly: 3, monthly: 1 }[periodType]
+		const endDate = new Date(Date.UTC(year, month - 1 + periodMonths, 0)).toISOString().slice(0, 10)
+		const periodLabel =
+			periodType === "yearly"
+				? String(year)
+				: periodType === "quarterly"
+					? `Q${Math.floor((month - 1) / 3) + 1} ${year}`
+					: periodType === "tertiary"
+						? `T${Math.floor((month - 1) / 4) + 1} ${year}`
+						: new Intl.DateTimeFormat("nb-NO", { month: "long", timeZone: "UTC" }).format(
+								new Date(Date.UTC(year, month - 1, 1)),
+							)
 		return {
 			app: getMockAppMetadata(team, env, app),
 			jobId,
@@ -318,17 +335,17 @@ export async function getNdaAuditJobStatus(
 			reportId: `AUDIT-${new Date().getFullYear()}-${app}-mock`,
 			report: {
 				reportId: `AUDIT-${new Date().getFullYear()}-${app}-mock`,
-				periodType: "yearly",
-				periodLabel: String(new Date().getFullYear()),
-				periodStart: `${new Date().getFullYear()}-01-01`,
-				periodEnd: `${new Date().getFullYear()}-12-31`,
+				periodType,
+				periodLabel,
+				periodStart,
+				periodEnd: endDate,
 				generatedAt: new Date().toISOString(),
 				generatedBy: null,
 				totalDeployments: 42,
 				approvedCount: 40,
 				withChangeOriginCount: 35,
 				contentHash: "mock-hash",
-				availableFormats: ["pdf"],
+				availableFormats: ["pdf", "excel"],
 			},
 			retryAfterSeconds: null,
 		}
@@ -360,11 +377,13 @@ export async function downloadNdaAuditReport(
 	format = "pdf",
 ): Promise<{ buffer: Buffer; contentType: string; fileName: string }> {
 	if (isDevMode()) {
-		logger.warn("NDA_AUDIT_REPORTS_BASE_URL not set — returning mock PDF", { team, env, app, reportId })
+		const isExcel = format.toLowerCase() === "excel" || format.toLowerCase() === "xlsx"
+		logger.warn("NDA_AUDIT_REPORTS_BASE_URL not set — returning mock report file", { team, env, app, reportId, format })
+		const mockBuffer = isExcel ? createMockExcelReport(app, reportId) : await createMockPdfReport(app, reportId)
 		return {
-			buffer: Buffer.from(`%PDF-1.4 mock audit report for ${app}`),
-			contentType: "application/pdf",
-			fileName: `${reportId}.pdf`,
+			buffer: mockBuffer,
+			contentType: isExcel ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "application/pdf",
+			fileName: `${reportId}.${isExcel ? "xlsx" : "pdf"}`,
 		}
 	}
 
@@ -383,6 +402,31 @@ export async function downloadNdaAuditReport(
 	const fileName = fileNameMatch?.[1] ?? `${reportId}.${format}`
 
 	return { buffer, contentType, fileName }
+}
+
+function createMockPdfReport(app: string, reportId: string): Promise<Buffer> {
+	return new Promise((resolve, reject) => {
+		const document = new PDFDocument()
+		const chunks: Buffer[] = []
+		document.on("data", (chunk: Buffer) => chunks.push(chunk))
+		document.on("end", () => resolve(Buffer.concat(chunks)))
+		document.on("error", reject)
+		document.fontSize(18).text("Mock NDA audit report")
+		document.moveDown()
+		document.fontSize(12).text(`Applikasjon: ${app}`)
+		document.text(`Rapport-ID: ${reportId}`)
+		document.end()
+	})
+}
+
+function createMockExcelReport(app: string, reportId: string): Buffer {
+	const workbook = XLSX.utils.book_new()
+	const worksheet = XLSX.utils.aoa_to_sheet([
+		["Applikasjon", "Rapport-ID", "Leveranser", "Godkjent"],
+		[app, reportId, 0, 0],
+	])
+	XLSX.utils.book_append_sheet(workbook, worksheet, "Oppsummering")
+	return Buffer.from(XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }))
 }
 
 // ─── Error classes ──────────────────────────────────────────────────────────

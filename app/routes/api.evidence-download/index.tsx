@@ -1,11 +1,18 @@
 import { data } from "react-router"
+import { getAppScopeIdsForApps } from "~/db/queries/applications.server"
+import { getNdaAppParamsGroup } from "~/db/queries/deployment-audit.server"
 import {
 	type ActivityContext,
 	getActivityContext,
 	recordEvidenceDownload,
 	recordManualEvidenceUpload,
 } from "~/db/queries/evidence-downloads.server"
-import type { EvidenceProviderType } from "~/db/schema/routines"
+import {
+	beginNdaReportGeneration,
+	type NdaReportGenerationMode,
+	saveNdaReportGenerationState,
+} from "~/db/queries/routines.server"
+import type { EvidenceProviderType, NdaReportGenerationState, NdaReportSnapshot } from "~/db/schema/routines"
 import { getProviderTypeForActivity } from "~/lib/activity-types"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAnySectionRole } from "~/lib/authorization.server"
@@ -18,7 +25,9 @@ import {
 	validateProviderDownloadConstraints,
 	validateProviderEvidenceType,
 } from "~/lib/evidence-providers/validation.server"
+import { withAdvisoryLock } from "~/lib/lock.server"
 import { logger } from "~/lib/logger.server"
+import { isPeriodEnded, isValidPeriodStart, isValidPeriodType } from "~/lib/period-validation"
 import { isValidUuid } from "~/lib/utils"
 import type { Route } from "./+types/index"
 
@@ -60,8 +69,8 @@ export async function action({ request }: Route.ActionArgs) {
 		return handleManualUpload(formData, providerType, authedUser)
 	}
 
-	if (intent === "generate-report") {
-		return handleGenerateReport(formData, providerType, authedUser)
+	if (intent === "generate-report-set") {
+		return handleGenerateReportSet(formData, providerType, authedUser)
 	}
 
 	if (intent === "poll-job") {
@@ -69,6 +78,135 @@ export async function action({ request }: Route.ActionArgs) {
 	}
 
 	return data({ error: "Ukjent intent" }, { status: 400 })
+}
+
+async function handleGenerateReportSet(
+	formData: FormData,
+	providerType: EvidenceProviderType,
+	user: Awaited<ReturnType<typeof requireAuthenticatedUser>>,
+) {
+	const activityId = (formData.get("activityId") as string)?.trim()
+	const periodType = (formData.get("periodType") as string)?.trim()
+	const periodStart = (formData.get("periodStart") as string)?.trim()
+	const mode = formData.get("mode") as NdaReportGenerationMode
+
+	if (!activityId || !isValidUuid(activityId)) {
+		return data({ error: "Mangler gyldig activityId" }, { status: 400 })
+	}
+	if (providerType !== "deployments") {
+		return data({ error: "Rapportgenerering støttes bare for leveranserapporter" }, { status: 400 })
+	}
+	if (!periodType || !isValidPeriodType(periodType) || !periodStart || !isValidPeriodStart(periodType, periodStart)) {
+		return data({ error: "Ugyldig eller manglende rapportperiode" }, { status: 400 })
+	}
+	if (!isPeriodEnded(periodType, periodStart)) {
+		return data({ error: "Perioden er ikke avsluttet ennå" }, { status: 400 })
+	}
+	if (!["initial", "refresh"].includes(mode)) {
+		return data({ error: "Ugyldig modus for rapportgenerering" }, { status: 400 })
+	}
+
+	const ctx = await requireWritableActivity(activityId, user)
+	if (getProviderTypeForActivity(ctx.activityType) !== providerType) {
+		return data({ error: "Aktiviteten støtter ikke generering av leveranserapporter" }, { status: 400 })
+	}
+	if (!ctx.applicationId) {
+		return data({ error: "Aktiviteten mangler applikasjon" }, { status: 409 })
+	}
+
+	const appsGroup = await getNdaAppParamsGroup(ctx.applicationId, ctx.sectionId)
+	const scopeByApp = await getAppScopeIdsForApps(appsGroup.map((app) => app.applicationId))
+	const apps = appsGroup
+		.filter((app) => scopeByApp.get(app.applicationId)?.sectionIds.includes(ctx.sectionId))
+		.map(({ applicationId, team, environment, appName }) => ({ applicationId, team, environment, appName }))
+	if (apps.length === 0) {
+		return data({ error: "Fant ingen applikasjoner med rapporter i valgt periode" }, { status: 409 })
+	}
+	const provider = await getEvidenceProvider(providerType)
+	if (!provider.requestGeneration) {
+		return data({ error: "NDA støtter ikke rapportgenerering" }, { status: 400 })
+	}
+
+	const lockName = `${ctx.activityType}-activity-${activityId}`
+	let result: boolean | null
+	try {
+		result = await withAdvisoryLock(lockName, async () => {
+			const { targets } = await beginNdaReportGeneration({
+				activityId,
+				periodConfig: { periodType, periodStart },
+				apps,
+				mode,
+			})
+			if (targets.length === 0) {
+				return true
+			}
+
+			await Promise.all(
+				targets.map(async (target) => {
+					let nextState: NdaReportGenerationState
+					try {
+						const providerParams = {
+							team: target.team,
+							environment: target.environment,
+							appName: target.appName,
+							periodType,
+							periodStart,
+						}
+						await validateProviderAccess(providerType, providerParams, ctx)
+						const response = await provider.requestGeneration?.(providerParams, makeNdaGenerationReason(ctx, user.name))
+						if (!response?.jobId) throw new Error("NDA startet ikke rapportgenereringen.")
+						nextState = { ...target, jobId: response.jobId, status: "pending", error: null }
+					} catch (error) {
+						const message = await getGenerationErrorMessage(error)
+						logger.warn(
+							`NDA report generation request failed [activityId=${activityId}, app=${target.appName}]`,
+							error instanceof Error ? error : new Error(message),
+						)
+						nextState = { ...target, jobId: null, status: "failed", error: message }
+					}
+
+					const saved = await saveNdaReportGenerationState({
+						activityId,
+						periodConfig: { periodType, periodStart },
+						state: nextState,
+					})
+					if (!saved) {
+						throw new Response("Rapportene ble oppdatert i en annen fane. Last siden på nytt.", { status: 409 })
+					}
+				}),
+			)
+
+			return true
+		})
+	} catch (error) {
+		if (error instanceof Response) {
+			return data({ error: (await error.text()) || "Kunne ikke starte rapportgenereringen." }, { status: error.status })
+		}
+		throw error
+	}
+
+	if (result === null) {
+		return data(
+			{ error: "Rapportgenerering pågår allerede for denne gjennomgangen. Prøv igjen om litt." },
+			{ status: 409 },
+		)
+	}
+	return data({ success: true })
+}
+
+function makeNdaGenerationReason(ctx: ActivityContext, userName: string): string {
+	return `Ny rapport generert for rutinegjennomgang - ${ctx.routineName} - ${userName}`
+}
+
+async function getGenerationErrorMessage(error: unknown): Promise<string> {
+	if (error instanceof Response) {
+		const message = await error.text()
+		return message || "NDA kunne ikke starte rapportgenereringen."
+	}
+	if (error instanceof Error && error.name === "NdaConflictError") {
+		return error.message
+	}
+	return "NDA kunne ikke starte rapportgenereringen. Prøv på nytt."
 }
 
 async function handleDownloadFromApi(
@@ -273,15 +411,15 @@ async function handleManualUpload(
 	})
 }
 
-async function handleGenerateReport(
+async function handlePollJob(
 	formData: FormData,
 	providerType: EvidenceProviderType,
-	user: Parameters<typeof requireAnySectionRole>[0] & { navIdent: string },
+	user: Parameters<typeof requireAnySectionRole>[0],
 ) {
 	const activityId = (formData.get("activityId") as string)?.trim()
-	const reason = (formData.get("reason") as string)?.trim() || undefined
+	const jobId = (formData.get("jobId") as string)?.trim()
 
-	if (!activityId) {
+	if (!activityId || !jobId) {
 		return data({ error: "Mangler påkrevde felt" }, { status: 400 })
 	}
 	if (!isValidUuid(activityId)) {
@@ -307,74 +445,70 @@ async function handleGenerateReport(
 	}
 
 	const provider = await getEvidenceProvider(providerType)
-	if (!provider.requestGeneration) {
-		return data({ error: "Denne leverandøren støtter ikke rapportgenerering" }, { status: 400 })
-	}
-
-	try {
-		const result = await provider.requestGeneration(providerParams, reason)
-		return data({ success: true, jobId: result.jobId })
-	} catch (err) {
-		if (err instanceof Error && err.name === "NdaConflictError") {
-			return data(
-				{
-					error: "En rapport eksisterer allerede for denne perioden. Oppgi begrunnelse for å erstatte.",
-					conflict: true,
-				},
-				{ status: 409 },
-			)
-		}
-		const message = err instanceof Error ? err.message : "Ukjent feil"
-		logger.error(
-			`Evidence report generation failed [providerType=${providerType}]`,
-			err instanceof Error ? err : new Error(message),
-		)
-		return data({ error: "Kunne ikke starte rapportgenerering. Prøv igjen senere." }, { status: 502 })
-	}
-}
-
-async function handlePollJob(
-	formData: FormData,
-	providerType: EvidenceProviderType,
-	user: Parameters<typeof requireAnySectionRole>[0],
-) {
-	const activityId = (formData.get("activityId") as string)?.trim()
-	const jobId = (formData.get("jobId") as string)?.trim()
-
-	if (!activityId || !jobId) {
-		return data({ error: "Mangler påkrevde felt" }, { status: 400 })
-	}
-	if (!isValidUuid(activityId)) {
-		return data({ error: "Ugyldig activityId-format" }, { status: 400 })
-	}
-
-	const ctx = await getActivityContext(activityId)
-	if (!ctx) return data({ error: "Aktivitet ikke funnet" }, { status: 404 })
-	requireAnySectionRole(user, ctx.sectionId)
-
-	if (getProviderTypeForActivity(ctx.activityType) !== providerType) {
-		return data(
-			{ error: `Aktivitetstypen '${ctx.activityType}' støtter ikke provider '${providerType}'` },
-			{ status: 400 },
-		)
-	}
-
-	const providerParams = extractProviderParams(providerType, formData)
-
-	try {
-		await validateProviderAccess(providerType, providerParams, ctx)
-	} catch (err) {
-		if (err instanceof Response) return err
-		throw err
-	}
-
-	const provider = await getEvidenceProvider(providerType)
 	if (!provider.getJobStatus) {
 		return data({ error: "Denne leverandøren støtter ikke jobbstatus" }, { status: 400 })
 	}
 
 	try {
 		const result = await provider.getJobStatus(providerParams, jobId)
+		if (providerType === "deployments" && (result.status === "completed" || result.status === "failed")) {
+			const currentState = ctx.periodConfig?.reportGeneration?.apps.find(
+				(app) =>
+					app.jobId === jobId &&
+					app.team === String(providerParams.team) &&
+					app.environment === String(providerParams.environment) &&
+					app.appName === String(providerParams.appName),
+			)
+			if (currentState && ctx.periodConfig) {
+				let nextState: NdaReportGenerationState
+				if (result.status === "failed") {
+					nextState = {
+						...currentState,
+						status: "failed",
+						report: null,
+						error: result.error || "NDA klarte ikke å generere rapporten.",
+					}
+				} else {
+					const resultData = result.result
+					const report = isRecord(resultData) ? parseNdaReportSnapshot(resultData.report) : null
+					if (
+						!report ||
+						report.periodType !== ctx.periodConfig.periodType ||
+						report.periodStart !== ctx.periodConfig.periodStart
+					) {
+						nextState = {
+							...currentState,
+							status: "failed",
+							report,
+							error: "NDA fullførte jobben, men returnerte ikke en rapport for valgt periode.",
+						}
+					} else {
+						const available = new Set(report.availableFormats.map(normalizeReportFormat))
+						const missingFormats = ["pdf", "excel"].filter((format) => !available.has(format))
+						nextState = {
+							...currentState,
+							status: missingFormats.length === 0 ? "ready" : "failed",
+							report,
+							error:
+								missingFormats.length === 0
+									? null
+									: `Rapporten mangler ${missingFormats.map((format) => format.toUpperCase()).join(" og ")}.`,
+						}
+					}
+				}
+				const saved = await saveNdaReportGenerationState({
+					activityId,
+					periodConfig: {
+						periodType: ctx.periodConfig.periodType,
+						periodStart: ctx.periodConfig.periodStart,
+					},
+					state: nextState,
+				})
+				if (!saved) {
+					return data({ error: "Rapportene ble oppdatert i en annen fane. Last siden på nytt." }, { status: 409 })
+				}
+			}
+		}
 		return data({ success: true, ...result })
 	} catch (err) {
 		logger.error(
@@ -383,4 +517,62 @@ async function handlePollJob(
 		)
 		return data({ error: "Kunne ikke sjekke jobbstatus. Prøv igjen senere." }, { status: 502 })
 	}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value)
+}
+
+function parseNdaReportSnapshot(value: unknown): NdaReportSnapshot | null {
+	if (!isRecord(value)) return null
+	const {
+		reportId,
+		periodType,
+		periodStart,
+		periodEnd,
+		periodLabel,
+		generatedAt,
+		generatedBy,
+		totalDeployments,
+		approvedCount,
+		withChangeOriginCount,
+		contentHash,
+		availableFormats,
+	} = value
+	if (
+		typeof reportId !== "string" ||
+		typeof periodType !== "string" ||
+		!isValidPeriodType(periodType) ||
+		typeof periodStart !== "string" ||
+		typeof periodEnd !== "string" ||
+		typeof periodLabel !== "string" ||
+		typeof generatedAt !== "string" ||
+		!(generatedBy === null || typeof generatedBy === "string") ||
+		typeof totalDeployments !== "number" ||
+		typeof approvedCount !== "number" ||
+		!(withChangeOriginCount === null || typeof withChangeOriginCount === "number") ||
+		typeof contentHash !== "string" ||
+		!Array.isArray(availableFormats) ||
+		!availableFormats.every((format) => typeof format === "string")
+	) {
+		return null
+	}
+	return {
+		reportId,
+		periodType,
+		periodStart,
+		periodEnd,
+		periodLabel,
+		generatedAt,
+		generatedBy,
+		totalDeployments,
+		approvedCount,
+		withChangeOriginCount,
+		contentHash,
+		availableFormats,
+	}
+}
+
+function normalizeReportFormat(format: string): string {
+	return format.toLowerCase() === "xlsx" ? "excel" : format.toLowerCase()
 }

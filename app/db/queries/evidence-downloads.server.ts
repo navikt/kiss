@@ -118,17 +118,38 @@ export interface EvidenceDownloadWithBucketDetails extends EvidenceDownloadRecor
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
+export interface PreparedEvidenceDownloadUpload {
+	activityId: string
+	providerType: EvidenceProviderType
+	providerMetadata: Record<string, unknown>
+	sourceId: string
+	evidenceType: string
+	format: string
+	fileName: string
+	contentType: string
+	collectedAt: Date | null
+	performedBy: string
+	expectedPeriodConfig?: PeriodConfig | null
+	expectedReportSnapshot?: {
+		applicationId: string
+		attemptId: string
+		reportId: string
+	}
+	objectPath: string
+	sizeBytes: number
+}
+
 /**
  * Locks the activity row and verifies it's still pending with the period that was
  * validated before the (potentially slow) provider download/upload work started.
- * Closes a TOCTOU window where a concurrent `savePeriodConfig()` could otherwise
- * commit a new period between validation and persistence of the evidence record.
+ * Closes a TOCTOU window where a concurrent period change could otherwise
+ * commit between validation and persistence of the evidence record.
  */
 async function lockAndRevalidateActivity(
 	tx: DbTransaction,
 	activityId: string,
 	expectedPeriodConfig: PeriodConfig | null | undefined,
-): Promise<void> {
+): Promise<PeriodConfig | null> {
 	const [activity] = await tx
 		.select({ status: routineReviewActivities.status, periodConfig: routineReviewActivities.periodConfig })
 		.from(routineReviewActivities)
@@ -136,7 +157,7 @@ async function lockAndRevalidateActivity(
 		.for("update", { of: [routineReviewActivities] })
 		.limit(1)
 
-	if (!activity || activity.status !== "pending") {
+	if (activity?.status !== "pending") {
 		throw new Response("Aktiviteten er ikke lenger åpen for registrering av bevis.", { status: 409 })
 	}
 
@@ -155,9 +176,130 @@ async function lockAndRevalidateActivity(
 			})
 		}
 	}
+	return activity.periodConfig
 }
 
 // ─── Commands ─────────────────────────────────────────────────────────────
+
+export async function uploadEvidenceFileForReviewCompletion(
+	params: Omit<PreparedEvidenceDownloadUpload, "objectPath" | "sizeBytes"> & { buffer: Buffer },
+): Promise<PreparedEvidenceDownloadUpload> {
+	const storage = getStorageProvider()
+	const bucketPath = buildEvidenceBucketPath({
+		activityId: params.activityId,
+		providerType: params.providerType,
+		format: params.format,
+		sourceId: params.sourceId,
+		evidenceType: params.evidenceType,
+		fileName: params.fileName,
+	})
+	const uploaded = await storage.upload(bucketPath, params.buffer, { contentType: params.contentType })
+	const { buffer: _buffer, ...metadata } = params
+	return {
+		...metadata,
+		contentType: uploaded.contentType,
+		objectPath: uploaded.path,
+		sizeBytes: uploaded.sizeBytes,
+	}
+}
+
+export async function deletePreparedEvidenceUploads(uploads: PreparedEvidenceDownloadUpload[]): Promise<void> {
+	if (uploads.length === 0) return
+	const storage = getStorageProvider()
+	const failures: unknown[] = []
+	for (const upload of uploads) {
+		try {
+			await storage.delete(upload.objectPath)
+		} catch (error) {
+			failures.push(error)
+		}
+	}
+	if (failures.length > 0) {
+		throw new AggregateError(failures, "Kunne ikke rydde opp i midlertidig opplastede rapportfiler.")
+	}
+}
+
+export async function insertPreparedEvidenceDownloads(
+	uploads: PreparedEvidenceDownloadUpload[],
+	tx: DbTransaction,
+): Promise<void> {
+	for (const upload of uploads) {
+		const periodConfig = await lockAndRevalidateActivity(tx, upload.activityId, upload.expectedPeriodConfig)
+		if (upload.expectedReportSnapshot) {
+			const generated = periodConfig?.reportGeneration?.apps.find(
+				(state) => state.applicationId === upload.expectedReportSnapshot?.applicationId,
+			)
+			if (
+				generated?.status !== "ready" ||
+				generated.attemptId !== upload.expectedReportSnapshot.attemptId ||
+				generated.report?.reportId !== upload.expectedReportSnapshot.reportId
+			) {
+				throw new Response("Rapporten ble oppdatert mens gjennomgangen ble fullført. Last siden på nytt.", {
+					status: 409,
+				})
+			}
+		}
+		const performedAt = new Date()
+		const evidenceDownloadId = crypto.randomUUID()
+		const bucketObjectId = crypto.randomUUID()
+		const normalizedFormat = upload.format.toLowerCase()
+
+		await tx.insert(bucketObjects).values({
+			id: bucketObjectId,
+			bucketName: getBucketName(),
+			objectPath: upload.objectPath,
+			contentType: upload.contentType,
+			sizeBytes: upload.sizeBytes,
+			objectType: `${upload.providerType}_evidence`,
+			sourceType: mapEvidenceSourceToBucketSourceType("m2m_api"),
+			uploadedBy: upload.performedBy,
+			uploadedAt: performedAt,
+			metadata: JSON.stringify({
+				activityId: upload.activityId,
+				evidenceDownloadId,
+				providerType: upload.providerType,
+				fileName: upload.fileName,
+				providerMetadata: upload.providerMetadata,
+			}),
+		})
+
+		const [row] = await tx
+			.insert(routineReviewEvidenceDownloads)
+			.values({
+				id: evidenceDownloadId,
+				activityId: upload.activityId,
+				bucketObjectId,
+				providerType: upload.providerType,
+				providerMetadata: upload.providerMetadata,
+				format: normalizedFormat,
+				fileName: upload.fileName,
+				source: "m2m_api",
+				collectedAt: upload.collectedAt,
+				performedBy: upload.performedBy,
+				performedAt,
+			})
+			.returning()
+
+		await writeAuditLog(
+			{
+				action: "evidence_downloaded",
+				entityType: "routine_review_evidence_download",
+				entityId: row.id,
+				newValue: JSON.stringify({
+					providerType: upload.providerType,
+					sourceId: upload.sourceId,
+					evidenceType: upload.evidenceType,
+					format: normalizedFormat,
+					source: "m2m_api",
+					bucketObjectId,
+					reportId: upload.providerMetadata.reportId,
+				}),
+				performedBy: upload.performedBy,
+			},
+			tx,
+		)
+	}
+}
 
 export async function recordEvidenceDownload(params: {
 	activityId: string
@@ -386,6 +528,7 @@ export interface ActivityContext {
 	reviewId: string
 	reviewStatus: string
 	routineId: string
+	routineName: string
 	routineArchivedAt: string | null
 	sectionId: string
 	applicationId: string | null
@@ -402,6 +545,7 @@ a.period_config as period_config,
 rv.id as review_id,
 rv.status as review_status,
 r.id as routine_id,
+r.name as routine_name,
 r.archived_at as routine_archived_at,
 r.section_id as section_id,
 rv.application_id as application_id
@@ -421,6 +565,7 @@ WHERE a.id = ${activityId}
 		reviewId: row.review_id as string,
 		reviewStatus: row.review_status as string,
 		routineId: row.routine_id as string,
+		routineName: row.routine_name as string,
 		routineArchivedAt: row.routine_archived_at as string | null,
 		sectionId: row.section_id as string,
 		applicationId: row.application_id as string | null,

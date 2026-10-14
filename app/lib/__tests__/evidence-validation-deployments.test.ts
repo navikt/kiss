@@ -43,6 +43,7 @@ const baseContext = {
 	reviewId: "r1",
 	reviewStatus: "draft",
 	routineId: "rt1",
+	routineName: "Test rutine",
 	routineArchivedAt: null,
 	sectionId: "s1",
 	applicationId: "app1",
