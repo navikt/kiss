@@ -143,6 +143,7 @@ async function handleGenerateReportSet(
 		return data({ error: "NDA støtter ikke rapportgenerering" }, { status: 400 })
 	}
 
+	const selectedPeriodCtx: ActivityContext = { ...ctx, periodConfig: { ...ctx.periodConfig, periodType, periodStart } }
 	const lockName = `${ctx.activityType}-activity-${activityId}`
 	let result: boolean | null
 	try {
@@ -167,7 +168,7 @@ async function handleGenerateReportSet(
 						periodType,
 						periodStart,
 					}
-					await validateProviderAccess(providerType, providerParams, ctx)
+					await validateProviderAccess(providerType, providerParams, selectedPeriodCtx)
 					const response = await provider.requestGeneration?.(providerParams, makeNdaGenerationReason(ctx, user.name))
 					if (!response?.jobId) throw new Error("NDA startet ikke rapportgenereringen.")
 					nextState = { ...target, jobId: response.jobId, status: "pending", error: null }

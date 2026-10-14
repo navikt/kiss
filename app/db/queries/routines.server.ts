@@ -6153,6 +6153,7 @@ export async function beginNdaReportGeneration(params: {
 	mode: NdaReportGenerationMode
 }) {
 	return db.transaction(async (tx) => {
+		await requireDraftReviewForActivity(tx, params.activityId)
 		const [activity] = await tx
 			.select({
 				status: routineReviewActivities.status,
@@ -6232,12 +6233,30 @@ export async function beginNdaReportGeneration(params: {
 	})
 }
 
+async function isReviewDraftForActivity(tx: DbTransaction, activityId: string): Promise<boolean> {
+	const [review] = await tx
+		.select({ status: routineReviews.status })
+		.from(routineReviewActivities)
+		.innerJoin(routineReviews, eq(routineReviews.id, routineReviewActivities.reviewId))
+		.where(eq(routineReviewActivities.id, activityId))
+		.for("update", { of: [routineReviews] })
+		.limit(1)
+	return review?.status === "draft"
+}
+
+async function requireDraftReviewForActivity(tx: DbTransaction, activityId: string): Promise<void> {
+	if (!(await isReviewDraftForActivity(tx, activityId))) {
+		throw new Response("Gjennomgangen kan ikke endres lenger. Oppdater siden og prøv igjen.", { status: 409 })
+	}
+}
+
 export async function saveNdaReportGenerationState(params: {
 	activityId: string
 	periodConfig: Pick<PeriodConfig, "periodType" | "periodStart">
 	state: NdaReportGenerationState
 }): Promise<boolean> {
 	return db.transaction(async (tx) => {
+		if (!(await isReviewDraftForActivity(tx, params.activityId))) return false
 		const [activity] = await tx
 			.select({ status: routineReviewActivities.status, periodConfig: routineReviewActivities.periodConfig })
 			.from(routineReviewActivities)
@@ -6308,7 +6327,8 @@ export async function recordEntraChange(
 	return tx ? run(tx) : db.transaction(run)
 }
 
-type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
+type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+type DbExecutor = typeof db | DbTransaction
 
 async function completeEntraReviewActivity(activityId: string, performedBy: string, executor: DbExecutor) {
 	const [activity] = await executor
