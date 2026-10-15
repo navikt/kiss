@@ -366,6 +366,8 @@ function ReportGenerationStatus({
 		let cancelled = false
 		let timeout: ReturnType<typeof setTimeout> | undefined
 		let failures = 0
+		const controller = new AbortController()
+		const deadlineTimeout = setTimeout(() => controller.abort(), Math.max(0, deadline - Date.now()))
 
 		const poll = async () => {
 			if (Date.now() >= deadline) {
@@ -383,9 +385,10 @@ function ReportGenerationStatus({
 				formData.set("periodType", periodConfig.periodType)
 				formData.set("periodStart", periodConfig.periodStart)
 				formData.set("jobId", jobId)
-				const response = await limitPollConcurrency(() =>
-					fetch("/api/evidence-download", { method: "POST", body: formData }),
-				)
+				const response = await limitPollConcurrency(() => {
+					if (controller.signal.aborted) throw new DOMException("Aborted", "AbortError")
+					return fetch("/api/evidence-download", { method: "POST", body: formData, signal: controller.signal })
+				})
 				if (cancelled) return
 				if (response.status === 409) {
 					revalidate()
@@ -442,6 +445,8 @@ function ReportGenerationStatus({
 		poll()
 		return () => {
 			cancelled = true
+			controller.abort()
+			clearTimeout(deadlineTimeout)
 			if (timeout) clearTimeout(timeout)
 		}
 	}, [

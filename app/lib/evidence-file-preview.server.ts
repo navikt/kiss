@@ -52,7 +52,7 @@ export function createSpreadsheetPreviewHtml(buffer: Buffer, title: string): str
 				)
 				.join("")
 
-			return `<section><h2>${escapeHtml(sheetName)}</h2><div class="table-scroll"><table><tbody>${body}</tbody></table></div></section>`
+			return `<section><h2>${escapeHtml(sheetName)}</h2><div class="table-scroll" tabindex="0" role="region" aria-label="${escapeHtml(sheetName)}"><table><tbody>${body}</tbody></table></div></section>`
 		})
 		.filter(Boolean)
 		.join("")
@@ -69,6 +69,7 @@ export function createSpreadsheetPreviewHtml(buffer: Buffer, title: string): str
 		main { max-width: 90rem; margin: 0 auto; padding: 2rem; }
 		h1 { font-size: 1.5rem; }
 		h2 { font-size: 1.125rem; margin-top: 2rem; }
+		.table-scroll:focus-visible { outline: 3px solid #0067c5; outline-offset: 2px; }
 		.table-scroll { max-height: 75vh; overflow: auto; background: white; border: 1px solid #c6c2bf; }
 		table { border-collapse: collapse; min-width: 100%; }
 		th, td { border-bottom: 1px solid #e6e4e2; border-right: 1px solid #e6e4e2; padding: .5rem .75rem; text-align: left; white-space: pre-wrap; }
