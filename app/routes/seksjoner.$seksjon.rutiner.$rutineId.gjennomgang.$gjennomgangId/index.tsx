@@ -823,6 +823,7 @@ async function prepareNdaEvidenceUploads(
 				throw new Response("Velg periode og hent rapportene for alle applikasjonene før fullføring.", { status: 400 })
 			}
 
+			// Tilgang gis på gjennomgangens applikasjon og gjelder hele den sammenslåtte gruppen; sammenslåing krever forvaltningstilgang til alle medlemmene.
 			const appGroup = await getNdaAppsGroup(ctx.applicationId, sectionId)
 			const scopeByApp = await getAppScopesForNdaApps(appGroup.map((app) => app.applicationId))
 			const apps = appGroup.filter((app) => scopeByApp.get(app.applicationId)?.sectionIds.includes(sectionId))
