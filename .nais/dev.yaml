@@ -35,6 +35,7 @@ spec:
       tenant: nav.no
       claims:
         groups:
+          - id: 07fce15d-6861-49fa-9378-d1f90d294843  # nais-team-proaktiv (admin)
           - id: 1e97cbc6-0687-4d23-aebd-c611035279c1  # pensjon-revisjon (admin)
           - id: 44e8f280-31f5-4d38-b4d6-d0d7ff10d137  # nais-team-pensjon-kiss-revisjon (revisor)
           - id: 70c6e964-e265-4f1d-a55e-1c8d8b60ffcb  # nais-team-pensjon-kiss (user)
@@ -79,7 +80,7 @@ spec:
     - name: SYNC_JOB_RETENTION_BATCH_SIZE
       value: "500"
     - name: KISS_ADMIN_GROUP_IDS
-      value: "1e97cbc6-0687-4d23-aebd-c611035279c1"
+      value: "1e97cbc6-0687-4d23-aebd-c611035279c1,07fce15d-6861-49fa-9378-d1f90d294843"
     - name: KISS_AUDITOR_GROUP_IDS
       value: "44e8f280-31f5-4d38-b4d6-d0d7ff10d137"
     - name: GCS_BUCKET_NAME
