@@ -283,8 +283,8 @@ function ReportSnapshotsTable({
 											activityId={activityId}
 											periodConfig={periodConfig}
 											canRetry={canRetry}
-											onPollError={(error) => onPollError(app.applicationId, error)}
-											onRetryStatus={() => onPollError(app.applicationId, null)}
+											applicationId={app.applicationId}
+											onPollError={onPollError}
 										/>
 									</Table.DataCell>
 									<Table.DataCell>
@@ -336,7 +336,7 @@ function ReportGenerationStatus({
 	periodConfig,
 	canRetry,
 	onPollError,
-	onRetryStatus,
+	applicationId,
 }: {
 	state: NdaReportGenerationState | undefined
 	isCurrent: boolean
@@ -344,8 +344,8 @@ function ReportGenerationStatus({
 	activityId: string
 	periodConfig: PeriodConfig
 	canRetry: boolean
-	onPollError: (error: string | null) => void
-	onRetryStatus: () => void
+	applicationId: string
+	onPollError: (applicationId: string, error: string | null) => void
 }) {
 	const { revalidate } = useRevalidator()
 	const jobId = state?.jobId
@@ -397,7 +397,7 @@ function ReportGenerationStatus({
 				if (!response.ok) {
 					failures++
 					if (failures >= 3) {
-						onPollError("Kunne ikke sjekke rapportstatus. Prøv å sjekke igjen.")
+						onPollError(applicationId, "Kunne ikke sjekke rapportstatus. Prøv å sjekke igjen.")
 						return
 					}
 				} else {
@@ -410,7 +410,7 @@ function ReportGenerationStatus({
 						"status" in result &&
 						(result.status === "completed" || result.status === "failed")
 					) {
-						onPollError(null)
+						onPollError(applicationId, null)
 						revalidate()
 						return
 					}
@@ -432,6 +432,7 @@ function ReportGenerationStatus({
 				failures++
 				if (failures >= 3) {
 					onPollError(
+						applicationId,
 						error instanceof Error
 							? "Mistet kontakt med serveren under rapportgenerering. Prøv å sjekke igjen."
 							: "Kunne ikke sjekke rapportstatus. Prøv å sjekke igjen.",
@@ -451,6 +452,7 @@ function ReportGenerationStatus({
 		}
 	}, [
 		activityId,
+		applicationId,
 		isPolling,
 		jobId,
 		onPollError,
@@ -469,7 +471,7 @@ function ReportGenerationStatus({
 				<Alert variant="error" size="small">
 					{pollError}
 				</Alert>
-				<Button type="button" size="small" variant="tertiary" onClick={onRetryStatus}>
+				<Button type="button" size="small" variant="tertiary" onClick={() => onPollError(applicationId, null)}>
 					Sjekk status igjen
 				</Button>
 			</VStack>
