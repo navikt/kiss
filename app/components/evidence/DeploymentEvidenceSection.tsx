@@ -275,7 +275,7 @@ function ReportSnapshotsTable({
 											{app.team} · {app.environment}
 										</Detail>
 									</Table.DataCell>
-									<Table.DataCell>
+									<Table.DataCell aria-live="polite" aria-atomic="true">
 										<ReportGenerationStatus
 											state={state}
 											isCurrent={readyReport !== null}
