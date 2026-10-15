@@ -110,6 +110,8 @@ function buildAppBasePath(team: string, env: string, app: string): string {
 	return `/api/v1/apps/${encodeURIComponent(team)}/${encodeURIComponent(env)}/${encodeURIComponent(app)}/audit-reports`
 }
 
+const NDA_GENERATE_TIMEOUT_MS = 60_000
+
 async function fetchWithAuth(path: string, options?: RequestInit): Promise<Response> {
 	if (!NDA_AUDIT_REPORTS_SCOPE) {
 		throw new Error("NDA_AUDIT_REPORTS_SCOPE is not configured")
@@ -282,6 +284,7 @@ export async function generateNdaAuditReport(
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(body),
+		signal: AbortSignal.timeout(NDA_GENERATE_TIMEOUT_MS),
 	})
 
 	if (response.status === 409) {
