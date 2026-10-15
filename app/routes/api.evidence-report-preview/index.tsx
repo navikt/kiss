@@ -67,7 +67,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 	})
 	if (!hasFormat) throw data({ error: "Formatet finnes ikke for denne rapporten" }, { status: 404 })
 
-	// Tilgang gis på gjennomgangens applikasjon og gjelder hele den sammenslåtte gruppen; sammenslåing krever forvaltningstilgang til alle medlemmene.
 	const apps = await getNdaAppParamsGroup(context.applicationId, context.sectionId)
 	const app = apps.find((entry) => entry.applicationId === applicationId)
 	if (!app) throw data({ error: "Applikasjonen er ikke koblet til gjennomgangen" }, { status: 404 })

@@ -130,7 +130,6 @@ async function handleGenerateReportSet(
 		return data({ error: "Aktiviteten mangler applikasjon" }, { status: 409 })
 	}
 
-	// Tilgang gis på gjennomgangens applikasjon og gjelder hele den sammenslåtte gruppen; sammenslåing krever forvaltningstilgang til alle medlemmene.
 	const appsGroup = await getNdaAppParamsGroup(ctx.applicationId, ctx.sectionId)
 	const scopeByApp = await getAppScopeIdsForApps(appsGroup.map((app) => app.applicationId))
 	const apps = appsGroup
