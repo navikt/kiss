@@ -1,4 +1,3 @@
-import { saveBucketObject } from "~/db/queries/buckets.server"
 import { addFollowUpPointAttachment } from "~/db/queries/routines.server"
 import type { FollowUpPointAttachmentKind } from "~/db/schema/routines"
 import { getStorageProvider } from "~/lib/storage/index.server"
@@ -24,30 +23,33 @@ export async function storeFollowUpPointAttachment(params: {
 	const buffer = Buffer.from(arrayBuffer)
 
 	const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
-	const bucketPath = `routines/${routineId}/reviews/${reviewId}/follow-up-points/${pointId}/${kind}/${Date.now()}-${sanitizedName}`
+	const bucketPath = `routines/${routineId}/reviews/${reviewId}/follow-up-points/${pointId}/${kind}/${crypto.randomUUID()}-${sanitizedName}`
 	const contentType = file.type || "application/octet-stream"
 
 	const storage = getStorageProvider()
 	const uploadResult = await storage.upload(bucketPath, buffer, { contentType })
 
 	const bucketName = process.env.GCS_BUCKET_NAME ?? "kiss-data-local"
-	await saveBucketObject({
-		bucketName,
-		objectPath: uploadResult.path,
-		contentType: uploadResult.contentType,
-		sizeBytes: uploadResult.sizeBytes,
-		objectType: "routine-review-follow-up-point-attachment",
-		uploadedBy,
-		metadata: { originalFileName: file.name, pointId, reviewId, kind },
-	})
-
-	return addFollowUpPointAttachment({
-		pointId,
-		kind,
-		fileName: file.name,
-		bucketPath: uploadResult.path,
-		contentType: uploadResult.contentType,
-		sizeBytes: uploadResult.sizeBytes,
-		uploadedBy,
-	})
+	try {
+		return await addFollowUpPointAttachment({
+			pointId,
+			kind,
+			fileName: file.name,
+			bucketPath: uploadResult.path,
+			bucketName,
+			contentType: uploadResult.contentType,
+			sizeBytes: uploadResult.sizeBytes,
+			uploadedBy,
+		})
+	} catch (databaseError) {
+		try {
+			await storage.delete(uploadResult.path)
+		} catch (cleanupError) {
+			throw new AggregateError(
+				[databaseError, cleanupError],
+				"Kunne ikke lagre vedlegget eller rydde opp etter opplastingen.",
+			)
+		}
+		throw databaseError
+	}
 }

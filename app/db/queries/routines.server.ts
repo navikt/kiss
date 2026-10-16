@@ -95,6 +95,7 @@ import { syncApplicationControls } from "./application-controls.server"
 import { getAppScopeIdsForApps } from "./applications.server"
 import { writeAuditLog } from "./audit.server"
 import { getOracleInstancesForApp } from "./audit-evidence.server"
+import { saveBucketObject } from "./buckets.server"
 import { getNdaAppParamsGroup, type NdaAppGroupSnapshotEntry } from "./deployment-audit.server"
 import { getEvidenceDownloadsForActivities, getEvidenceDownloadsForActivity } from "./evidence-downloads.server"
 import {
@@ -1790,7 +1791,9 @@ async function enrichReviewsBatch(reviews: (typeof routineReviews.$inferSelect)[
 		db
 			.select()
 			.from(routineReviewFollowUpPoints)
-			.where(inArray(routineReviewFollowUpPoints.reviewId, reviewIds))
+			.where(
+				and(inArray(routineReviewFollowUpPoints.reviewId, reviewIds), isNull(routineReviewFollowUpPoints.archivedAt)),
+			)
 			.orderBy(routineReviewFollowUpPoints.createdAt),
 	])
 
@@ -1920,20 +1923,6 @@ export async function createReview(params: {
 					userName: routineReviewParticipants.userName,
 				})
 
-			for (const p of insertedParticipants) {
-				await writeAuditLog(
-					{
-						action: "routine_review_participant_added",
-						entityType: "routine_review_participant",
-						entityId: review.id,
-						newValue: p.userIdent,
-						metadata: { reviewId: review.id, userName: p.userName },
-						performedBy: params.createdBy,
-					},
-					tx,
-				)
-			}
-
 			insertedCount = insertedParticipants.length
 		}
 
@@ -2020,7 +2009,7 @@ export async function updateReview(
 			const toAdd = params.participants.filter((p) => !existingSet.has(p.userIdent))
 
 			if (toRemove.length > 0) {
-				const archivedRows = await tx
+				await tx
 					.update(routineReviewParticipants)
 					.set({ archivedAt: new Date(), archivedBy: performedBy })
 					.where(
@@ -2032,28 +2021,10 @@ export async function updateReview(
 							isNull(routineReviewParticipants.archivedAt),
 						),
 					)
-					.returning({
-						id: routineReviewParticipants.id,
-						userIdent: routineReviewParticipants.userIdent,
-						userName: routineReviewParticipants.userName,
-					})
-				for (const r of archivedRows) {
-					await writeAuditLog(
-						{
-							action: "routine_review_participant_removed",
-							entityType: "routine_review_participant",
-							entityId: reviewId,
-							previousValue: r.userIdent,
-							metadata: { reviewId, userName: r.userName },
-							performedBy,
-						},
-						tx,
-					)
-				}
 			}
 
 			if (toAdd.length > 0) {
-				const insertedRows = await tx
+				await tx
 					.insert(routineReviewParticipants)
 					.values(
 						toAdd.map((p) => ({
@@ -2066,37 +2037,8 @@ export async function updateReview(
 						target: [routineReviewParticipants.reviewId, routineReviewParticipants.userIdent],
 						where: isNull(routineReviewParticipants.archivedAt),
 					})
-					.returning({
-						id: routineReviewParticipants.id,
-						userIdent: routineReviewParticipants.userIdent,
-						userName: routineReviewParticipants.userName,
-					})
-				for (const r of insertedRows) {
-					await writeAuditLog(
-						{
-							action: "routine_review_participant_added",
-							entityType: "routine_review_participant",
-							entityId: reviewId,
-							newValue: r.userIdent,
-							metadata: { reviewId, userName: r.userName },
-							performedBy,
-						},
-						tx,
-					)
-				}
 			}
 		}
-
-		await writeAuditLog(
-			{
-				action: "routine_review_updated",
-				entityType: "routine_review",
-				entityId: reviewId,
-				newValue: JSON.stringify(updates),
-				performedBy,
-			},
-			tx,
-		)
 	})
 
 	return getReview(reviewId)
@@ -2150,6 +2092,32 @@ export async function completeReview(reviewId: string, performedBy: string) {
 	// Audit + compliance-sync hopper over
 	// hvis status-UPDATE matchet 0 rader (samtidig completion-race).
 	const result = await db.transaction(async (tx) => {
+		// Lås gjennomgangen først slik at oppfølgingspunktene leses etter samtidige statusendringer.
+		const [locked] = await tx
+			.select({ status: routineReviews.status })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, reviewId))
+			.for("update", { of: [routines, routineReviews] })
+			.limit(1)
+		// Gjennomgangen er forkastet eller fullført av en samtidig operasjon — ingenting skal committes.
+		if (!locked || locked.status !== "draft") {
+			return { statusChanged: false, newStatus: "needs_follow_up" as const }
+		}
+
+		const lockedPoints = await tx
+			.select({ text: routineReviewFollowUpPoints.text, description: routineReviewFollowUpPoints.description })
+			.from(routineReviewFollowUpPoints)
+			.where(and(eq(routineReviewFollowUpPoints.reviewId, reviewId), isNull(routineReviewFollowUpPoints.archivedAt)))
+		const lockedMissingDescription = lockedPoints.filter((p) => !p.description || p.description.trim().length === 0)
+		if (lockedMissingDescription.length > 0) {
+			throw new Response(
+				"Alle oppfølgingspunkter må ha en beskrivelse før gjennomgangen kan fullføres. Mangler beskrivelse på: " +
+					lockedMissingDescription.map((p) => p.text).join(", "),
+				{ status: 400 },
+			)
+		}
+
 		// Fullfør alle ventende aktiviteter innenfor tx slik at de rolles
 		// tilbake ved transaksjonsfeil (f.eks. statusvakt i UPDATE matchet 0 rader).
 		for (const activity of allActivities) {
@@ -2170,6 +2138,7 @@ export async function completeReview(reviewId: string, performedBy: string) {
 				and(
 					eq(routineReviewFollowUpPoints.reviewId, reviewId),
 					eq(routineReviewFollowUpPoints.status, "needs_follow_up"),
+					isNull(routineReviewFollowUpPoints.archivedAt),
 				),
 			)
 			.limit(1)
@@ -2195,6 +2164,26 @@ export async function completeReview(reviewId: string, performedBy: string) {
 			},
 			tx,
 		)
+
+		// Punktene blir en reell oppfølgingsforpliktelse først ved ferdigstilling.
+		const completedPoints = await tx
+			.select()
+			.from(routineReviewFollowUpPoints)
+			.where(and(eq(routineReviewFollowUpPoints.reviewId, reviewId), isNull(routineReviewFollowUpPoints.archivedAt)))
+			.orderBy(routineReviewFollowUpPoints.createdAt)
+		for (const point of completedPoints) {
+			await writeAuditLog(
+				{
+					action: "review_follow_up_added",
+					entityType: "review_follow_up_point",
+					entityId: point.id,
+					newValue: point.text,
+					metadata: { reviewId, status: point.status, description: point.description },
+					performedBy,
+				},
+				tx,
+			)
+		}
 		return { statusChanged: true, newStatus }
 	})
 
@@ -2334,18 +2323,6 @@ export async function addFollowUpPoint(params: {
 			})
 			.returning()
 
-		await writeAuditLog(
-			{
-				action: "review_follow_up_added",
-				entityType: "review_follow_up_point",
-				entityId: row.id,
-				newValue: trimmed,
-				metadata: { reviewId },
-				performedBy,
-			},
-			tx,
-		)
-
 		return row
 	})
 
@@ -2373,7 +2350,8 @@ export async function updateFollowUpPointText(params: {
 		const [existing] = await tx
 			.select()
 			.from(routineReviewFollowUpPoints)
-			.where(eq(routineReviewFollowUpPoints.id, pointId))
+			.where(and(eq(routineReviewFollowUpPoints.id, pointId), isNull(routineReviewFollowUpPoints.archivedAt)))
+			.for("update", { of: [routineReviewFollowUpPoints] })
 			.limit(1)
 		if (!existing || existing.reviewId !== expectedReviewId) {
 			throw new Response("Oppfølgingspunkt ikke funnet", { status: 404 })
@@ -2402,22 +2380,12 @@ export async function updateFollowUpPointText(params: {
 		const [updated] = await tx
 			.update(routineReviewFollowUpPoints)
 			.set({ text: trimmed, updatedBy: performedBy, updatedAt: new Date() })
-			.where(eq(routineReviewFollowUpPoints.id, pointId))
+			.where(and(eq(routineReviewFollowUpPoints.id, pointId), isNull(routineReviewFollowUpPoints.archivedAt)))
 			.returning()
 
-		await writeAuditLog(
-			{
-				action: "review_follow_up_updated",
-				entityType: "review_follow_up_point",
-				entityId: pointId,
-				previousValue: existing.text,
-				newValue: trimmed,
-				metadata: { reviewId: expectedReviewId },
-				performedBy,
-			},
-			tx,
-		)
-
+		if (!updated) {
+			throw new Response("Oppfølgingspunkt ikke funnet", { status: 404 })
+		}
 		return updated
 	})
 }
@@ -2442,7 +2410,8 @@ export async function updateFollowUpPointDescription(params: {
 		const [existing] = await tx
 			.select()
 			.from(routineReviewFollowUpPoints)
-			.where(eq(routineReviewFollowUpPoints.id, pointId))
+			.where(and(eq(routineReviewFollowUpPoints.id, pointId), isNull(routineReviewFollowUpPoints.archivedAt)))
+			.for("update", { of: [routineReviewFollowUpPoints] })
 			.limit(1)
 		if (!existing || existing.reviewId !== expectedReviewId) {
 			throw new Response("Oppfølgingspunkt ikke funnet", { status: 404 })
@@ -2467,22 +2436,12 @@ export async function updateFollowUpPointDescription(params: {
 		const [updated] = await tx
 			.update(routineReviewFollowUpPoints)
 			.set({ description: trimmed, updatedBy: performedBy, updatedAt: new Date() })
-			.where(eq(routineReviewFollowUpPoints.id, pointId))
+			.where(and(eq(routineReviewFollowUpPoints.id, pointId), isNull(routineReviewFollowUpPoints.archivedAt)))
 			.returning()
 
-		await writeAuditLog(
-			{
-				action: "review_follow_up_description_updated",
-				entityType: "review_follow_up_point",
-				entityId: pointId,
-				previousValue: existing.description,
-				newValue: trimmed,
-				metadata: { reviewId: expectedReviewId },
-				performedBy,
-			},
-			tx,
-		)
-
+		if (!updated) {
+			throw new Response("Oppfølgingspunkt ikke funnet", { status: 404 })
+		}
 		return updated
 	})
 }
@@ -2511,7 +2470,8 @@ export async function updateFollowUpPointStatus(params: {
 		const [existing] = await tx
 			.select()
 			.from(routineReviewFollowUpPoints)
-			.where(eq(routineReviewFollowUpPoints.id, pointId))
+			.where(and(eq(routineReviewFollowUpPoints.id, pointId), isNull(routineReviewFollowUpPoints.archivedAt)))
+			.for("update", { of: [routineReviewFollowUpPoints] })
 			.limit(1)
 		if (!existing || existing.reviewId !== expectedReviewId) {
 			throw new Response("Oppfølgingspunkt ikke funnet", { status: 404 })
@@ -2559,38 +2519,48 @@ export async function updateFollowUpPointStatus(params: {
 			setValues.resolution = trimmedResolution ?? null
 		}
 
-		await tx.update(routineReviewFollowUpPoints).set(setValues).where(eq(routineReviewFollowUpPoints.id, pointId))
-
-		if (statusChanged) {
-			await writeAuditLog(
-				{
-					action: "review_follow_up_status_changed",
-					entityType: "review_follow_up_point",
-					entityId: pointId,
-					previousValue: existing.status,
-					newValue: status,
-					metadata: {
-						reviewId: expectedReviewId,
-						...(resolutionProvided ? { resolution: trimmedResolution } : {}),
-					},
-					performedBy,
-				},
-				tx,
-			)
+		const [updatedPoint] = await tx
+			.update(routineReviewFollowUpPoints)
+			.set(setValues)
+			.where(and(eq(routineReviewFollowUpPoints.id, pointId), isNull(routineReviewFollowUpPoints.archivedAt)))
+			.returning({ id: routineReviewFollowUpPoints.id })
+		if (!updatedPoint) {
+			throw new Response("Oppfølgingspunkt ikke funnet", { status: 404 })
 		}
-		if (resolutionChanged) {
-			await writeAuditLog(
-				{
-					action: "review_follow_up_resolution_updated",
-					entityType: "review_follow_up_point",
-					entityId: pointId,
-					previousValue: existing.resolution,
-					newValue: trimmedResolution ?? null,
-					metadata: { reviewId: expectedReviewId },
-					performedBy,
-				},
-				tx,
-			)
+
+		// Oppfølging etter ferdigstilling skjer utenfor selve gjennomgangen og skal audit-logges.
+		if (snapshot.reviewStatus !== "draft") {
+			if (statusChanged) {
+				await writeAuditLog(
+					{
+						action: "review_follow_up_status_changed",
+						entityType: "review_follow_up_point",
+						entityId: pointId,
+						previousValue: existing.status,
+						newValue: status,
+						metadata: {
+							reviewId: expectedReviewId,
+							...(resolutionProvided ? { resolution: trimmedResolution } : {}),
+						},
+						performedBy,
+					},
+					tx,
+				)
+			}
+			if (resolutionChanged) {
+				await writeAuditLog(
+					{
+						action: "review_follow_up_resolution_updated",
+						entityType: "review_follow_up_point",
+						entityId: pointId,
+						previousValue: existing.resolution,
+						newValue: trimmedResolution ?? null,
+						metadata: { reviewId: expectedReviewId },
+						performedBy,
+					},
+					tx,
+				)
+			}
 		}
 
 		// Recompute review-status hvis review er i et oppfølgingsfølsomt
@@ -2604,6 +2574,7 @@ export async function updateFollowUpPointStatus(params: {
 					and(
 						eq(routineReviewFollowUpPoints.reviewId, expectedReviewId),
 						eq(routineReviewFollowUpPoints.status, "needs_follow_up"),
+						isNull(routineReviewFollowUpPoints.archivedAt),
 					),
 				)
 				.limit(1)
@@ -2611,6 +2582,19 @@ export async function updateFollowUpPointStatus(params: {
 			if (target !== snapshot.reviewStatus) {
 				await tx.update(routineReviews).set({ status: target }).where(eq(routineReviews.id, expectedReviewId))
 				newReviewStatus = target
+				if (target === "completed") {
+					await writeAuditLog(
+						{
+							action: "routine_review_completed",
+							entityType: "routine_review",
+							entityId: expectedReviewId,
+							previousValue: snapshot.reviewStatus,
+							newValue: target,
+							performedBy,
+						},
+						tx,
+					)
+				}
 			}
 		}
 
@@ -2623,8 +2607,7 @@ export async function updateFollowUpPointStatus(params: {
 }
 
 /**
- * Sletter et oppfølgingspunkt. Kun tillatt mens gjennomgangen er i `draft`.
- * Etter completion bevares punkter for historikkens skyld.
+ * Arkiverer et oppfølgingspunkt. Kun tillatt mens gjennomgangen er i `draft`.
  */
 export async function deleteFollowUpPoint(params: { pointId: string; expectedReviewId: string; performedBy: string }) {
 	const { pointId, expectedReviewId, performedBy } = params
@@ -2633,7 +2616,8 @@ export async function deleteFollowUpPoint(params: { pointId: string; expectedRev
 		const [existing] = await tx
 			.select()
 			.from(routineReviewFollowUpPoints)
-			.where(eq(routineReviewFollowUpPoints.id, pointId))
+			.where(and(eq(routineReviewFollowUpPoints.id, pointId), isNull(routineReviewFollowUpPoints.archivedAt)))
+			.for("update", { of: [routineReviewFollowUpPoints] })
 			.limit(1)
 		if (!existing || existing.reviewId !== expectedReviewId) {
 			throw new Response("Oppfølgingspunkt ikke funnet", { status: 404 })
@@ -2653,21 +2637,13 @@ export async function deleteFollowUpPoint(params: { pointId: string; expectedRev
 			throw new Response("Oppfølgingspunkt kan kun slettes mens gjennomgangen er utkast.", { status: 409 })
 		}
 
-		await tx.delete(routineReviewFollowUpPoints).where(eq(routineReviewFollowUpPoints.id, pointId))
+		const [archived] = await tx
+			.update(routineReviewFollowUpPoints)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(and(eq(routineReviewFollowUpPoints.id, pointId), isNull(routineReviewFollowUpPoints.archivedAt)))
+			.returning()
 
-		await writeAuditLog(
-			{
-				action: "review_follow_up_deleted",
-				entityType: "review_follow_up_point",
-				entityId: pointId,
-				previousValue: existing.text,
-				metadata: { reviewId: expectedReviewId, status: existing.status },
-				performedBy,
-			},
-			tx,
-		)
-
-		return existing
+		return archived ?? null
 	})
 }
 
@@ -2724,16 +2700,19 @@ export async function addReviewLink(params: {
 			})
 			.returning()
 
-		await writeAuditLog(
-			{
-				action: "review_link_added",
-				entityType: "routine_review",
-				entityId: params.reviewId,
-				newValue: params.url,
-				performedBy: params.addedBy,
-			},
-			tx,
-		)
+		// Endringer etter ferdigstilling skjer utenfor selve gjennomgangen og skal audit-logges.
+		if (snapshot.reviewStatus !== "draft") {
+			await writeAuditLog(
+				{
+					action: "review_link_added",
+					entityType: "routine_review",
+					entityId: params.reviewId,
+					newValue: params.url,
+					performedBy: params.addedBy,
+				},
+				tx,
+			)
+		}
 
 		return link
 	})
@@ -2755,12 +2734,13 @@ export async function deleteReviewLink(linkId: string, expectedReviewId: string,
 			.select({
 				reviewId: routineReviewLinks.reviewId,
 				linkArchivedAt: routineReviewLinks.archivedAt,
+				reviewStatus: routineReviews.status,
 			})
 			.from(routineReviewLinks)
 			.innerJoin(routineReviews, eq(routineReviewLinks.reviewId, routineReviews.id))
 			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 			.where(eq(routineReviewLinks.id, linkId))
-			.for("share", { of: [routines] })
+			.for("share", { of: [routines, routineReviews] })
 			.limit(1)
 		if (!linkSnapshot) return null
 		if (linkSnapshot.reviewId !== expectedReviewId) {
@@ -2776,46 +2756,61 @@ export async function deleteReviewLink(linkId: string, expectedReviewId: string,
 			.returning()
 		if (!link) return null
 
-		await writeAuditLog(
-			{
-				action: "review_link_deleted",
-				entityType: "routine_review",
-				entityId: link.reviewId,
-				newValue: link.url,
-				performedBy,
-			},
-			tx,
-		)
+		if (linkSnapshot.reviewStatus !== "draft") {
+			await writeAuditLog(
+				{
+					action: "review_link_deleted",
+					entityType: "routine_review",
+					entityId: expectedReviewId,
+					newValue: link.url,
+					performedBy,
+				},
+				tx,
+			)
+		}
 
 		return link
 	})
 }
 
 export async function confirmParticipation(reviewId: string, userIdent: string) {
-	const [participant] = await db
-		.update(routineReviewParticipants)
-		.set({ confirmedAt: new Date() })
-		.where(
-			and(
-				eq(routineReviewParticipants.reviewId, reviewId),
-				eq(routineReviewParticipants.userIdent, userIdent),
-				isNull(routineReviewParticipants.archivedAt),
-			),
-		)
-		.returning()
+	return db.transaction(async (tx) => {
+		const [snapshot] = await tx
+			.select({ reviewStatus: routineReviews.status })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, reviewId))
+			.for("share", { of: [routines, routineReviews] })
+			.limit(1)
 
-	if (participant) {
-		await writeAuditLog({
-			action: "routine_review_confirmed",
-			entityType: "routine_review_participant",
-			entityId: participant.id,
-			newValue: userIdent,
-			metadata: { reviewId },
-			performedBy: userIdent,
-		})
-	}
+		const [participant] = await tx
+			.update(routineReviewParticipants)
+			.set({ confirmedAt: new Date() })
+			.where(
+				and(
+					eq(routineReviewParticipants.reviewId, reviewId),
+					eq(routineReviewParticipants.userIdent, userIdent),
+					isNull(routineReviewParticipants.archivedAt),
+				),
+			)
+			.returning()
 
-	return participant ?? null
+		if (participant && snapshot && snapshot.reviewStatus !== "draft") {
+			await writeAuditLog(
+				{
+					action: "routine_review_confirmed",
+					entityType: "routine_review_participant",
+					entityId: participant.id,
+					newValue: userIdent,
+					metadata: { reviewId },
+					performedBy: userIdent,
+				},
+				tx,
+			)
+		}
+
+		return participant ?? null
+	})
 }
 
 // ─── Review Attachments ──────────────────────────────────────────────────
@@ -2829,29 +2824,44 @@ export async function addReviewAttachment(params: {
 	uploadedBy: string
 	activityStepId?: string | null
 }) {
-	const [attachment] = await db
-		.insert(routineReviewAttachments)
-		.values({
-			reviewId: params.reviewId,
-			fileName: params.fileName,
-			bucketPath: params.bucketPath,
-			contentType: params.contentType,
-			sizeBytes: params.sizeBytes,
-			uploadedBy: params.uploadedBy,
-			activityStepId: params.activityStepId ?? null,
-		})
-		.returning()
+	return db.transaction(async (tx) => {
+		const [snapshot] = await tx
+			.select({ reviewStatus: routineReviews.status })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, params.reviewId))
+			.for("share", { of: [routines, routineReviews] })
+			.limit(1)
 
-	await writeAuditLog({
-		action: "routine_attachment_uploaded",
-		entityType: "routine_review_attachment",
-		entityId: attachment.id,
-		newValue: params.fileName,
-		metadata: { reviewId: params.reviewId, contentType: params.contentType },
-		performedBy: params.uploadedBy,
+		const [attachment] = await tx
+			.insert(routineReviewAttachments)
+			.values({
+				reviewId: params.reviewId,
+				fileName: params.fileName,
+				bucketPath: params.bucketPath,
+				contentType: params.contentType,
+				sizeBytes: params.sizeBytes,
+				uploadedBy: params.uploadedBy,
+				activityStepId: params.activityStepId ?? null,
+			})
+			.returning()
+
+		if (snapshot && snapshot.reviewStatus !== "draft") {
+			await writeAuditLog(
+				{
+					action: "routine_attachment_uploaded",
+					entityType: "routine_review_attachment",
+					entityId: attachment.id,
+					newValue: params.fileName,
+					metadata: { reviewId: params.reviewId, contentType: params.contentType },
+					performedBy: params.uploadedBy,
+				},
+				tx,
+			)
+		}
+
+		return attachment
 	})
-
-	return attachment
 }
 
 /** Lightweight scope lookup for a review — used to determine access control without loading the full enriched review. */
@@ -2895,7 +2905,7 @@ export async function getFollowUpPointAttachmentContext(pointId: string): Promis
 		.from(routineReviewFollowUpPoints)
 		.innerJoin(routineReviews, eq(routineReviewFollowUpPoints.reviewId, routineReviews.id))
 		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
-		.where(eq(routineReviewFollowUpPoints.id, pointId))
+		.where(and(eq(routineReviewFollowUpPoints.id, pointId), isNull(routineReviewFollowUpPoints.archivedAt)))
 		.limit(1)
 	return row ?? null
 }
@@ -2905,33 +2915,85 @@ export async function addFollowUpPointAttachment(params: {
 	kind: FollowUpPointAttachmentKind
 	fileName: string
 	bucketPath: string
+	bucketName: string
 	contentType: string
-	sizeBytes: number | null
+	sizeBytes: number
 	uploadedBy: string
 }) {
-	const [attachment] = await db
-		.insert(routineReviewFollowUpPointAttachments)
-		.values({
-			pointId: params.pointId,
-			kind: params.kind,
-			fileName: params.fileName,
-			bucketPath: params.bucketPath,
-			contentType: params.contentType,
-			sizeBytes: params.sizeBytes,
-			uploadedBy: params.uploadedBy,
-		})
-		.returning()
+	return db.transaction(async (tx) => {
+		const [point] = await tx
+			.select({
+				reviewId: routineReviewFollowUpPoints.reviewId,
+				reviewStatus: routineReviews.status,
+			})
+			.from(routineReviewFollowUpPoints)
+			.innerJoin(routineReviews, eq(routineReviewFollowUpPoints.reviewId, routineReviews.id))
+			.where(and(eq(routineReviewFollowUpPoints.id, params.pointId), isNull(routineReviewFollowUpPoints.archivedAt)))
+			.for("update", { of: [routineReviewFollowUpPoints, routineReviews] })
+			.limit(1)
+		if (!point) {
+			throw new Response("Oppfølgingspunkt ikke funnet", { status: 404 })
+		}
+		if (point.reviewStatus === "discarded") {
+			throw new Response("Kan ikke laste opp vedlegg på en kassert gjennomgang.", { status: 409 })
+		}
+		if (params.kind === "description" && point.reviewStatus !== "draft") {
+			throw new Response("Beskrivelse-vedlegg kan kun lastes opp mens gjennomgangen er utkast.", { status: 409 })
+		}
+		if (params.kind === "resolution" && point.reviewStatus !== "draft" && point.reviewStatus !== "needs_follow_up") {
+			throw new Response(
+				"Vedlegg på oppfølging kan kun lastes opp mens gjennomgangen er utkast eller har punkter som må følges opp.",
+				{ status: 409 },
+			)
+		}
 
-	await writeAuditLog({
-		action: "review_follow_up_attachment_uploaded",
-		entityType: "routine_review_follow_up_point_attachment",
-		entityId: attachment.id,
-		newValue: params.fileName,
-		metadata: { pointId: params.pointId, kind: params.kind, contentType: params.contentType },
-		performedBy: params.uploadedBy,
+		await saveBucketObject(
+			{
+				bucketName: params.bucketName,
+				objectPath: params.bucketPath,
+				contentType: params.contentType,
+				sizeBytes: params.sizeBytes,
+				objectType: "routine-review-follow-up-point-attachment",
+				uploadedBy: params.uploadedBy,
+				metadata: {
+					originalFileName: params.fileName,
+					pointId: params.pointId,
+					reviewId: point.reviewId,
+					kind: params.kind,
+				},
+			},
+			tx,
+		)
+
+		const [attachment] = await tx
+			.insert(routineReviewFollowUpPointAttachments)
+			.values({
+				pointId: params.pointId,
+				kind: params.kind,
+				fileName: params.fileName,
+				bucketPath: params.bucketPath,
+				contentType: params.contentType,
+				sizeBytes: params.sizeBytes,
+				uploadedBy: params.uploadedBy,
+			})
+			.returning()
+
+		if (point.reviewStatus !== "draft") {
+			await writeAuditLog(
+				{
+					action: "review_follow_up_attachment_uploaded",
+					entityType: "routine_review_follow_up_point_attachment",
+					entityId: attachment.id,
+					newValue: params.fileName,
+					metadata: { pointId: params.pointId, kind: params.kind, contentType: params.contentType },
+					performedBy: params.uploadedBy,
+				},
+				tx,
+			)
+		}
+
+		return attachment
 	})
-
-	return attachment
 }
 
 // ─── Eligibility — which apps need a routine? ────────────────────────────
@@ -5650,7 +5712,7 @@ export async function buildEntraGroupSnapshot(applicationId: string): Promise<En
 export async function seedEntraActivity(
 	activityId: string,
 	applicationId: string,
-	performedBy: string,
+	_performedBy: string,
 ): Promise<EntraStagedData> {
 	if (!applicationId) {
 		throw new Error("Kan ikke seed'e Entra-aktivitet uten applikasjon")
@@ -5724,18 +5786,7 @@ export async function seedEntraActivity(
 				.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
 				.returning({ stagedData: routineReviewActivities.stagedData })
 
-			if (updated?.stagedData) {
-				await writeAuditLog(
-					{
-						action: "review_activity_seeded",
-						entityType: "routine_review_activity",
-						entityId: activityId,
-						performedBy: performedBy,
-					},
-					tx,
-				)
-				return parseEntraStagedData(updated.stagedData)
-			}
+			if (updated?.stagedData) return parseEntraStagedData(updated.stagedData)
 
 			const [current2] = await tx
 				.select({ stagedData: routineReviewActivities.stagedData })
@@ -5823,7 +5874,6 @@ export async function patchEntraActivity(
 			}
 
 			let stagedData = activity.stagedData ? parseEntraStagedData(activity.stagedData) : null
-			let seededInThisCall = false
 			if (!stagedData) {
 				if (!seedResult) {
 					throw new Error(`Mangler staged_data for Entra-aktivitet ${activityId}`)
@@ -5836,7 +5886,6 @@ export async function patchEntraActivity(
 						snapshotBefore: sql`COALESCE(${routineReviewActivities.snapshotBefore}, ${JSON.stringify(seedResult.snapshot)}::jsonb)`,
 					})
 					.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
-				seededInThisCall = true
 			}
 
 			let updatedData: EntraStagedData
@@ -5849,19 +5898,6 @@ export async function patchEntraActivity(
 				.update(routineReviewActivities)
 				.set({ stagedData: updatedData })
 				.where(eq(routineReviewActivities.id, activityId))
-
-			// Audit-log seeding if it happened in this call
-			if (seededInThisCall) {
-				await writeAuditLog(
-					{
-						action: "review_activity_seeded",
-						entityType: "routine_review_activity",
-						entityId: activityId,
-						performedBy,
-					},
-					tx,
-				)
-			}
 
 			// Skip change logging if the patch was a no-op (staged_data identical before/after)
 			const wasNoOp = JSON.stringify(stagedData.groups) === JSON.stringify(updatedData.groups)
@@ -5925,7 +5961,7 @@ export async function createReviewActivity(
 	reviewId: string,
 	type: RoutineActivityType,
 	snapshotBefore: EntraGroupSnapshot | null,
-	performedBy: string,
+	_performedBy: string,
 	providerConfig: ReviewActivityProviderConfig | null = null,
 ) {
 	const [activity] = await db
@@ -5937,15 +5973,6 @@ export async function createReviewActivity(
 			providerConfig,
 		})
 		.returning()
-
-	await writeAuditLog({
-		action: "review_activity_created",
-		entityType: "routine_review_activity",
-		entityId: activity.id,
-		newValue: type,
-		metadata: providerConfig ? { reviewId, providerConfig } : { reviewId },
-		performedBy,
-	})
 
 	return activity
 }
@@ -6029,7 +6056,7 @@ export async function autoCreateActivitiesForReview(
 	reviewId: string,
 	routineId: string,
 	_applicationId: string | null,
-	performedBy: string,
+	_performedBy: string,
 	providerConfigs?: Record<string, ReviewActivityProviderConfig>,
 ) {
 	const activityLinks = await db
@@ -6067,31 +6094,26 @@ export async function autoCreateActivitiesForReview(
 
 			// For non-manual-activity types: use onConflictDoNothing (unique constraint prevents duplicates).
 			// Manual activity has no unique constraint so every link gets its own activity row.
-			let inserted: (typeof routineReviewActivities.$inferInsert & { id: string }) | undefined
-
 			if (isManualActivity) {
 				// Skip if this manual activity slot was already created (idempotency guard)
 				const key = `${i}:${link.stepTitle ?? ""}`
 				if (existingManualActivityKeys.has(key)) continue
 
-				;[inserted] = await tx
-					.insert(routineReviewActivities)
-					.values({
-						reviewId,
-						type: link.activityType as RoutineActivityType,
-						sortOrder: i,
-						snapshotBefore: link.stepTitle
-							? {
-									stepTitle: link.stepTitle,
-									stepDescription: link.stepDescription ?? null,
-									stepComponents: (link.stepComponents as Array<{ type: string; required: boolean }> | null) ?? null,
-								}
-							: null,
-						providerConfig: config,
-					})
-					.returning()
+				await tx.insert(routineReviewActivities).values({
+					reviewId,
+					type: link.activityType as RoutineActivityType,
+					sortOrder: i,
+					snapshotBefore: link.stepTitle
+						? {
+								stepTitle: link.stepTitle,
+								stepDescription: link.stepDescription ?? null,
+								stepComponents: (link.stepComponents as Array<{ type: string; required: boolean }> | null) ?? null,
+							}
+						: null,
+					providerConfig: config,
+				})
 			} else {
-				;[inserted] = await tx
+				await tx
 					.insert(routineReviewActivities)
 					.values({
 						reviewId,
@@ -6101,21 +6123,6 @@ export async function autoCreateActivitiesForReview(
 						providerConfig: config,
 					})
 					.onConflictDoNothing()
-					.returning()
-			}
-
-			if (inserted) {
-				await writeAuditLog(
-					{
-						action: "review_activity_created",
-						entityType: "routine_review_activity",
-						entityId: inserted.id,
-						newValue: link.activityType,
-						metadata: config ? { reviewId, providerConfig: config } : { reviewId },
-						performedBy,
-					},
-					tx,
-				)
 			}
 		}
 	})
@@ -6162,21 +6169,6 @@ export async function recordEntraChange(
 				performedBy: params.performedBy,
 			})
 			.returning()
-
-		await writeAuditLog(
-			{
-				action: "review_activity_entra_change",
-				entityType: "routine_review_activity",
-				entityId: params.activityId,
-				newValue: JSON.stringify({
-					changeType: params.changeType,
-					groupId: params.groupId,
-					groupName: params.groupName,
-				}),
-				performedBy: params.performedBy,
-			},
-			exec,
-		)
 
 		return change
 	}
@@ -6539,16 +6531,6 @@ export async function completeReviewActivity(
 					throw new Response("Aktiviteten er allerede fullført", { status: 409 })
 				}
 
-				await writeAuditLog(
-					{
-						action: "review_activity_completed",
-						entityType: "routine_review_activity",
-						entityId: activityId,
-						performedBy,
-					},
-					exec,
-				)
-
 				return updated
 			}
 
@@ -6578,16 +6560,6 @@ export async function completeReviewActivity(
 				if (!updated) {
 					throw new Response("Aktiviteten er allerede fullført", { status: 409 })
 				}
-
-				await writeAuditLog(
-					{
-						action: "review_activity_completed",
-						entityType: "routine_review_activity",
-						entityId: activityId,
-						performedBy,
-					},
-					exec,
-				)
 
 				return updated
 			}
@@ -6623,16 +6595,6 @@ export async function completeReviewActivity(
 				if (!updated) {
 					throw new Response("Aktiviteten er allerede fullført", { status: 409 })
 				}
-
-				await writeAuditLog(
-					{
-						action: "review_activity_completed",
-						entityType: "routine_review_activity",
-						entityId: activityId,
-						performedBy,
-					},
-					exec,
-				)
 
 				return updated
 			}
@@ -6763,16 +6725,6 @@ export async function completeReviewActivity(
 		if (!updated) {
 			throw new Response("Aktiviteten er allerede fullført", { status: 409 })
 		}
-
-		await writeAuditLog(
-			{
-				action: "review_activity_completed",
-				entityType: "routine_review_activity",
-				entityId: activityId,
-				performedBy,
-			},
-			exec,
-		)
 
 		return updated
 	}
@@ -8267,6 +8219,7 @@ async function getFollowUpReviews(filter: SQL) {
 			and(
 				inArray(routineReviewFollowUpPoints.reviewId, reviewIds),
 				eq(routineReviewFollowUpPoints.status, "needs_follow_up"),
+				isNull(routineReviewFollowUpPoints.archivedAt),
 			),
 		)
 		.orderBy(routineReviewFollowUpPoints.createdAt)
@@ -8315,6 +8268,7 @@ export async function countOpenFollowUpPointsForApps(sectionId: string, appIds: 
 				eq(routineReviews.status, "needs_follow_up"),
 				isNull(routines.archivedAt),
 				eq(routineReviewFollowUpPoints.status, "needs_follow_up"),
+				isNull(routineReviewFollowUpPoints.archivedAt),
 			),
 		)
 	return row?.count ?? 0
@@ -8479,7 +8433,7 @@ async function waitForOracleRoleCriticalitySeed(activityId: string): Promise<Ora
 export async function seedOracleRoleCriticalityActivity(
 	activityId: string,
 	applicationId: string,
-	performedBy: string,
+	_performedBy: string,
 ): Promise<OracleRoleCriticalityStagedData> {
 	if (!applicationId) {
 		throw new Error("Kan ikke seed'e Oracle-rollekritikalitet-aktivitet uten applikasjon")
@@ -8544,18 +8498,7 @@ export async function seedOracleRoleCriticalityActivity(
 				.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
 				.returning({ stagedData: routineReviewActivities.stagedData })
 
-			if (updated?.stagedData) {
-				await writeAuditLog(
-					{
-						action: "review_activity_seeded",
-						entityType: "routine_review_activity",
-						entityId: activityId,
-						performedBy,
-					},
-					tx,
-				)
-				return parseOracleRoleCriticalityStagedData(updated.stagedData)
-			}
+			if (updated?.stagedData) return parseOracleRoleCriticalityStagedData(updated.stagedData)
 
 			// Another pod won the race — read what they wrote
 			const [current2] = await tx
@@ -8587,7 +8530,7 @@ export async function seedOracleRoleCriticalityActivity(
 export async function patchOracleRoleCriticalityActivity(
 	activityId: string,
 	patch: OracleRoleCriticalityStagedDataPatch,
-	performedBy: string,
+	_performedBy: string,
 ): Promise<void> {
 	const [precheck] = await db
 		.select({
@@ -8616,7 +8559,7 @@ export async function patchOracleRoleCriticalityActivity(
 
 	// Seed if not already done (handles first patch after activity creation)
 	if (!precheck.stagedData) {
-		await seedOracleRoleCriticalityActivity(activityId, precheck.applicationId, performedBy)
+		await seedOracleRoleCriticalityActivity(activityId, precheck.applicationId, _performedBy)
 	}
 
 	const lockName = `oracle_role_criticality-activity-${activityId}`
@@ -8645,24 +8588,12 @@ export async function patchOracleRoleCriticalityActivity(
 			const updated = applyOracleRoleCriticalityPatch(existing, patch)
 
 			const wasNoOp = JSON.stringify(existing.roles) === JSON.stringify(updated.roles)
+			if (wasNoOp) return
 
 			await tx
 				.update(routineReviewActivities)
 				.set({ stagedData: updated })
 				.where(eq(routineReviewActivities.id, activityId))
-
-			if (!wasNoOp) {
-				await writeAuditLog(
-					{
-						action: "review_activity_oracle_role_criticality_patched",
-						entityType: "routine_review_activity",
-						entityId: activityId,
-						newValue: JSON.stringify(patch),
-						performedBy,
-					},
-					tx,
-				)
-			}
 		})
 	})
 
@@ -8958,7 +8889,7 @@ export async function archiveActivityStep(stepId: string, performedBy: string) {
 	})
 }
 
-export async function seedManualActivity(activityId: string, routineId: string, performedBy: string) {
+export async function seedManualActivity(activityId: string, routineId: string, _performedBy: string) {
 	// Idempotent: return existing staged_data if already seeded
 	const [activity] = await db
 		.select({
@@ -9019,20 +8950,7 @@ export async function seedManualActivity(activityId: string, routineId: string, 
 		}
 	}
 
-	await db.transaction(async (tx) => {
-		await tx.update(routineReviewActivities).set({ stagedData }).where(eq(routineReviewActivities.id, activityId))
-
-		await writeAuditLog(
-			{
-				action: "review_activity_seeded",
-				entityType: "routine_review_activity",
-				entityId: activityId,
-				newValue: JSON.stringify({ activityType: MANUAL_ACTIVITY_TYPE, stepCount: stagedData.steps.length }),
-				performedBy,
-			},
-			tx,
-		)
-	})
+	await db.update(routineReviewActivities).set({ stagedData }).where(eq(routineReviewActivities.id, activityId))
 
 	return stagedData
 }
@@ -9067,20 +8985,7 @@ export async function patchManualActivityStep(
 			completedBy: completed ? performedBy : null,
 		}
 
-		await db.transaction(async (tx) => {
-			await tx.update(routineReviewActivities).set({ stagedData }).where(eq(routineReviewActivities.id, activityId))
-
-			await writeAuditLog(
-				{
-					action: "review_activity_checklist_step_toggled",
-					entityType: "routine_review_activity",
-					entityId: activityId,
-					newValue: JSON.stringify({ stepId, completed }),
-					performedBy,
-				},
-				tx,
-			)
-		})
+		await db.update(routineReviewActivities).set({ stagedData }).where(eq(routineReviewActivities.id, activityId))
 
 		return stagedData
 	})
@@ -9096,7 +9001,7 @@ export async function patchManualActivityStepNotes(
 	activityId: string,
 	stepId: string,
 	notes: string | null,
-	performedBy: string,
+	_performedBy: string,
 ): Promise<ManualActivityStagedData> {
 	const lockName = `${MANUAL_ACTIVITY_TYPE}-activity-${activityId}`
 
@@ -9120,20 +9025,7 @@ export async function patchManualActivityStepNotes(
 			notes: notes?.trim() || null,
 		}
 
-		await db.transaction(async (tx) => {
-			await tx.update(routineReviewActivities).set({ stagedData }).where(eq(routineReviewActivities.id, activityId))
-
-			await writeAuditLog(
-				{
-					action: "review_activity_checklist_step_toggled",
-					entityType: "routine_review_activity",
-					entityId: activityId,
-					newValue: JSON.stringify({ stepId, notesUpdated: true }),
-					performedBy,
-				},
-				tx,
-			)
-		})
+		await db.update(routineReviewActivities).set({ stagedData }).where(eq(routineReviewActivities.id, activityId))
 
 		return stagedData
 	})
@@ -9145,7 +9037,7 @@ export async function patchManualActivityStepNotes(
 	return result
 }
 
-export async function completeManualActivity(activityId: string, performedBy: string) {
+export async function completeManualActivity(activityId: string, _performedBy: string) {
 	const lockName = `${MANUAL_ACTIVITY_TYPE}-activity-${activityId}`
 
 	const result = await withAdvisoryLock(lockName, async () => {
@@ -9166,23 +9058,10 @@ export async function completeManualActivity(activityId: string, performedBy: st
 			throw new Response("Ikke alle steg er fullført", { status: 400 })
 		}
 
-		await db.transaction(async (tx) => {
-			await tx
-				.update(routineReviewActivities)
-				.set({ status: "completed", completedAt: new Date(), snapshotAfter: stagedData })
-				.where(eq(routineReviewActivities.id, activityId))
-
-			await writeAuditLog(
-				{
-					action: "review_activity_completed",
-					entityType: "routine_review_activity",
-					entityId: activityId,
-					newValue: JSON.stringify({ activityType: MANUAL_ACTIVITY_TYPE }),
-					performedBy,
-				},
-				tx,
-			)
-		})
+		await db
+			.update(routineReviewActivities)
+			.set({ status: "completed", completedAt: new Date(), snapshotAfter: stagedData })
+			.where(eq(routineReviewActivities.id, activityId))
 
 		return { alreadyCompleted: false }
 	})

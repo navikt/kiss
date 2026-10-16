@@ -770,9 +770,9 @@ describe("Routines integration tests", () => {
 
 			const db = getTestDb()
 			const auditResult = await db.execute(
-				/* sql */ `SELECT * FROM audit_log WHERE action = 'routine_review_confirmed'`,
+				/* sql */ `SELECT * FROM audit_log WHERE action = 'routine_review_confirmed' AND entity_id = '${confirmed?.id}'`,
 			)
-			expect(auditResult.rows.length).toBeGreaterThanOrEqual(1)
+			expect(auditResult.rows).toHaveLength(0)
 		})
 
 		it("should get reviews for a routine ordered by date", async () => {
@@ -2082,6 +2082,12 @@ describe("Routines integration tests", () => {
 				],
 			})
 			expect(activity.snapshotAfter).toBeNull()
+
+			const db = getTestDb()
+			const activityAudit = await db.execute(
+				/* sql */ `SELECT id FROM audit_log WHERE action = 'review_activity_created' AND entity_id = '${activity.id}'`,
+			)
+			expect(activityAudit.rows).toHaveLength(0)
 
 			const fetched = await getReviewActivity(review.id)
 			expect(fetched).toBeDefined()
@@ -4375,6 +4381,7 @@ describe("Routines integration tests", () => {
 				kind: "resolution",
 				fileName: "oppfolging.pdf",
 				bucketPath: "routines/test/oppfolging.pdf",
+				bucketName: "kiss-test",
 				contentType: "application/pdf",
 				sizeBytes: 50,
 				uploadedBy: "Z990002",
@@ -4398,6 +4405,20 @@ describe("Routines integration tests", () => {
 				contentType: "application/pdf",
 				performedBy: "Z990003",
 			})
+
+			const db = getTestDb()
+			const reviewAttachmentAudit = await db.execute(
+				/* sql */ `SELECT id FROM audit_log WHERE action = 'routine_attachment_uploaded' AND entity_id = '${attachment.id}'`,
+			)
+			const followUpAttachmentAudit = await db.execute(
+				/* sql */ `SELECT id FROM audit_log WHERE action = 'review_follow_up_attachment_uploaded' AND entity_id = '${followUpAttachment.id}'`,
+			)
+			const evidenceAudit = await db.execute(
+				/* sql */ `SELECT id FROM audit_log WHERE action = 'evidence_uploaded' AND entity_id = '${evidenceDownload.id}'`,
+			)
+			expect(reviewAttachmentAudit.rows).toHaveLength(0)
+			expect(followUpAttachmentAudit.rows).toHaveLength(0)
+			expect(evidenceAudit.rows).toHaveLength(1)
 
 			const reviews = await getReviewsForApp(appId)
 			const documents = await getApplicationDocumentsForReviews(reviews)

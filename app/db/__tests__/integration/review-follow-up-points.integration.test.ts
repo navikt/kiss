@@ -16,10 +16,13 @@ const {
 	completeReview,
 	discardReview,
 	addFollowUpPoint,
+	addFollowUpPointAttachment,
 	updateFollowUpPointStatus,
 	updateFollowUpPointText,
 	updateFollowUpPointDescription,
 	deleteFollowUpPoint,
+	addReviewLink,
+	deleteReviewLink,
 	getReview,
 	getLatestNonDiscardedReviewForApp,
 	getLatestNonDiscardedSectionReview,
@@ -82,6 +85,7 @@ describe("Review follow-up points integration tests", () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `TRUNCATE TABLE
 			audit_log,
+			bucket_objects,
 			routine_review_follow_up_points,
 			routine_review_links,
 			routine_review_attachments,
@@ -271,6 +275,115 @@ describe("Review follow-up points integration tests", () => {
 		await deleteFollowUpPoint({ pointId: p1.id, expectedReviewId: review.id, performedBy: "Z990001" })
 		const reviewAfter = await getReview(review.id)
 		expect(reviewAfter?.followUpPoints).toHaveLength(0)
+
+		const db = getTestDb()
+		const archivedPoint = await db.execute(
+			/* sql */ `SELECT archived_at, archived_by FROM routine_review_follow_up_points WHERE id = '${p1.id}'`,
+		)
+		expect(archivedPoint.rows).toHaveLength(1)
+		expect(archivedPoint.rows[0]).toMatchObject({ archived_by: "Z990001" })
+		expect((archivedPoint.rows[0] as { archived_at: unknown }).archived_at).not.toBeNull()
+		await expect(
+			updateFollowUpPointText({
+				pointId: p1.id,
+				expectedReviewId: review.id,
+				text: "Endret etter arkivering",
+				performedBy: "Z990001",
+			}),
+		).rejects.toMatchObject({ status: 404 })
+		await expect(
+			updateFollowUpPointDescription({
+				pointId: p1.id,
+				expectedReviewId: review.id,
+				description: "Endret etter arkivering",
+				performedBy: "Z990001",
+			}),
+		).rejects.toMatchObject({ status: 404 })
+		await expect(
+			updateFollowUpPointStatus({
+				pointId: p1.id,
+				expectedReviewId: review.id,
+				status: "completed",
+				performedBy: "Z990001",
+			}),
+		).rejects.toMatchObject({ status: 404 })
+		await expect(
+			addFollowUpPointAttachment({
+				pointId: p1.id,
+				kind: "resolution",
+				fileName: "vedlegg.pdf",
+				bucketPath: "test/vedlegg.pdf",
+				bucketName: "kiss-test",
+				contentType: "application/pdf",
+				sizeBytes: 10,
+				uploadedBy: "Z990001",
+			}),
+		).rejects.toMatchObject({ status: 404 })
+		const rejectedBucketObject = await db.execute(
+			/* sql */ `SELECT COUNT(*)::int AS count FROM bucket_objects WHERE object_path = 'test/vedlegg.pdf'`,
+		)
+		expect((rejectedBucketObject.rows[0] as { count: number }).count).toBe(0)
+	})
+
+	it("revalidates attachment eligibility against the locked review status", async () => {
+		const addAttachment = (pointId: string, kind: "description" | "resolution", bucketPath: string) =>
+			addFollowUpPointAttachment({
+				pointId,
+				kind,
+				fileName: "vedlegg.pdf",
+				bucketPath,
+				bucketName: "kiss-test",
+				contentType: "application/pdf",
+				sizeBytes: 10,
+				uploadedBy: "Z990001",
+			})
+
+		const followUp = await newDraftReview()
+		const unresolvedPoint = await addFollowUpPoint({
+			reviewId: followUp.review.id,
+			text: "Følg opp MFA",
+			description: "Beskrivelse",
+			performedBy: "Z990001",
+		})
+		await completeReview(followUp.review.id, "Z990001")
+		await expect(addAttachment(unresolvedPoint.id, "description", "test/late-description.pdf")).rejects.toMatchObject({
+			status: 409,
+		})
+		await expect(addAttachment(unresolvedPoint.id, "resolution", "test/resolution.pdf")).resolves.toBeDefined()
+
+		const completed = await newDraftReview()
+		const completedPoint = await addFollowUpPoint({
+			reviewId: completed.review.id,
+			text: "Følg opp tilgang",
+			description: "Beskrivelse",
+			performedBy: "Z990001",
+		})
+		await updateFollowUpPointStatus({
+			pointId: completedPoint.id,
+			expectedReviewId: completed.review.id,
+			status: "completed",
+			performedBy: "Z990001",
+		})
+		await completeReview(completed.review.id, "Z990001")
+		await expect(addAttachment(completedPoint.id, "resolution", "test/completed-resolution.pdf")).rejects.toMatchObject(
+			{
+				status: 409,
+			},
+		)
+
+		const discarded = await newDraftReview()
+		const discardedPoint = await addFollowUpPoint({
+			reviewId: discarded.review.id,
+			text: "Følg opp logging",
+			description: "Beskrivelse",
+			performedBy: "Z990001",
+		})
+		await discardReview(discarded.review.id, "Z990001")
+		await expect(addAttachment(discardedPoint.id, "resolution", "test/discarded-resolution.pdf")).rejects.toMatchObject(
+			{
+				status: 409,
+			},
+		)
 	})
 
 	it("blocks completing review when any follow-up point lacks a description", async () => {
@@ -315,7 +428,7 @@ describe("Review follow-up points integration tests", () => {
 		await expect(completeReview(review.id, "Z990001")).rejects.toBeInstanceOf(Response)
 	})
 
-	it("writes audit log entries for follow-up actions", async () => {
+	it("does not audit individual follow-up edits", async () => {
 		const { review } = await newDraftReview()
 		const p1 = await addFollowUpPoint({ reviewId: review.id, text: "Audit", performedBy: "Z990001" })
 		await updateFollowUpPointStatus({
@@ -330,8 +443,84 @@ describe("Review follow-up points integration tests", () => {
 			/* sql */ `SELECT action FROM audit_log WHERE entity_type = 'review_follow_up_point' ORDER BY performed_at`,
 		)
 		const actions = audits.rows.map((r) => (r as { action: string }).action)
-		expect(actions).toContain("review_follow_up_added")
-		expect(actions).toContain("review_follow_up_status_changed")
+		expect(actions).toEqual([])
+	})
+
+	it("audits one row per follow-up at completion, plus status, resolution and attachments afterwards", async () => {
+		const { review } = await newDraftReview()
+		const p1 = await addFollowUpPoint({
+			reviewId: review.id,
+			text: "P1",
+			description: "Beskrivelse",
+			performedBy: "Z990001",
+		})
+		const p2 = await addFollowUpPoint({
+			reviewId: review.id,
+			text: "P2",
+			description: "Beskrivelse",
+			performedBy: "Z990001",
+		})
+		await completeReview(review.id, "Z990001")
+
+		await addFollowUpPointAttachment({
+			pointId: p2.id,
+			kind: "resolution",
+			fileName: "oppfolging.pdf",
+			bucketPath: "test/audited-resolution.pdf",
+			bucketName: "kiss-test",
+			contentType: "application/pdf",
+			sizeBytes: 10,
+			uploadedBy: "Z990002",
+		})
+		await updateFollowUpPointStatus({
+			pointId: p1.id,
+			expectedReviewId: review.id,
+			status: "completed",
+			resolution: "Fikset",
+			performedBy: "Z990001",
+		})
+
+		const db = getTestDb()
+		const audits = await db.execute(
+			/* sql */ `SELECT action FROM audit_log WHERE action LIKE 'review_follow_up_%' ORDER BY action`,
+		)
+		expect(audits.rows.map((r) => (r as { action: string }).action)).toEqual([
+			"review_follow_up_added",
+			"review_follow_up_added",
+			"review_follow_up_attachment_uploaded",
+			"review_follow_up_resolution_updated",
+			"review_follow_up_status_changed",
+		])
+	})
+
+	it("audits review links only after the review is completed", async () => {
+		const { review } = await newDraftReview()
+		const draftLink = await addReviewLink({
+			reviewId: review.id,
+			url: "https://example.com/utkast",
+			title: null,
+			addedBy: "Z990001",
+		})
+		await deleteReviewLink(draftLink.id, review.id, "Z990001")
+		await completeReview(review.id, "Z990001")
+
+		const db = getTestDb()
+		const countAudits = async () => {
+			const rows = await db.execute(
+				/* sql */ `SELECT action FROM audit_log WHERE action IN ('review_link_added', 'review_link_deleted') ORDER BY action`,
+			)
+			return rows.rows.map((r) => (r as { action: string }).action)
+		}
+		expect(await countAudits()).toEqual([])
+
+		const link = await addReviewLink({
+			reviewId: review.id,
+			url: "https://example.com/etter",
+			title: null,
+			addedBy: "Z990001",
+		})
+		await deleteReviewLink(link.id, review.id, "Z990001")
+		expect(await countAudits()).toEqual(["review_link_added", "review_link_deleted"])
 	})
 
 	it("supports adding a description with a follow-up and editing it later", async () => {
@@ -391,6 +580,12 @@ describe("Review follow-up points integration tests", () => {
 		const reviewDone = await getReview(review.id)
 		expect(reviewDone?.status).toBe("completed")
 
+		const db = getTestDb()
+		const completionAudit = await db.execute(
+			/* sql */ `SELECT id FROM audit_log WHERE entity_type = 'routine_review' AND entity_id = '${review.id}' AND action = 'routine_review_completed' AND new_value = 'completed'`,
+		)
+		expect(completionAudit.rows).toHaveLength(1)
+
 		await expect(
 			updateFollowUpPointDescription({
 				pointId: p1.id,
@@ -431,7 +626,7 @@ describe("Review follow-up points integration tests", () => {
 			/* sql */ `SELECT action FROM audit_log WHERE entity_type = 'review_follow_up_point' ORDER BY performed_at`,
 		)
 		const actions = audits.rows.map((r) => (r as { action: string }).action)
-		expect(actions).toContain("review_follow_up_resolution_updated")
+		expect(actions).toEqual([])
 	})
 
 	describe("getLatestNonDiscardedReviewForApp / getLatestNonDiscardedSectionReview", () => {
