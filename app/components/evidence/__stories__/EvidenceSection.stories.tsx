@@ -92,10 +92,6 @@ const deploymentsApiRoutes: StubRoute[] = [
 		}),
 	},
 	{
-		path: "/api/evidence-period-config",
-		action: () => ({ success: true }),
-	},
-	{
 		path: "/api/evidence-download",
 		action: () => ({ success: true }),
 	},
@@ -210,6 +206,7 @@ export const DeploymentsMedPeriode: Story = {
 							appName: "pensjon-pen",
 							periodType: "quarterly",
 							periodStart: "2026-01-01",
+							reportId: null,
 						},
 					],
 				},

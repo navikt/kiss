@@ -241,12 +241,12 @@ describe("Oracle role criticality staged data integration tests", () => {
 		// API should only be called once
 		expect(mockGetOracleRoles).toHaveBeenCalledTimes(1)
 
-		// audit_log should have only one review_activity_seeded entry
+		// Staging changes are not written to audit_log.
 		const db = getTestDb()
 		const auditRows = await db.execute(
 			/* sql */ `SELECT id FROM audit_log WHERE action = 'review_activity_seeded' AND entity_id = '${activityId}'`,
 		)
-		expect(auditRows.rows).toHaveLength(1)
+		expect(auditRows.rows).toHaveLength(0)
 	})
 
 	it("marks apiUnavailable=true when Oracle API call fails", async () => {
@@ -287,7 +287,7 @@ describe("Oracle role criticality staged data integration tests", () => {
 				setBy: "Z990001",
 				setAt: new Date().toISOString(),
 			},
-			"Z990002",
+			"Z990001",
 		)
 
 		// Primary table must not be modified by patch

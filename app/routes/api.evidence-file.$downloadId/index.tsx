@@ -2,10 +2,16 @@ import { data } from "react-router"
 import { downloadEvidenceFileFromStorage, getSectionIdForDownload } from "~/db/queries/evidence-downloads.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireReviewReadAccess } from "~/lib/authorization.server"
+import {
+	createInlinePdfResponse,
+	createSpreadsheetPreviewResponse,
+	isPdf,
+	isSpreadsheet,
+} from "~/lib/evidence-file-preview.server"
 import { requireUuid } from "~/lib/utils"
 import type { Route } from "./+types/index"
 
-export async function loader({ params, request }: Route.LoaderArgs) {
+export async function loader({ params, request, url }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 
 	const downloadId = requireUuid(params.downloadId, "downloadId")
@@ -19,6 +25,12 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 	const result = await downloadEvidenceFileFromStorage(downloadId)
 	if (!result) {
 		throw data({ error: "Fant ikke nedlastet fil" }, { status: 404 })
+	}
+
+	if (url.searchParams.get("view") === "true") {
+		if (isPdf(result.contentType, result.fileName)) return createInlinePdfResponse(result)
+		if (isSpreadsheet(result.contentType, result.fileName)) return createSpreadsheetPreviewResponse(result)
+		throw data({ error: "Filtypen kan ikke vises i nettleseren" }, { status: 415 })
 	}
 
 	return new Response(new Uint8Array(result.buffer), {

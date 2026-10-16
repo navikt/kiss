@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import * as XLSX from "xlsx"
 
 // Auth mock
 const mockRequireAuthenticatedUser = vi.fn()
@@ -29,12 +30,20 @@ function fakeUser() {
 	return { navIdent: "Z990001", name: "Glad Fjord", token: "token", groups: [] }
 }
 
-function makeRequest(downloadId: string) {
+function makeRequest(downloadId: string, query = "") {
+	const request = new Request(`http://localhost/api/evidence-file/${downloadId}${query}`)
 	return {
-		request: new Request(`http://localhost/api/evidence-file/${downloadId}`),
+		request,
+		url: new URL(request.url),
 		params: { downloadId },
 		context: {},
 	} as unknown as Parameters<typeof loader>[0]
+}
+
+function workbookBuffer() {
+	const workbook = XLSX.utils.book_new()
+	XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([["Kolonne"], ["<script>alert(1)</script>"]]), "Test")
+	return Buffer.from(XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }))
 }
 
 describe("api.evidence-file.$downloadId loader", () => {
@@ -58,6 +67,34 @@ describe("api.evidence-file.$downloadId loader", () => {
 		expect(res.status).toBe(200)
 		expect(res.headers.get("Content-Type")).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 		expect(res.headers.get("Content-Disposition")).toContain("oracle-snapshot.xlsx")
+	})
+
+	it("opens saved PDFs inline when view=true", async () => {
+		mockDownloadEvidenceFileFromStorage.mockResolvedValue({
+			buffer: Buffer.from("%PDF"),
+			contentType: "application/pdf",
+			fileName: "rapport.pdf",
+		})
+
+		const response = (await loader(makeRequest(VALID_UUID, "?view=true"))) as Response
+
+		expect(response.headers.get("Content-Disposition")).toContain("inline")
+		expect(response.headers.get("Content-Type")).toBe("application/pdf")
+	})
+
+	it("renders saved spreadsheets as escaped HTML when view=true", async () => {
+		mockDownloadEvidenceFileFromStorage.mockResolvedValue({
+			buffer: workbookBuffer(),
+			contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+			fileName: "rapport.xlsx",
+		})
+
+		const response = (await loader(makeRequest(VALID_UUID, "?view=true"))) as Response
+		const html = await response.text()
+
+		expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8")
+		expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;")
+		expect(html).not.toContain("<script>")
 	})
 
 	it("calls requireReviewReadAccess with the resolved sectionId", async () => {
