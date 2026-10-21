@@ -385,6 +385,8 @@ export const routineReviewFollowUpPoints = pgTable("routine_review_follow_up_poi
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	resolvedAt: timestamp("resolved_at", { withTimezone: true }),
 	resolvedBy: text("resolved_by"),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 // ─── Review Follow-up Point Attachments ──────────────────────────────────

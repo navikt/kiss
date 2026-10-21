@@ -35,17 +35,26 @@ rutinegjennomgang:
 
 - Endringer i data utenfor rutinegjennomgangen **SKAL** audit-logges når de skjer,
   også når de utføres mens en gjennomgang pågår.
-- Endringer i gjennomgangens interne arbeidsdata — blant annet `staged_data`,
-  seeding, patching og snapshots — trenger **IKKE** egne audit-rader underveis.
+- Endringer i data som eies av gjennomgangen — review-felter, deltakere,
+  oppfølgingspunkter, lenker, vedlegg og aktivitetsarbeidsdata som `staged_data`,
+  seeding, patching og snapshots — trenger **IKKE** egne audit-rader per endring
+  **mens gjennomgangen er utkast**.
+- Etter at gjennomgangen er ferdigstilt **SKAL** alle endringer på den audit-logges,
+  inkludert oppfølging av oppfølgingspunkter (status, oppsummering, vedlegg), lenker,
+  vedlegg og bekreftelser.
+- Ved fullføring **SKAL** hvert oppfølgingspunkt audit-logges
+  (`review_follow_up_added`, én rad per punkt).
 - Opprettelse og avbrytelse av rutinegjennomgangen **SKAL** audit-logges som
   livsløpshendelser.
-- Ved fullføring **SKAL** fullføringen og alle endringer som da skrives til
-  primærlagring audit-logges. Disse audit-radene og DB-mutasjonene **SKAL** være
-  i samme transaksjon.
+- Ved fullføring **SKAL** fullføringen og hver faktisk primærlagringsmutasjon
+  som committes fra gjennomgangen audit-logges i samme transaksjon.
+- Innhenting og opplasting av revisjonsbevis (`evidence_downloaded`/
+  `evidence_uploaded`) **SKAL** fortsatt audit-logges når de skjer for å bevare
+  bevisproveniens.
 
 Brukerrettet endringshistorikk under gjennomgangen er separat fra `audit_log`.
-Unntaket for interne arbeidsdata fjerner ikke krav til å bevare eller vise slik
-endringshistorikk der funksjonen tilbyr den.
+Endringshistorikk som vises i brukergrensesnittet skal fortsatt bevares der
+funksjonen tilbyr den.
 
 Obligatoriske felt i audit-kallet:
 - `action` — må finnes i `auditLogActionEnum` i `app/db/schema/audit.ts`
