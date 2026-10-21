@@ -203,6 +203,7 @@ const MOCK_NDA_EVIDENCE_DATA: NdaEvidenceDataProp = {
 			appName: "min-applikasjon",
 			periodType: "monthly",
 			periodStart: "2025-01-01",
+			reportId: null,
 		},
 	],
 }

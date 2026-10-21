@@ -1,5 +1,6 @@
 import { Alert, BodyShort, Heading, VStack } from "@navikt/ds-react"
 import { EvidenceSection } from "~/components/evidence"
+import type { PeriodConfig } from "~/db/schema/routines"
 import type { EntraStagedGroupsProp } from "./activities/EntraMaintenanceSection"
 
 type Props = {
@@ -10,7 +11,7 @@ type Props = {
 		completedAt: string | null
 		createdAt: string
 		providerConfig?: unknown
-		periodConfig?: { periodType: string; periodStart: string } | null
+		periodConfig?: PeriodConfig | null
 		changes: Array<{
 			id: string
 			changeType: string
@@ -43,7 +44,7 @@ type Props = {
 	} | null
 	ndaEvidenceData: {
 		apps: Array<{ applicationId: string; team: string; environment: string; appName: string }>
-		periodConfig: { periodType: string; periodStart: string } | null
+		periodConfig: PeriodConfig | null
 		downloads: Array<{
 			id: string
 			format: string
@@ -58,6 +59,7 @@ type Props = {
 			appName: string
 			periodType: string
 			periodStart: string
+			reportId: string | null
 		}>
 	} | null
 	evidenceProviderType: string | null

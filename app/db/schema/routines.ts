@@ -293,6 +293,37 @@ export type EntraChangeType = (typeof ENTRA_CHANGE_TYPES)[number]
 export interface PeriodConfig {
 	periodType: PeriodType
 	periodStart: string
+	reportGeneration?: {
+		apps: NdaReportGenerationState[]
+	}
+}
+
+export interface NdaReportSnapshot {
+	reportId: string
+	periodType: PeriodType
+	periodStart: string
+	periodEnd: string
+	periodLabel: string
+	generatedAt: string
+	generatedBy: string | null
+	totalDeployments: number
+	approvedCount: number
+	withChangeOriginCount: number | null
+	contentHash: string
+	availableFormats: string[]
+}
+
+export interface NdaReportGenerationState {
+	applicationId: string
+	team: string
+	environment: string
+	appName: string
+	attemptId: string
+	jobId: string | null
+	status: "starting" | "pending" | "ready" | "failed"
+	report: NdaReportSnapshot | null
+	error: string | null
+	updatedAt?: string
 }
 
 export interface ReviewActivityProviderConfig {

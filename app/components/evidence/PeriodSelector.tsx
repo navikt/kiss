@@ -6,8 +6,7 @@
  */
 
 import { BodyShort, Button, HStack, Select, VStack } from "@navikt/ds-react"
-import { useEffect, useRef, useState } from "react"
-import { useFetcher } from "react-router"
+import { useEffect, useState } from "react"
 
 const PERIOD_TYPE_LABELS: Record<string, string> = {
 	yearly: "Årlig",
@@ -105,33 +104,44 @@ function getCompletedPeriods(periodType: string, yearsBack = 3): PeriodOption[] 
 }
 
 interface PeriodSelectorProps {
-	activityId: string
-	onSaved?: () => void
+	currentPeriod?: { periodType: string; periodStart: string } | null
+	onSelectPeriod: (periodConfig: { periodType: string; periodStart: string }) => void
+	isSubmitting?: boolean
+	onRefresh?: () => void
+	refreshLabel?: string
+	refreshLoading?: boolean
+	refreshDisabled?: boolean
+	periodLocked?: boolean
 }
 
-export function PeriodSelector({ activityId, onSaved }: PeriodSelectorProps) {
-	const fetcher = useFetcher()
-	const [periodType, setPeriodType] = useState("yearly")
-	const [periodStart, setPeriodStart] = useState("")
-	const prevFetcherState = useRef(fetcher.state)
+export function PeriodSelector({
+	currentPeriod = null,
+	onSelectPeriod,
+	isSubmitting = false,
+	onRefresh,
+	refreshLabel = "Generer rapporter for valgt periode",
+	refreshLoading = false,
+	refreshDisabled = false,
+	periodLocked = false,
+}: PeriodSelectorProps) {
+	const [periodType, setPeriodType] = useState(currentPeriod?.periodType ?? "yearly")
+	const [periodStart, setPeriodStart] = useState(currentPeriod?.periodStart ?? "")
 
 	const periods = getCompletedPeriods(periodType)
-	const isSubmitting = fetcher.state !== "idle"
+	const isCurrentPeriod = currentPeriod?.periodType === periodType && currentPeriod.periodStart === periodStart
 
 	useEffect(() => {
-		if (prevFetcherState.current !== "idle" && fetcher.state === "idle" && fetcher.data) {
-			const result = fetcher.data as Record<string, unknown>
-			if (result.success && onSaved) {
-				onSaved()
-			}
-		}
-		prevFetcherState.current = fetcher.state
-	}, [fetcher.state, fetcher.data, onSaved])
+		setPeriodType(currentPeriod?.periodType ?? "yearly")
+		setPeriodStart(currentPeriod?.periodStart ?? "")
+	}, [currentPeriod?.periodStart, currentPeriod?.periodType])
 
 	return (
-		<VStack gap="space-4">
-			<BodyShort>Velg periode for leveranserapporten. Kun avsluttede perioder er tilgjengelige.</BodyShort>
-			<HStack gap="space-4" align="end">
+		<VStack gap="space-16">
+			<BodyShort>
+				Velg periode for leveranserapporten, eller hent rapportene for valgt periode på nytt. Kun avsluttede perioder er
+				tilgjengelige.
+			</BodyShort>
+			<HStack gap="space-16" align="end" wrap>
 				<Select
 					label="Periodetype"
 					value={periodType}
@@ -140,6 +150,7 @@ export function PeriodSelector({ activityId, onSaved }: PeriodSelectorProps) {
 						setPeriodStart("")
 					}}
 					size="small"
+					readOnly={periodLocked}
 				>
 					{Object.entries(PERIOD_TYPE_LABELS).map(([value, label]) => (
 						<option key={value} value={value}>
@@ -147,7 +158,13 @@ export function PeriodSelector({ activityId, onSaved }: PeriodSelectorProps) {
 						</option>
 					))}
 				</Select>
-				<Select label="Periode" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} size="small">
+				<Select
+					label="Periode"
+					value={periodStart}
+					onChange={(e) => setPeriodStart(e.target.value)}
+					size="small"
+					readOnly={periodLocked}
+				>
 					<option value="">Velg periode…</option>
 					{periods.map((p) => (
 						<option key={p.value} value={p.value}>
@@ -155,24 +172,30 @@ export function PeriodSelector({ activityId, onSaved }: PeriodSelectorProps) {
 						</option>
 					))}
 				</Select>
-				<fetcher.Form method="post" action="/api/evidence-period-config">
-					<input type="hidden" name="activityId" value={activityId} />
-					<input type="hidden" name="periodType" value={periodType} />
-					<input type="hidden" name="periodStart" value={periodStart} />
+				{isCurrentPeriod && onRefresh ? (
 					<Button
-						type="submit"
+						type="button"
 						size="small"
 						variant="primary"
-						disabled={!periodStart || isSubmitting}
-						loading={isSubmitting}
+						onClick={onRefresh}
+						disabled={isSubmitting || refreshDisabled}
+						loading={refreshLoading}
 					>
-						Velg periode
+						{refreshLabel}
 					</Button>
-				</fetcher.Form>
+				) : (
+					<Button
+						type="button"
+						size="small"
+						variant="primary"
+						disabled={!periodStart || isSubmitting || periodLocked}
+						loading={isSubmitting}
+						onClick={() => onSelectPeriod({ periodType, periodStart })}
+					>
+						Generer rapporter for valgt periode
+					</Button>
+				)}
 			</HStack>
-			{fetcher.data && "success" in (fetcher.data as Record<string, unknown>) && (
-				<BodyShort size="small">Periodevalg lagret.</BodyShort>
-			)}
 		</VStack>
 	)
 }

@@ -20,6 +20,7 @@ import {
 	type ManualActivityStagedData,
 	parseManualActivityStagedData,
 } from "../../lib/manual-activity-staged-data"
+import { isNdaReportGenerationInProgress } from "../../lib/nda-report-generation"
 import { getOracleRoles, shouldAssessRole } from "../../lib/oracle-revisjon.server"
 import {
 	applyOracleRoleCriticalityPatch,
@@ -61,6 +62,7 @@ import {
 	FOLLOW_UP_POINT_STATUSES,
 	type FollowUpPointAttachmentKind,
 	type FollowUpPointStatus,
+	type NdaReportGenerationState,
 	type PeriodConfig,
 	type ReviewActivityProviderConfig,
 	type ReviewStatus,
@@ -96,7 +98,12 @@ import { getAppScopeIdsForApps } from "./applications.server"
 import { writeAuditLog } from "./audit.server"
 import { getOracleInstancesForApp } from "./audit-evidence.server"
 import { getNdaAppParamsGroup, type NdaAppGroupSnapshotEntry } from "./deployment-audit.server"
-import { getEvidenceDownloadsForActivities, getEvidenceDownloadsForActivity } from "./evidence-downloads.server"
+import {
+	getEvidenceDownloadsForActivities,
+	getEvidenceDownloadsForActivity,
+	insertPreparedEvidenceDownloads,
+	type PreparedEvidenceDownloadUpload,
+} from "./evidence-downloads.server"
 import {
 	getAppAuthIntegrations,
 	getExcludedEnvironments,
@@ -2107,10 +2114,23 @@ export async function updateReview(
  * (med snapshot-after for Entra-grupper) og synker materialiserte
  * compliance-kontroller for tilknyttet applikasjon.
  */
-export async function completeReview(reviewId: string, performedBy: string) {
+export async function completeReview(
+	reviewId: string,
+	performedBy: string,
+	evidenceUploads: PreparedEvidenceDownloadUpload[] = [],
+	onEvidenceCommitted?: () => void,
+) {
 	const existing = await getReview(reviewId)
-	if (!existing) return null
-	if (existing.status !== "draft") return existing
+	if (!existing) {
+		if (evidenceUploads.length > 0) throw new Response("Fant ikke gjennomgangen.", { status: 404 })
+		return null
+	}
+	if (existing.status !== "draft") {
+		if (evidenceUploads.length > 0) {
+			throw new Response("Gjennomgangen er ikke lenger et utkast. Last siden på nytt.", { status: 409 })
+		}
+		return existing
+	}
 
 	// Forretningsinvariant: alle oppfølgingspunkter må ha en lagret beskrivelse
 	// før gjennomgangen kan fullføres. Dette sikrer at hvert punkt er
@@ -2127,6 +2147,10 @@ export async function completeReview(reviewId: string, performedBy: string) {
 	}
 
 	const allActivities = await getReviewActivities(reviewId)
+	const activityIds = new Set(allActivities.map((activity) => activity.id))
+	if (evidenceUploads.some((upload) => !activityIds.has(upload.activityId))) {
+		throw new Error("Rapportbeviset er ikke knyttet til denne gjennomgangen.")
+	}
 	for (const activity of allActivities) {
 		if (
 			activity.status === "pending" &&
@@ -2150,6 +2174,21 @@ export async function completeReview(reviewId: string, performedBy: string) {
 	// Audit + compliance-sync hopper over
 	// hvis status-UPDATE matchet 0 rader (samtidig completion-race).
 	const result = await db.transaction(async (tx) => {
+		const [lockedReview] = await tx
+			.select({ status: routineReviews.status })
+			.from(routineReviews)
+			.where(eq(routineReviews.id, reviewId))
+			.for("update", { of: [routineReviews] })
+			.limit(1)
+		if (lockedReview?.status !== "draft") {
+			if (evidenceUploads.length > 0) {
+				throw new Response("Gjennomgangen er ikke lenger et utkast. Last siden på nytt.", { status: 409 })
+			}
+			return { statusChanged: false, newStatus: "completed" as const }
+		}
+
+		await insertPreparedEvidenceDownloads(evidenceUploads, tx)
+
 		// Fullfør alle ventende aktiviteter innenfor tx slik at de rolles
 		// tilbake ved transaksjonsfeil (f.eks. statusvakt i UPDATE matchet 0 rader).
 		for (const activity of allActivities) {
@@ -2183,7 +2222,14 @@ export async function completeReview(reviewId: string, performedBy: string) {
 
 		// Status endret seg mellom pre-check og UPDATE (samtidig completeReview)
 		// → hopp over audit; en annen request har allerede skrevet completion.
-		if (updated.length === 0) return { statusChanged: false, newStatus }
+		if (updated.length === 0) {
+			if (evidenceUploads.length > 0) {
+				throw new Response("Gjennomgangen ble fullført av en annen handling. Last siden på nytt.", {
+					status: 409,
+				})
+			}
+			return { statusChanged: false, newStatus }
+		}
 
 		await writeAuditLog(
 			{
@@ -2197,6 +2243,7 @@ export async function completeReview(reviewId: string, performedBy: string) {
 		)
 		return { statusChanged: true, newStatus }
 	})
+	if (result.statusChanged && evidenceUploads.length > 0) onEvidenceCommitted?.()
 
 	// Sync materialiserte compliance-kontroller — utenfor tx fordi det er
 	// en stor batch-operasjon. Kjør kun hvis review faktisk ble `completed`
@@ -5650,7 +5697,7 @@ export async function buildEntraGroupSnapshot(applicationId: string): Promise<En
 export async function seedEntraActivity(
 	activityId: string,
 	applicationId: string,
-	performedBy: string,
+	_performedBy: string,
 ): Promise<EntraStagedData> {
 	if (!applicationId) {
 		throw new Error("Kan ikke seed'e Entra-aktivitet uten applikasjon")
@@ -5725,15 +5772,6 @@ export async function seedEntraActivity(
 				.returning({ stagedData: routineReviewActivities.stagedData })
 
 			if (updated?.stagedData) {
-				await writeAuditLog(
-					{
-						action: "review_activity_seeded",
-						entityType: "routine_review_activity",
-						entityId: activityId,
-						performedBy: performedBy,
-					},
-					tx,
-				)
 				return parseEntraStagedData(updated.stagedData)
 			}
 
@@ -5823,7 +5861,6 @@ export async function patchEntraActivity(
 			}
 
 			let stagedData = activity.stagedData ? parseEntraStagedData(activity.stagedData) : null
-			let seededInThisCall = false
 			if (!stagedData) {
 				if (!seedResult) {
 					throw new Error(`Mangler staged_data for Entra-aktivitet ${activityId}`)
@@ -5836,7 +5873,6 @@ export async function patchEntraActivity(
 						snapshotBefore: sql`COALESCE(${routineReviewActivities.snapshotBefore}, ${JSON.stringify(seedResult.snapshot)}::jsonb)`,
 					})
 					.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
-				seededInThisCall = true
 			}
 
 			let updatedData: EntraStagedData
@@ -5849,19 +5885,6 @@ export async function patchEntraActivity(
 				.update(routineReviewActivities)
 				.set({ stagedData: updatedData })
 				.where(eq(routineReviewActivities.id, activityId))
-
-			// Audit-log seeding if it happened in this call
-			if (seededInThisCall) {
-				await writeAuditLog(
-					{
-						action: "review_activity_seeded",
-						entityType: "routine_review_activity",
-						entityId: activityId,
-						performedBy,
-					},
-					tx,
-				)
-			}
 
 			// Skip change logging if the patch was a no-op (staged_data identical before/after)
 			const wasNoOp = JSON.stringify(stagedData.groups) === JSON.stringify(updatedData.groups)
@@ -6121,20 +6144,156 @@ export async function autoCreateActivitiesForReview(
 	})
 }
 
-export async function savePeriodConfig(activityId: string, periodConfig: PeriodConfig) {
-	const [updated] = await db
-		.update(routineReviewActivities)
-		.set({ periodConfig })
-		.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))
-		.returning({ id: routineReviewActivities.id })
+export type NdaReportGenerationMode = "initial" | "refresh"
 
-	if (!updated) {
-		throw new Response("Aktiviteten finnes ikke eller er allerede fullført, og kan ikke få endret periode.", {
-			status: 409,
+export async function beginNdaReportGeneration(params: {
+	activityId: string
+	periodConfig: Pick<PeriodConfig, "periodType" | "periodStart">
+	apps: Array<{ applicationId: string; team: string; environment: string; appName: string }>
+	mode: NdaReportGenerationMode
+}) {
+	return db.transaction(async (tx) => {
+		await requireDraftReviewForActivity(tx, params.activityId)
+		const [activity] = await tx
+			.select({
+				status: routineReviewActivities.status,
+				type: routineReviewActivities.type,
+				periodConfig: routineReviewActivities.periodConfig,
+			})
+			.from(routineReviewActivities)
+			.where(eq(routineReviewActivities.id, params.activityId))
+			.for("update", { of: [routineReviewActivities] })
+			.limit(1)
+
+		if (activity?.status !== "pending") {
+			throw new Response("Aktiviteten er fullført. Oppdater siden og prøv igjen.", { status: 409 })
+		}
+		if (getProviderTypeForActivity(activity.type) !== "deployments") {
+			throw new Response("Aktiviteten støtter ikke rapportgenerering fra NDA.", { status: 400 })
+		}
+
+		const currentPeriodConfig = activity.periodConfig
+		const periodChanged =
+			!currentPeriodConfig ||
+			currentPeriodConfig.periodType !== params.periodConfig.periodType ||
+			currentPeriodConfig.periodStart !== params.periodConfig.periodStart
+		if (periodChanged && params.mode !== "initial") {
+			throw new Response("Perioden ble endret eller aktiviteten er fullført. Oppdater siden og prøv igjen.", {
+				status: 409,
+			})
+		}
+
+		const now = Date.now()
+		const currentApps = currentPeriodConfig?.reportGeneration?.apps ?? []
+		if (currentApps.some((app) => isNdaReportGenerationInProgress(app, now))) {
+			throw new Response("Rapportgenerering pågår allerede. Vent til den er ferdig før du prøver igjen.", {
+				status: 409,
+			})
+		}
+		const previousGeneration = periodChanged ? undefined : currentPeriodConfig?.reportGeneration
+		const previousApps = previousGeneration?.apps ?? []
+		const previousByApplicationId = new Map(previousApps.map((app) => [app.applicationId, app]))
+		const targets = params.apps.filter((app) => {
+			const previous = previousByApplicationId.get(app.applicationId)
+			if (params.mode === "refresh") return true
+			return previous?.status !== "ready"
 		})
-	}
 
-	return updated
+		if (targets.length === 0) {
+			return { targets: [], generation: previousGeneration }
+		}
+
+		const updatedAt = new Date(now).toISOString()
+		const newStates: NdaReportGenerationState[] = targets.map((app) => ({
+			...app,
+			attemptId: crypto.randomUUID(),
+			jobId: null,
+			status: "starting",
+			report: null,
+			error: null,
+			updatedAt,
+		}))
+		const nextByApplicationId = new Map(previousByApplicationId)
+		if (params.mode === "refresh") nextByApplicationId.clear()
+		for (const state of newStates) nextByApplicationId.set(state.applicationId, state)
+		const generation = {
+			apps: [...nextByApplicationId.values()],
+		}
+		const nextConfig: PeriodConfig = {
+			periodType: params.periodConfig.periodType,
+			periodStart: params.periodConfig.periodStart,
+			reportGeneration: generation,
+		}
+
+		await tx
+			.update(routineReviewActivities)
+			.set({ periodConfig: nextConfig })
+			.where(and(eq(routineReviewActivities.id, params.activityId), eq(routineReviewActivities.status, "pending")))
+		return { targets: newStates, generation }
+	})
+}
+
+async function isReviewDraftForActivity(tx: DbTransaction, activityId: string): Promise<boolean> {
+	const [review] = await tx
+		.select({ status: routineReviews.status })
+		.from(routineReviewActivities)
+		.innerJoin(routineReviews, eq(routineReviews.id, routineReviewActivities.reviewId))
+		.where(eq(routineReviewActivities.id, activityId))
+		.for("update", { of: [routineReviews] })
+		.limit(1)
+	return review?.status === "draft"
+}
+
+async function requireDraftReviewForActivity(tx: DbTransaction, activityId: string): Promise<void> {
+	if (!(await isReviewDraftForActivity(tx, activityId))) {
+		throw new Response("Gjennomgangen kan ikke endres lenger. Oppdater siden og prøv igjen.", { status: 409 })
+	}
+}
+
+export async function saveNdaReportGenerationState(params: {
+	activityId: string
+	periodConfig: Pick<PeriodConfig, "periodType" | "periodStart">
+	state: NdaReportGenerationState
+}): Promise<boolean> {
+	return db.transaction(async (tx) => {
+		if (!(await isReviewDraftForActivity(tx, params.activityId))) return false
+		const [activity] = await tx
+			.select({ status: routineReviewActivities.status, periodConfig: routineReviewActivities.periodConfig })
+			.from(routineReviewActivities)
+			.where(eq(routineReviewActivities.id, params.activityId))
+			.for("update", { of: [routineReviewActivities] })
+			.limit(1)
+
+		const currentGeneration = activity?.periodConfig?.reportGeneration
+		if (
+			activity?.status !== "pending" ||
+			activity.periodConfig?.periodType !== params.periodConfig.periodType ||
+			activity.periodConfig.periodStart !== params.periodConfig.periodStart ||
+			!currentGeneration
+		) {
+			return false
+		}
+
+		const stateExists = currentGeneration.apps.some(
+			(app) => app.applicationId === params.state.applicationId && app.attemptId === params.state.attemptId,
+		)
+		if (!stateExists) return false
+
+		const savedState: NdaReportGenerationState = { ...params.state, updatedAt: new Date().toISOString() }
+		const nextGeneration = {
+			...currentGeneration,
+			apps: currentGeneration.apps.map((app) =>
+				app.applicationId === savedState.applicationId && app.attemptId === savedState.attemptId ? savedState : app,
+			),
+		}
+		const nextConfig: PeriodConfig = { ...activity.periodConfig, reportGeneration: nextGeneration }
+		await tx
+			.update(routineReviewActivities)
+			.set({ periodConfig: nextConfig })
+			.where(and(eq(routineReviewActivities.id, params.activityId), eq(routineReviewActivities.status, "pending")))
+
+		return true
+	})
 }
 
 export async function recordEntraChange(
@@ -6163,27 +6322,13 @@ export async function recordEntraChange(
 			})
 			.returning()
 
-		await writeAuditLog(
-			{
-				action: "review_activity_entra_change",
-				entityType: "routine_review_activity",
-				entityId: params.activityId,
-				newValue: JSON.stringify({
-					changeType: params.changeType,
-					groupId: params.groupId,
-					groupName: params.groupName,
-				}),
-				performedBy: params.performedBy,
-			},
-			exec,
-		)
-
 		return change
 	}
 	return tx ? run(tx) : db.transaction(run)
 }
 
-type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
+type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+type DbExecutor = typeof db | DbTransaction
 
 async function completeEntraReviewActivity(activityId: string, performedBy: string, executor: DbExecutor) {
 	const [activity] = await executor
@@ -8479,7 +8624,7 @@ async function waitForOracleRoleCriticalitySeed(activityId: string): Promise<Ora
 export async function seedOracleRoleCriticalityActivity(
 	activityId: string,
 	applicationId: string,
-	performedBy: string,
+	_performedBy: string,
 ): Promise<OracleRoleCriticalityStagedData> {
 	if (!applicationId) {
 		throw new Error("Kan ikke seed'e Oracle-rollekritikalitet-aktivitet uten applikasjon")
@@ -8545,15 +8690,6 @@ export async function seedOracleRoleCriticalityActivity(
 				.returning({ stagedData: routineReviewActivities.stagedData })
 
 			if (updated?.stagedData) {
-				await writeAuditLog(
-					{
-						action: "review_activity_seeded",
-						entityType: "routine_review_activity",
-						entityId: activityId,
-						performedBy,
-					},
-					tx,
-				)
 				return parseOracleRoleCriticalityStagedData(updated.stagedData)
 			}
 
@@ -8644,25 +8780,10 @@ export async function patchOracleRoleCriticalityActivity(
 			const existing = parseOracleRoleCriticalityStagedData(current.stagedData)
 			const updated = applyOracleRoleCriticalityPatch(existing, patch)
 
-			const wasNoOp = JSON.stringify(existing.roles) === JSON.stringify(updated.roles)
-
 			await tx
 				.update(routineReviewActivities)
 				.set({ stagedData: updated })
 				.where(eq(routineReviewActivities.id, activityId))
-
-			if (!wasNoOp) {
-				await writeAuditLog(
-					{
-						action: "review_activity_oracle_role_criticality_patched",
-						entityType: "routine_review_activity",
-						entityId: activityId,
-						newValue: JSON.stringify(patch),
-						performedBy,
-					},
-					tx,
-				)
-			}
 		})
 	})
 
@@ -8958,7 +9079,7 @@ export async function archiveActivityStep(stepId: string, performedBy: string) {
 	})
 }
 
-export async function seedManualActivity(activityId: string, routineId: string, performedBy: string) {
+export async function seedManualActivity(activityId: string, routineId: string, _performedBy: string) {
 	// Idempotent: return existing staged_data if already seeded
 	const [activity] = await db
 		.select({
@@ -9019,20 +9140,7 @@ export async function seedManualActivity(activityId: string, routineId: string, 
 		}
 	}
 
-	await db.transaction(async (tx) => {
-		await tx.update(routineReviewActivities).set({ stagedData }).where(eq(routineReviewActivities.id, activityId))
-
-		await writeAuditLog(
-			{
-				action: "review_activity_seeded",
-				entityType: "routine_review_activity",
-				entityId: activityId,
-				newValue: JSON.stringify({ activityType: MANUAL_ACTIVITY_TYPE, stepCount: stagedData.steps.length }),
-				performedBy,
-			},
-			tx,
-		)
-	})
+	await db.update(routineReviewActivities).set({ stagedData }).where(eq(routineReviewActivities.id, activityId))
 
 	return stagedData
 }
@@ -9067,20 +9175,7 @@ export async function patchManualActivityStep(
 			completedBy: completed ? performedBy : null,
 		}
 
-		await db.transaction(async (tx) => {
-			await tx.update(routineReviewActivities).set({ stagedData }).where(eq(routineReviewActivities.id, activityId))
-
-			await writeAuditLog(
-				{
-					action: "review_activity_checklist_step_toggled",
-					entityType: "routine_review_activity",
-					entityId: activityId,
-					newValue: JSON.stringify({ stepId, completed }),
-					performedBy,
-				},
-				tx,
-			)
-		})
+		await db.update(routineReviewActivities).set({ stagedData }).where(eq(routineReviewActivities.id, activityId))
 
 		return stagedData
 	})
@@ -9096,7 +9191,7 @@ export async function patchManualActivityStepNotes(
 	activityId: string,
 	stepId: string,
 	notes: string | null,
-	performedBy: string,
+	_performedBy: string,
 ): Promise<ManualActivityStagedData> {
 	const lockName = `${MANUAL_ACTIVITY_TYPE}-activity-${activityId}`
 
@@ -9120,20 +9215,7 @@ export async function patchManualActivityStepNotes(
 			notes: notes?.trim() || null,
 		}
 
-		await db.transaction(async (tx) => {
-			await tx.update(routineReviewActivities).set({ stagedData }).where(eq(routineReviewActivities.id, activityId))
-
-			await writeAuditLog(
-				{
-					action: "review_activity_checklist_step_toggled",
-					entityType: "routine_review_activity",
-					entityId: activityId,
-					newValue: JSON.stringify({ stepId, notesUpdated: true }),
-					performedBy,
-				},
-				tx,
-			)
-		})
+		await db.update(routineReviewActivities).set({ stagedData }).where(eq(routineReviewActivities.id, activityId))
 
 		return stagedData
 	})
