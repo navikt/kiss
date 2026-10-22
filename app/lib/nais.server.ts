@@ -252,11 +252,13 @@ const APPS_QUERY = `
 							}
 						}
 					}
-					postgresInstances {
+					postgreses(first: ${PAGE_SIZE}) {
 						nodes {
-							name
-							majorVersion
-							highAvailability
+							postgres {
+								name
+								majorVersion
+								highAvailability
+							}
 						}
 					}
 					openSearch {
@@ -313,11 +315,13 @@ interface AppsResponse {
 						}
 					}>
 				}
-				postgresInstances: {
+				postgreses: {
 					nodes: Array<{
-						name: string
-						majorVersion: string
-						highAvailability: boolean
+						postgres: {
+							name: string
+							majorVersion: string
+							highAvailability: boolean
+						}
 					}>
 				}
 				openSearch: { name: string } | null
@@ -367,7 +371,7 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 				})
 			}
 
-			for (const pg of node.postgresInstances.nodes) {
+			for (const { postgres: pg } of node.postgreses.nodes) {
 				persistence.push({
 					type: "nais_postgres",
 					name: pg.name,
