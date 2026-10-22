@@ -60,6 +60,8 @@ spec:
         - id: loki
   accessPolicy:
     outbound:
+      rules:
+        - application: nda
       external:
         - host: graph.microsoft.com
         - host: console.nav.cloud.nais.io
@@ -87,8 +89,12 @@ spec:
       value: kiss-data-dev
     - name: ENABLE_AUDIT_SUMMARY_SYNC
       value: "false"
+    - name: DEPLOYMENT_AUDIT_BASE_URL
+      value: "http://nda.proaktiv"
+    - name: DEPLOYMENT_AUDIT_SCOPE
+      value: "api://dev-gcp.proaktiv.nda/.default"
     - name: ENABLE_DEPLOYMENT_AUDIT_SYNC
-      value: "false"
+      value: "true"
     - name: ENABLE_GITHUB_ACCESS_SYNC
       value: "true"
     - name: ENABLE_ENTRA_TEAM_SYNC
