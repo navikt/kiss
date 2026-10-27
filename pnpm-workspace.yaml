@@ -4,6 +4,7 @@ minimumReleaseAge: 10080
 minimumReleaseAgeExclude:
   - '@navikt/*'
   - '@nais/*'
+  - 'body-parser@2.4.0'
 allowBuilds:
   cpu-features: true
   esbuild: true
