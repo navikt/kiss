@@ -1146,7 +1146,7 @@ export async function buildRpaSeedResult(
  * If already seeded, returns the existing staged_data without modification.
  * applicationId is fetched from the activity's review to enforce the invariant.
  */
-export async function seedRpaActivity(activityId: string, performedBy: string): Promise<RpaStagedData> {
+export async function seedRpaActivity(activityId: string, _performedBy: string): Promise<RpaStagedData> {
 	const [precheck] = await db
 		.select({
 			type: routineReviewActivities.type,
@@ -1191,15 +1191,6 @@ export async function seedRpaActivity(activityId: string, performedBy: string): 
 				.returning({ stagedData: routineReviewActivities.stagedData })
 
 			if (updated?.stagedData) {
-				await writeAuditLog(
-					{
-						action: "review_activity_seeded",
-						entityType: "routine_review_activity",
-						entityId: activityId,
-						performedBy,
-					},
-					tx,
-				)
 				return parseRpaStagedData(updated.stagedData)
 			}
 
@@ -1225,7 +1216,7 @@ export async function seedRpaActivity(activityId: string, performedBy: string): 
 export async function patchRpaActivity(
 	activityId: string,
 	patch: RpaStagedDataPatch,
-	performedBy: string,
+	_performedBy: string,
 ): Promise<void> {
 	const [precheck] = await db
 		.select({
@@ -1268,7 +1259,6 @@ export async function patchRpaActivity(
 			if (activity.status !== "pending") throw new Response("Kan ikke endre en fullført aktivitet", { status: 409 })
 
 			let stagedData = activity.stagedData ? parseRpaStagedData(activity.stagedData) : null
-			let seededInThisCall = false
 			if (!stagedData) {
 				if (!seedResult) throw new Error(`Mangler staged_data for RPA-aktivitet ${activityId}`)
 				stagedData = seedResult.stagedData
@@ -1279,7 +1269,6 @@ export async function patchRpaActivity(
 						snapshotBefore: sql`COALESCE(${routineReviewActivities.snapshotBefore}, ${JSON.stringify(seedResult.snapshot)}::jsonb)`,
 					})
 					.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
-				seededInThisCall = true
 			}
 
 			let updatedData: RpaStagedData
@@ -1293,7 +1282,7 @@ export async function patchRpaActivity(
 			const wasNoOp = JSON.stringify(stagedData.users) === JSON.stringify(updatedData.users)
 
 			// Only update staged_data if there's an actual change
-			// (if seededInThisCall && wasNoOp, seed already wrote correct data — skip redundant UPDATE)
+			// If seeding wrote the same data, skip the redundant UPDATE.
 			if (!wasNoOp) {
 				await tx
 					.update(routineReviewActivities)
@@ -1301,54 +1290,7 @@ export async function patchRpaActivity(
 					.where(eq(routineReviewActivities.id, activityId))
 			}
 
-			if (seededInThisCall) {
-				await writeAuditLog(
-					{
-						action: "review_activity_seeded",
-						entityType: "routine_review_activity",
-						entityId: activityId,
-						performedBy,
-					},
-					tx,
-				)
-			}
-
 			if (wasNoOp) return
-
-			const patchedUser = updatedData.users.find((u) => u.userObjectId === patch.userObjectId)
-			const previousUser = stagedData.users.find((u) => u.userObjectId === patch.userObjectId)
-
-			await writeAuditLog(
-				{
-					action: "review_activity_rpa_patched",
-					entityType: "routine_review_activity",
-					entityId: activityId,
-					previousValue: previousUser
-						? JSON.stringify({
-								owner: previousUser.owner,
-								needComment: previousUser.needComment,
-								criticalityComment: previousUser.criticalityComment,
-								securityComment: previousUser.securityComment,
-								decision: previousUser.decision,
-								decisionDeadline: previousUser.decisionDeadline,
-							})
-						: null,
-					newValue: patchedUser
-						? JSON.stringify({
-								userObjectId: patchedUser.userObjectId,
-								owner: patchedUser.owner,
-								needComment: patchedUser.needComment,
-								criticalityComment: patchedUser.criticalityComment,
-								securityComment: patchedUser.securityComment,
-								decision: patchedUser.decision,
-								decisionDeadline: patchedUser.decisionDeadline,
-							})
-						: null,
-					metadata: { activityId, userObjectId: patch.userObjectId },
-					performedBy,
-				},
-				tx,
-			)
 		})
 	})
 
@@ -1407,10 +1349,6 @@ export async function completeRpaReviewActivity(
 			.returning({ stagedData: routineReviewActivities.stagedData })
 
 		if (seededActivity?.stagedData) {
-			await writeAuditLog(
-				{ action: "review_activity_seeded", entityType: "routine_review_activity", entityId: activityId, performedBy },
-				executor,
-			)
 			stagedData = parseRpaStagedData(seededActivity.stagedData)
 		} else {
 			const [current] = await executor

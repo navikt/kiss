@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import * as XLSX from "xlsx"
 
 // Mock azure.server.ts to avoid real token exchange
 vi.mock("~/lib/azure.server", () => ({
@@ -222,10 +223,13 @@ describe("nda-audit-reports API client", () => {
 
 		it("getNdaAuditJobStatus returns mock completed job", async () => {
 			const { getNdaAuditJobStatus } = await import("../nda-audit-reports.server")
-			const result = await getNdaAuditJobStatus("pensjon", "prod-gcp", "my-app", "job-123")
+			const result = await getNdaAuditJobStatus("pensjon", "prod-gcp", "my-app", "job-123", "quarterly", "2025-04-01")
 
 			expect(result.status).toBe("completed")
 			expect(result.reportId).toContain("mock")
+			expect(result.report?.periodType).toBe("quarterly")
+			expect(result.report?.periodStart).toBe("2025-04-01")
+			expect(result.report?.availableFormats).toEqual(["pdf", "excel"])
 		})
 
 		it("downloadNdaAuditReport returns mock PDF", async () => {
@@ -233,7 +237,16 @@ describe("nda-audit-reports API client", () => {
 			const result = await downloadNdaAuditReport("pensjon", "prod-gcp", "my-app", "AUDIT-2025")
 
 			expect(result.contentType).toBe("application/pdf")
-			expect(result.buffer.toString()).toContain("mock audit report")
+			expect(result.buffer.toString("ascii", 0, 5)).toBe("%PDF-")
+		})
+
+		it("downloadNdaAuditReport returns a mock Excel file", async () => {
+			const { downloadNdaAuditReport } = await import("../nda-audit-reports.server")
+			const result = await downloadNdaAuditReport("pensjon", "prod-gcp", "my-app", "AUDIT-2025", "excel")
+
+			expect(result.contentType).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+			expect(result.fileName).toBe("AUDIT-2025.xlsx")
+			expect(XLSX.read(result.buffer, { type: "buffer" }).SheetNames).toEqual(["Oppsummering"])
 		})
 
 		it("listNdaAuditReports returns empty mock", async () => {
