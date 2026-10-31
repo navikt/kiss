@@ -23,6 +23,9 @@ const {
 	getReviewActivityByType,
 	getReviewActivities,
 	seedManualActivity,
+	patchManualActivityStep,
+	patchManualActivityStepNotes,
+	completeManualActivity,
 } = await import("~/db/queries/routines.server")
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -1368,6 +1371,55 @@ describe("Routine Activity Links integration tests", () => {
 
 			expect(firstSeed.steps[0].stepId).toBe(secondSeed.steps[0].stepId)
 			expect(firstSeed.steps[0].title).toBe(secondSeed.steps[0].title)
+		})
+
+		it("does not audit manual activity seeding, patches, or completion", async () => {
+			const sectionId = await createTestSection("Test", "checklist-audit-scope")
+			const appId = await createTestApp("Audit-scope-app")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Audit-scope-sjekkliste",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [{ type: "manual_activity", stepTitle: "Kontroller tilgang", stepDescription: "Detaljer her" }],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Audit-scope-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "Z990001",
+				participants: [],
+			})
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
+
+			const activity = await getReviewActivityByType(review.id, "manual_activity")
+			if (!activity) throw new Error("Expected manual_activity activity to exist")
+
+			const stagedData = await seedManualActivity(activity.id, routine.id, "Z990001")
+			const stepId = stagedData.steps[0].stepId
+			await patchManualActivityStepNotes(activity.id, stepId, "Oppdatert notat", "Z990001")
+			await patchManualActivityStep(activity.id, stepId, true, "Z990001")
+			await completeManualActivity(activity.id, "Z990001")
+
+			const db = getTestDb()
+			const audits = await db.execute(
+				/* sql */ `SELECT id FROM audit_log WHERE entity_type = 'routine_review_activity' AND entity_id = '${activity.id}'`,
+			)
+			expect(audits.rows).toHaveLength(0)
 		})
 	})
 

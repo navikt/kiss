@@ -82,9 +82,12 @@ export async function action({ request, params }: Route.ActionArgs) {
 			message: `Vedlegg "${file.name}" ble lastet opp.`,
 		})
 	} catch (err) {
-		return Response.json(
-			{ success: false, error: err instanceof Error ? err.message : "Ukjent feil ved opplasting." },
-			{ status: 500 },
-		)
+		let error = "Ukjent feil ved opplasting."
+		if (err instanceof Response) {
+			error = await err.text()
+		} else if (err instanceof Error) {
+			error = err.message
+		}
+		return Response.json({ success: false, error }, { status: err instanceof Response ? err.status : 500 })
 	}
 }

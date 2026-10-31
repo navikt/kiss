@@ -105,7 +105,7 @@ describe("Routine review participants soft-delete integration tests", () => {
 		`)
 	})
 
-	it("createReview inserts participants as active rows and audits each addition", async () => {
+	it("createReview inserts active participants without individual participant audit rows", async () => {
 		const { review } = await makeRoutineAndReview([
 			{ userIdent: "alice", userName: "Alice" },
 			{ userIdent: "bob", userName: "Bob" },
@@ -120,11 +120,10 @@ describe("Routine review participants soft-delete integration tests", () => {
 			expect(r.archived_at).toBeNull()
 		}
 
-		const audit = await getAuditByEntity("routine_review_participant", review.id)
-		const added = audit.filter((a) => a.action === "routine_review_participant_added")
-		expect(added).toHaveLength(2)
-		expect(added.map((a) => a.new_value).sort()).toEqual(["alice", "bob"])
-		expect(added.every((a) => a.performed_by === "creator")).toBe(true)
+		const participantAudit = await getAuditByEntity("routine_review_participant", review.id)
+		expect(participantAudit).toHaveLength(0)
+		const reviewAudit = await getAuditByEntity("routine_review", review.id)
+		expect(reviewAudit.filter((a) => a.action === "routine_review_created")).toHaveLength(1)
 	})
 
 	it("updateReview archives removed participants instead of hard-deleting them", async () => {
@@ -214,12 +213,6 @@ describe("Routine review participants soft-delete integration tests", () => {
 			"editor",
 		)
 
-		const audit = await getAuditByEntity("routine_review_participant", review.id)
-		const removed = audit.filter((a) => a.action === "routine_review_participant_removed")
-		const added = audit.filter((a) => a.action === "routine_review_participant_added")
-		expect(removed).toHaveLength(0)
-		expect(added).toHaveLength(2) // Kun de fra createReview, ingen nye fra no-op updateReview
-
 		const db = getTestDb()
 		const rows = await db.execute(
 			/* sql */ `SELECT COUNT(*)::int AS c FROM routine_review_participants WHERE review_id = '${review.id}' AND archived_at IS NULL`,
@@ -227,15 +220,15 @@ describe("Routine review participants soft-delete integration tests", () => {
 		expect((rows.rows[0] as { c: number }).c).toBe(2)
 	})
 
-	it("audit payload for removed participant has previous_value with userIdent and metadata.reviewId", async () => {
-		const { review } = await makeRoutineAndReview([{ userIdent: "alice", userName: "Alice" }])
-		await updateReview(review.id, { participants: [] }, "remover")
+	it("does not audit participant changes made during a review", async () => {
+		const { review } = await makeRoutineAndReview([{ userIdent: "Z990041", userName: "Glad Fjord" }])
+		await updateReview(review.id, { participants: [] }, "Z990042")
+		await updateReview(review.id, { participants: [{ userIdent: "Z990043", userName: "Rask Elv" }] }, "Z990044")
 
 		const audit = await getAuditByEntity("routine_review_participant", review.id)
-		const removed = audit.filter((a) => a.action === "routine_review_participant_removed")
-		expect(removed).toHaveLength(1)
-		expect(removed[0].previous_value).toBe("alice")
-		expect(removed[0].performed_by).toBe("remover")
+		expect(audit).toHaveLength(0)
+		const reviewAudit = await getAuditByEntity("routine_review", review.id)
+		expect(reviewAudit.filter((a) => a.action === "routine_review_updated")).toHaveLength(0)
 	})
 
 	it("confirmParticipation skips archived rows", async () => {
@@ -253,7 +246,7 @@ describe("Routine review participants soft-delete integration tests", () => {
 		expect((rows.rows[0] as { confirmed_at: unknown }).confirmed_at).toBeNull()
 	})
 
-	it("transactional atomicity — participant archive and audit log committed together", async () => {
+	it("archives participant changes without individual audit rows", async () => {
 		const { review } = await makeRoutineAndReview([
 			{ userIdent: "alice", userName: "Alice" },
 			{ userIdent: "bob", userName: "Bob" },
@@ -268,20 +261,15 @@ describe("Routine review participants soft-delete integration tests", () => {
 		expect((bobRow.rows[0] as { archived_at: unknown }).archived_at).not.toBeNull()
 
 		const audit = await getAuditByEntity("routine_review_participant", review.id)
-		const removed = audit.filter((a) => a.action === "routine_review_participant_removed")
-		expect(removed).toHaveLength(1)
-		expect(removed[0].previous_value).toBe("bob")
+		expect(audit).toHaveLength(0)
 	})
 
-	it("re-adding via updateReview emits routine_review_participant_added audit", async () => {
+	it("re-adding an archived participant does not emit a participant audit row", async () => {
 		const { review } = await makeRoutineAndReview([])
 
 		await updateReview(review.id, { participants: [{ userIdent: "carol", userName: "Carol" }] }, "editor")
 
 		const audit = await getAuditByEntity("routine_review_participant", review.id)
-		const added = audit.filter((a) => a.action === "routine_review_participant_added")
-		expect(added).toHaveLength(1)
-		expect(added[0].new_value).toBe("carol")
-		expect(added[0].performed_by).toBe("editor")
+		expect(audit).toHaveLength(0)
 	})
 })
