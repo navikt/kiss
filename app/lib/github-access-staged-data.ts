@@ -254,7 +254,8 @@ export function applyGithubAccessStagedDataPatch(
 		}
 		const shouldClearConfirmation =
 			!existing.permissionAdjustmentRequested ||
-			normalizeGithubPermission(existing.targetPermission ?? "") !== normalizeGithubPermission(patch.targetPermission) ||
+			normalizeGithubPermission(existing.targetPermission ?? "") !==
+				normalizeGithubPermission(patch.targetPermission) ||
 			existing.markedForRemoval
 		subjects[index] = {
 			...existing,
