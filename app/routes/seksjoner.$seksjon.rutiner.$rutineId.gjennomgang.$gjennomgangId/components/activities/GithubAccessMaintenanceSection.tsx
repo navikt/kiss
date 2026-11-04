@@ -13,7 +13,7 @@ import {
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useFetcher } from "react-router"
 import { GithubPermissionTag } from "~/components/GithubPermissionTag"
 import { UserDisplayName } from "~/components/UserDisplayName"
@@ -169,6 +169,7 @@ export function GithubAccessMaintenanceSection({
 	confirmedAt,
 	confirmedByName,
 	isDraft,
+	onConfirmed,
 }: {
 	activity: ActivityProp
 	gitRepository: string
@@ -177,11 +178,19 @@ export function GithubAccessMaintenanceSection({
 	confirmedAt?: string | null
 	confirmedByName?: string | null
 	isDraft: boolean
+	onConfirmed?: () => void
 }) {
 	const reviewFetcher = useFetcher<ActionResult>()
 	const isSubmitting = reviewFetcher.state !== "idle"
 	const isPending = activity.status === "pending"
 	const canEdit = isDraft && isPending
+
+	useEffect(() => {
+		if (reviewFetcher.state !== "idle") return
+		if (reviewFetcher.data?.success !== true) return
+		if (reviewFetcher.data.intent !== "confirm-github-access-review") return
+		onConfirmed?.()
+	}, [reviewFetcher.state, reviewFetcher.data, onConfirmed])
 
 	const pendingSubjects = subjects.filter((s) => !s.markedForRemoval && !s.permissionAdjustmentRequested)
 	const decidedSubjects = subjects.filter((s) => s.markedForRemoval || s.permissionAdjustmentRequested)

@@ -1763,6 +1763,12 @@ export default function GjennomgangDetalj() {
 		[setSearchParams],
 	)
 
+	const goToNextStep = useCallback(() => {
+		const currentIndex = steps.findIndex((s) => s.id === currentStepId)
+		if (currentIndex < 0 || currentIndex >= steps.length - 1) return
+		handleStepChange(steps[currentIndex + 1].id)
+	}, [steps, currentStepId, handleStepChange])
+
 	// Compute required-component violations for manual activity steps og manglende bevis for
 	// bevis-baserte vedlikeholdsaktiviteter, slik at Fullfør-steget varsler proaktivt.
 	type RequiredViolation = { stepTitle: string; componentLabel: string; stepId: string }
@@ -1976,6 +1982,7 @@ export default function GjennomgangDetalj() {
 						confirmedAt={activity.githubAccessData.confirmedAt}
 						confirmedByName={activity.githubAccessData.confirmedByName}
 						isDraft={isDraft}
+						onConfirmed={goToNextStep}
 					/>
 				)
 			}
