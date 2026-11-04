@@ -231,6 +231,15 @@ describe("Github-tilgang staged data integration tests", () => {
 			"reviewer",
 		)
 
+		const db = getTestDb()
+		const followUpPointsBeforeComplete = await db.execute(
+			/* sql */ `SELECT text FROM routine_review_follow_up_points WHERE review_id = '${reviewId}' ORDER BY text`,
+		)
+		expect(followUpPointsBeforeComplete.rows).toEqual([
+			{ text: "Fjern GitHub-tilgang for @alice" },
+			{ text: 'Juster GitHub-tilgang for @bob fra "maintain" til "push"' },
+		])
+
 		await completeReview(reviewId, "reviewer")
 
 		const review = await getReview(reviewId)
@@ -242,7 +251,6 @@ describe("Github-tilgang staged data integration tests", () => {
 			subjects: expect.arrayContaining([expect.objectContaining({ username: "alice", markedForRemoval: true })]),
 		})
 
-		const db = getTestDb()
 		const attachments = await db.execute(
 			/* sql */ `SELECT file_name, activity_step_id FROM routine_review_attachments WHERE review_id = '${reviewId}'`,
 		)
@@ -256,6 +264,37 @@ describe("Github-tilgang staged data integration tests", () => {
 			{ text: "Fjern GitHub-tilgang for @alice" },
 			{ text: 'Juster GitHub-tilgang for @bob fra "maintain" til "push"' },
 		])
+	})
+
+	it("removes GitHub-generated follow-up points when the markering is reverted after confirmation", async () => {
+		const { appId, reviewId, activityId } = await createGithubAccessReview()
+		await markSynced(appId, "navikt/test-repo")
+		const teamId = await insertTeam(appId, "team-a", "Team A", "push")
+		await insertTeamMember(teamId, "alice")
+
+		await seedGithubAccessActivity(activityId, "Z990001")
+		await patchGithubAccessActivity(
+			activityId,
+			{ op: "mark-for-removal", username: "alice", markedBy: "reviewer", markedAt: "2025-02-01" },
+			"reviewer",
+		)
+		await patchGithubAccessActivity(
+			activityId,
+			{ op: "confirm-review", confirmedBy: "reviewer", confirmedAt: "2025-02-01T00:00:00.000Z" },
+			"reviewer",
+		)
+
+		const db = getTestDb()
+		const pointsAfterConfirm = await db.execute(
+			/* sql */ `SELECT text FROM routine_review_follow_up_points WHERE review_id = '${reviewId}'`,
+		)
+		expect(pointsAfterConfirm.rows).toEqual([{ text: "Fjern GitHub-tilgang for @alice" }])
+
+		await patchGithubAccessActivity(activityId, { op: "unmark-for-removal", username: "alice" }, "reviewer")
+		const pointsAfterUnmark = await db.execute(
+			/* sql */ `SELECT text FROM routine_review_follow_up_points WHERE review_id = '${reviewId}'`,
+		)
+		expect(pointsAfterUnmark.rows).toEqual([])
 	})
 
 	it("re-seeding after completion returns the already-seeded staged data instead of throwing", async () => {

@@ -213,6 +213,7 @@ export function applyGithubAccessStagedDataPatch(
 	const existing = subjects[index]
 
 	if (patch.op === "mark-for-removal") {
+		const shouldClearConfirmation = !existing.markedForRemoval || existing.permissionAdjustmentRequested
 		subjects[index] = {
 			...existing,
 			markedForRemoval: true,
@@ -223,7 +224,11 @@ export function applyGithubAccessStagedDataPatch(
 			permissionAdjustmentMarkedBy: null,
 			permissionAdjustmentMarkedAt: null,
 		}
-		return parseGithubAccessStagedData({ ...parsed, subjects })
+		return parseGithubAccessStagedData({
+			...parsed,
+			subjects,
+			...(shouldClearConfirmation && { confirmedBy: null, confirmedAt: null }),
+		})
 	}
 
 	if (patch.op === "unmark-for-removal") {
@@ -247,6 +252,10 @@ export function applyGithubAccessStagedDataPatch(
 				`Målnivået "${patch.targetPermission}" er det samme som gjeldende tilgangsnivå for ${patch.username}`,
 			)
 		}
+		const shouldClearConfirmation =
+			!existing.permissionAdjustmentRequested ||
+			normalizeGithubPermission(existing.targetPermission ?? "") !== normalizeGithubPermission(patch.targetPermission) ||
+			existing.markedForRemoval
 		subjects[index] = {
 			...existing,
 			permissionAdjustmentRequested: true,
@@ -257,7 +266,11 @@ export function applyGithubAccessStagedDataPatch(
 			removalMarkedBy: null,
 			removalMarkedAt: null,
 		}
-		return parseGithubAccessStagedData({ ...parsed, subjects })
+		return parseGithubAccessStagedData({
+			...parsed,
+			subjects,
+			...(shouldClearConfirmation && { confirmedBy: null, confirmedAt: null }),
+		})
 	}
 
 	if (patch.op === "unmark-for-adjustment") {

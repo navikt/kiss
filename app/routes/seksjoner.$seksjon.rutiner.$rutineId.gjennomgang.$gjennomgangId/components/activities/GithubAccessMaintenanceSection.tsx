@@ -381,7 +381,7 @@ export function GithubAccessMaintenanceSection({
 						<BodyShort weight="semibold">Fullføring av GitHub-tilgangsgjennomgang</BodyShort>
 						<BodyShort size="small">
 							Bekrefter at resterende personer har tjenstlig behov for tilgangen. Tilganger som skal fjernes eller
-							endres får automatisk et preutfylt oppfølgingspunkt som må adresseres.
+							endres får automatisk oppfølgingspunkter med én gang.
 						</BodyShort>
 						<HStack gap="space-4" align="center" wrap>
 							<Button
