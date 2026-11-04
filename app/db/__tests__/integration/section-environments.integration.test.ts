@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
 
@@ -20,6 +21,8 @@ const {
 	getUnassignedAppsForSection,
 	getNaisTeamAppCounts,
 	getNaisTeamDetail,
+	getApplicationDetail,
+	upsertAppPersistence,
 } = await import("~/db/queries/nais.server")
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -395,6 +398,52 @@ describe("section_environments integration tests", () => {
 	})
 
 	describe("Nais team views — excluded cluster filtering", () => {
+		it("getNaisTeamDetail uses the same persistence list as application detail", async () => {
+			const sectionId = await createSection("Team Persistence Section")
+			const teamSlug = "team-persistence-filter"
+			const teamId = await createNaisTeam(teamSlug, sectionId)
+			const appId = await createApp("team-persistence-app")
+			await upsertAppEnvironment(appId, "prod-gcp", teamSlug, teamId)
+			await upsertAppEnvironment(appId, "dev-gcp", teamSlug, teamId)
+			await upsertAppEnvironment(appId, "prod-fss", teamSlug, teamId)
+			await includeEnvironment(sectionId, "prod-gcp", "Z990001")
+			await includeEnvironment(sectionId, "prod-fss", "Z990001")
+			await excludeEnvironment(sectionId, "dev-gcp", "Z990001")
+			await getTestDb().execute(
+				sql`UPDATE application_environments SET archived_at = NOW(), archived_by = 'Z990001'
+					WHERE application_id = ${appId} AND cluster = 'prod-fss'`,
+			)
+
+			await upsertAppPersistence(appId, "cloud_sql_postgres", "active-db", { cluster: "prod-gcp" })
+			await upsertAppPersistence(appId, "cloud_sql_postgres", "excluded-db", { cluster: "dev-gcp" })
+			await upsertAppPersistence(appId, "cloud_sql_postgres", "inactive-db", { cluster: "prod-fss" })
+			await upsertAppPersistence(appId, "cloud_sql_postgres", "legacy-db")
+
+			const otherAppId = await createApp("team-persistence-other-app")
+			await upsertAppEnvironment(otherAppId, "prod-fss", teamSlug, teamId)
+			await upsertAppPersistence(otherAppId, "cloud_sql_postgres", "other-active-db", { cluster: "prod-fss" })
+
+			const querySpy = vi.spyOn(getTestPool(), "query")
+			let teamDetail: Awaited<ReturnType<typeof getNaisTeamDetail>>
+			try {
+				teamDetail = await getNaisTeamDetail(teamSlug)
+				expect(querySpy).toHaveBeenCalledTimes(5)
+			} finally {
+				querySpy.mockRestore()
+			}
+			const appDetail = await getApplicationDetail(appId)
+			const teamApp = teamDetail?.apps.find((app) => app.appId === appId)
+
+			expect(teamApp?.persistence.map((p) => p.name)).toEqual(["active-db", "legacy-db"])
+			expect(teamApp?.persistence).toEqual(
+				appDetail?.persistence.map((p) => ({ type: p.type, name: p.name, version: p.version })),
+			)
+			expect(teamApp?.environments.map((env) => env.cluster)).toEqual(["prod-gcp"])
+			expect(teamDetail?.apps.find((app) => app.appId === otherAppId)?.persistence.map((p) => p.name)).toEqual([
+				"other-active-db",
+			])
+		})
+
 		it("getNaisTeamDetail hides apps and environments that only exist in excluded clusters", async () => {
 			const sectionId = await createSection("Nais Team Detail Section")
 			const naisTeamSlug = "team-detail-filter"

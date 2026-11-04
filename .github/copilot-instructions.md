@@ -5,13 +5,14 @@ Se `AGENTS.md` for fullstendig arkitekturdokumentasjon.
 
 ## Kritiske sjekkpunkter (blokkér PR ved avvik)
 
-### 1. Audit-atomisitet — writeAuditLog MÅ stå i samme transaksjon som DB-mutasjonen
+### 1. Audit-atomisitet — writeAuditLog MÅ stå i samme transaksjon som mutasjonen som logges
 
-Ethvert kall til `writeAuditLog()` som skjer etter en DB-mutasjon (insert/update/delete)
-**SKAL** bruke `tx`-parameteren og begge kall **SKAL** ligge inne i `db.transaction()`.
+Når en mutasjon skal audit-logges etter reglene i seksjon 2, **SKAL** mutasjonen og
+`writeAuditLog()` bruke samme `tx` og ligge inne i samme `db.transaction()`. Interne
+arbeidsdata for en pågående rutinegjennomgang er unntatt fra audit-kravet; se seksjon 2.
 
 ```ts
-// ❌ FEIL — ikke atomisk. Hvis writeAuditLog kaster, er DB endret uten sporbarhet
+// ❌ FEIL — ikke atomisk for en mutasjon som skal audit-logges
 await db.update(tabell).set({ ... })
 await writeAuditLog({ action: "...", ... })
 
@@ -24,11 +25,27 @@ return db.transaction(async (tx) => {
 
 Dette gjelder i alle query-funksjoner i `app/db/queries/`. Sjekk spesielt:
 - Funksjoner som gjør `db.update()` eller `db.insert()` etterfulgt av `writeAuditLog()`
-- Hjelpefunksjoner som inserter i endringslogg-tabeller + kaller `writeAuditLog()`
+- Hjelpefunksjoner som endrer primærlagring og kaller `writeAuditLog()`
 
-### 2. Audit-logging påkrevd for alle CRUD-operasjoner
+### 2. Omfang av audit-logging
 
-Alle ny opprettelse, endring og sletting **SKAL** kalle `writeAuditLog()` fra `app/db/queries/audit.server.ts`.
+Audit-logg (`writeAuditLog()` fra `app/db/queries/audit.server.ts`) skal dokumentere
+domeneendringer og viktige livsløpshendelser, ikke hvert trinn i en pågående
+rutinegjennomgang:
+
+- Endringer i data utenfor rutinegjennomgangen **SKAL** audit-logges når de skjer,
+  også når de utføres mens en gjennomgang pågår.
+- Endringer i gjennomgangens interne arbeidsdata — blant annet `staged_data`,
+  seeding, patching og snapshots — trenger **IKKE** egne audit-rader underveis.
+- Opprettelse og avbrytelse av rutinegjennomgangen **SKAL** audit-logges som
+  livsløpshendelser.
+- Ved fullføring **SKAL** fullføringen og alle endringer som da skrives til
+  primærlagring audit-logges. Disse audit-radene og DB-mutasjonene **SKAL** være
+  i samme transaksjon.
+
+Brukerrettet endringshistorikk under gjennomgangen er separat fra `audit_log`.
+Unntaket for interne arbeidsdata fjerner ikke krav til å bevare eller vise slik
+endringshistorikk der funksjonen tilbyr den.
 
 Obligatoriske felt i audit-kallet:
 - `action` — må finnes i `auditLogActionEnum` i `app/db/schema/audit.ts`
@@ -39,7 +56,8 @@ Obligatoriske felt i audit-kallet:
 - `performedBy` — nav-ident til utførende bruker
 
 Nye `action`-verdier **SKAL** legges til i `auditLogActionEnum` i `app/db/schema/audit.ts`
-**FØR** de brukes i query-kode.
+**FØR** de brukes i query-kode. Ikke legg til audit-kall for hvert steg i en
+rutinegjennomgang bare for å oppfylle et generelt CRUD-krav.
 
 ### 3. Historikkbevaring — ingen hard delete
 

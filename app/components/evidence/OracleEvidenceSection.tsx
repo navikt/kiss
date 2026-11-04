@@ -10,7 +10,6 @@ import {
 	HStack,
 	Select,
 	Skeleton,
-	Tag,
 	useDatepicker,
 	VStack,
 } from "@navikt/ds-react"
@@ -91,7 +90,6 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft, p
 	const downloadFetcher = useFetcher()
 	const revalidator = useRevalidator()
 
-	const isCompleted = activity.status === "completed"
 	const isPending = activity.status === "pending"
 	const showDateFilters = config.showDateFilters(evidenceTypes)
 
@@ -206,20 +204,9 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft, p
 
 	return (
 		<VStack gap="space-6">
-			<HStack gap="space-4" align="center">
-				<Heading size="medium" level="3">
-					{config.heading}
-				</Heading>
-				{isCompleted ? (
-					<Tag variant="success" size="xsmall">
-						Fullført
-					</Tag>
-				) : (
-					<Tag variant="warning" size="xsmall">
-						Pågår
-					</Tag>
-				)}
-			</HStack>
+			<Heading size="medium" level="3">
+				{config.heading}
+			</Heading>
 
 			{configuredInstances.length === 0 && (
 				<Alert variant="warning" size="small">

@@ -114,7 +114,7 @@ pnpm check            # Biome + React Router typegen + tsc (kjør før commit)
 3. **Server-only kode** skal alltid ha `.server.ts`-suffiks
 4. **Alle tabeller** skal ha audit-kolonner (created_at, created_by, updated_at, updated_by)
 5. **Historikk** skal bevares – data slettes aldri, bare arkiveres
-6. **Audit-logging er PÅKREVD** for alle CRUD-operasjoner via `writeAuditLog()` i `app/db/queries/audit.server.ts`. Nye action-typer legges til i `auditLogActionEnum` i `app/db/schema/audit.ts`. Endringsloggen skal alltid vises i brukergrensesnittet med kolonner: Tidspunkt, Handling, Detaljer, Utført av.
+6. **Audit-logging følger domenescope.** Endringer i arbeidsdata under en pågående rutinegjennomgang (for eksempel `staged_data`, seeding og patching) trenger ikke egne audit-rader. Endringer i data utenfor gjennomgangen skal audit-logges når de skjer. Ved fullføring skal alle endringer som skrives til primærlagring, samt fullføringen av gjennomgangen, audit-logges atomisk med mutasjonene. Opprettelse og avbrytelse av selve gjennomgangen skal også audit-logges. Brukerrettet endringshistorikk er separat fra `audit_log` og skal bevares. Se `.github/copilot-instructions.md` og `docs/staged-data-pattern.md` for detaljer.
 7. **`pnpm db:seed` skal ALDRI kjøres automatisk** – verken i `dev:setup`, CI/CD, eller av AI-agenter i autopilot-modus. Kun når brukeren eksplisitt ber om det.
 8. **E2e-tester som oppretter data SKAL alltid rydde opp etter seg** – testdata som ligger igjen forurenser utviklingsdatabasen.
 9. **`db:push` og `drizzle-kit push` skal ALDRI kjøres av AI-agenter mot utviklingsdatabasen.** `--force`-flagget er STRENGT FORBUDT. Integrasjonstester med Testcontainers er unntatt.

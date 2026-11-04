@@ -34,11 +34,11 @@ export interface EvidenceProviderUiConfig {
 const oracleConfig: EvidenceProviderUiConfig = {
 	heading: "Oracle revisjonsbevis",
 	instanceLabel: "Oracle-instans",
-	loadingMessage: "Henter status fra pensjon-oracle-revisjon… (dette kan ta opptil 30 sekunder)",
-	downloadingMessage: "Henter bevis fra pensjon-oracle-revisjon… dette kan ta opptil ett minutt.",
-	externalLinkLabel: "Åpne gjennomgang i pensjon-oracle-revisjon",
+	loadingMessage: "Henter status fra ORB… (dette kan ta opptil 30 sekunder)",
+	downloadingMessage: "Henter bevis fra ORB… dette kan ta opptil ett minutt.",
+	externalLinkLabel: "Åpne gjennomgang i ORB",
 	statusTableDescription:
-		"Tabellen under viser status for bevistyper i pensjon-oracle-revisjon. Velg format for å hente beviset direkte inn i denne rutinegjennomgangen.",
+		"Tabellen under viser status for bevistyper i ORB. Velg format for å hente beviset direkte inn i denne rutinegjennomgangen.",
 	noInstancesWarning:
 		"Ingen Oracle-instanser er konfigurert for denne applikasjonen. Konfigurer instanser i applikasjonsinnstillingene.",
 	evidenceTypeLabels: {

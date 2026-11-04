@@ -164,6 +164,7 @@ export async function getNaisTeamDetail(slug: string) {
 
 	const envConditions = [
 		eq(applicationEnvironments.naisTeamId, team.id),
+		isNull(applicationEnvironments.archivedAt),
 		isNull(monitoredApplications.primaryApplicationId),
 	] as const
 
@@ -204,9 +205,7 @@ export async function getNaisTeamDetail(slug: string) {
 		}
 	}
 
-	const appIds = [...appMap.keys()]
-	const persistenceMap = await getAppsPersistence(appIds)
-
+	const persistenceMap = await getAppsPersistence([...appMap.keys()], { onlyActiveClusters: true })
 	const apps = [...appMap.values()].map((app) => ({
 		...app,
 		persistence: (persistenceMap.get(app.appId) ?? []).map((p) => ({
@@ -1391,6 +1390,39 @@ export async function getAppAuthIntegrations(applicationId: string, opts?: { exc
 		.where(and(...conditions))
 		.orderBy(applicationAuthIntegrations.type, applicationAuthIntegrations.cluster)
 }
+function activePersistenceClusterFilter() {
+	return (
+		or(
+			isNull(applicationPersistence.cluster),
+			exists(
+				db
+					.select({ id: applicationEnvironments.id })
+					.from(applicationEnvironments)
+					.leftJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
+					.where(
+						and(
+							eq(applicationEnvironments.applicationId, applicationPersistence.applicationId),
+							eq(applicationEnvironments.cluster, applicationPersistence.cluster),
+							isNull(applicationEnvironments.archivedAt),
+							notExists(
+								db
+									.select({ id: sectionEnvironments.id })
+									.from(sectionEnvironments)
+									.where(
+										and(
+											eq(sectionEnvironments.sectionId, naisTeams.sectionId),
+											eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
+											eq(sectionEnvironments.included, false),
+										),
+									),
+							),
+						),
+					),
+			),
+		) ?? sql`FALSE`
+	)
+}
+
 /**
  * Henter persistens-ressurser for en applikasjon. Filtrerer bort arkiverte
  * rader. Sett `includeArchived: true` for admin-/historikk-visninger.
@@ -1398,13 +1430,15 @@ export async function getAppAuthIntegrations(applicationId: string, opts?: { exc
  * lenger er aktivt overvåket for applikasjonen (f.eks. et Kubernetes-miljø som
  * ikke lenger blir oppdaget av Nais-sync, eller et cluster som er ekskludert
  * på seksjonsnivå). Rader uten cluster (legacy/manuelt lagt til) beholdes alltid.
+ * `onlyActiveClusters` utleder dette filteret fra applikasjonens miljøer.
  */
 export async function getAppPersistence(
 	applicationId: string,
-	opts?: { includeArchived?: boolean; activeClusters?: Set<string> },
+	opts?: { includeArchived?: boolean; activeClusters?: Set<string>; onlyActiveClusters?: boolean },
 ) {
 	const conditions = [eq(applicationPersistence.applicationId, applicationId)]
 	if (!opts?.includeArchived) conditions.push(isNull(applicationPersistence.archivedAt))
+	if (opts?.onlyActiveClusters) conditions.push(activePersistenceClusterFilter())
 	if (opts?.activeClusters) {
 		// Eksplisitt gren for tomt sett — legacy-rader skal fortsatt vises selv
 		// om appen ikke har aktive miljøer.
@@ -1427,12 +1461,17 @@ export async function getAppPersistence(
 /**
  * Get persistence resources for multiple applications (batch). Filtrerer bort
  * arkiverte rader. Sett `includeArchived: true` for admin-/historikk-visninger.
+ * `onlyActiveClusters` bruker samme miljøfilter som applikasjonsdetaljer.
  */
-export async function getAppsPersistence(applicationIds: string[], opts?: { includeArchived?: boolean }) {
+export async function getAppsPersistence(
+	applicationIds: string[],
+	opts?: { includeArchived?: boolean; onlyActiveClusters?: boolean },
+) {
 	if (applicationIds.length === 0) return new Map<string, (typeof applicationPersistence.$inferSelect)[]>()
 
 	const conditions = [inArray(applicationPersistence.applicationId, applicationIds)]
 	if (!opts?.includeArchived) conditions.push(isNull(applicationPersistence.archivedAt))
+	if (opts?.onlyActiveClusters) conditions.push(activePersistenceClusterFilter())
 
 	const rows = await db
 		.select()
@@ -1575,11 +1614,7 @@ export async function getApplicationDetail(applicationId: string) {
 	for (const clusters of excludedBySection.values()) {
 		for (const c of clusters) allExcludedClusters.add(c)
 	}
-	const activeAppClusters = new Set(
-		environmentsWithExcluded.map((env) => env.cluster).filter((c): c is string => Boolean(c)),
-	)
-
-	const persistence = await getAppPersistence(applicationId, { activeClusters: activeAppClusters })
+	const persistence = await getAppPersistence(applicationId, { onlyActiveClusters: true })
 	const authIntegrations = await getAppAuthIntegrations(applicationId, {
 		excludedClusters: allExcludedClusters,
 	})

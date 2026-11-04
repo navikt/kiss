@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, notExists } from "drizzle-orm"
+import { and, asc, eq, inArray, isNotNull, isNull, notExists, sql } from "drizzle-orm"
 import { getVerificationSummary } from "../../lib/deployment-audit.server"
 import { logger } from "../../lib/logger.server"
 import { db } from "../connection.server"
@@ -6,6 +6,8 @@ import { applicationEnvironments, monitoredApplications, naisTeams } from "../sc
 import type { VerificationSummaryResponse } from "../schema/deployment-audit"
 import { deploymentVerificationSummaries } from "../schema/deployment-audit"
 import { sectionEnvironments } from "../schema/organization"
+
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 /**
  * An environment counts as "production" here when `naisTeams.sectionId` is set and the section
@@ -319,24 +321,63 @@ export interface NdaAppParams {
 	team: string
 	environment: string
 	appName: string
+	sectionId: string
+}
+
+export interface NdaAppParamsGroupEntry extends NdaAppParams {
+	applicationId: string
+}
+
+export interface NdaAppGroupSnapshotEntry {
+	applicationId: string
+	team: string
+	environment: string
+	appName: string
+}
+
+export function buildReadOnlyNdaAppGroupSnapshot(snapshotAfter: unknown): NdaAppGroupSnapshotEntry[] | null {
+	if (!Array.isArray(snapshotAfter)) return null
+
+	const entries: NdaAppGroupSnapshotEntry[] = []
+	for (const raw of snapshotAfter) {
+		if (!raw || typeof raw !== "object") return null
+		const entry = raw as Record<string, unknown>
+		const { applicationId, team, environment, appName } = entry
+		if (
+			typeof applicationId !== "string" ||
+			typeof team !== "string" ||
+			typeof environment !== "string" ||
+			typeof appName !== "string"
+		) {
+			return null
+		}
+		entries.push({ applicationId, team, environment, appName })
+	}
+	return entries
 }
 
 /**
  * Resolve NDA API parameters for a monitored application.
  *
  * Finds the application's primary production environment — an environment whose cluster
- * has not been excluded by the application's section in `section_environments` — using
- * alphabetical ordering on cluster name and returns the team/environment/appName needed
+ * has not been excluded by the application's section in `section_environments`. Prefers an
+ * environment whose team belongs to `preferredSectionId` (if given), then falls back to
+ * alphabetical ordering on cluster name, and returns the team/environment/appName needed
  * by the NDA audit-reports API.
  *
  * @returns NdaAppParams or null if no production environment is found
  */
-export async function getNdaAppParams(applicationId: string): Promise<NdaAppParams | null> {
-	const rows = await db
+export async function getNdaAppParams(
+	applicationId: string,
+	preferredSectionId?: string,
+	executor: DbExecutor = db,
+): Promise<NdaAppParams | null> {
+	const rows = await executor
 		.select({
 			appName: monitoredApplications.name,
 			cluster: applicationEnvironments.cluster,
 			teamSlug: naisTeams.slug,
+			sectionId: naisTeams.sectionId,
 		})
 		.from(applicationEnvironments)
 		.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
@@ -349,15 +390,86 @@ export async function getNdaAppParams(applicationId: string): Promise<NdaAppPara
 				notExcludedBySectionCondition(),
 			),
 		)
-		.orderBy(asc(applicationEnvironments.cluster))
+		.orderBy(
+			sql`(case when ${naisTeams.sectionId} = ${preferredSectionId ?? null} then 0 else 1 end)`,
+			asc(applicationEnvironments.cluster),
+		)
 		.limit(1)
 
 	if (rows.length === 0) return null
 
 	const row = rows[0]
+	if (!row.sectionId) return null
+
 	return {
 		team: row.teamSlug ?? "",
 		environment: row.cluster,
 		appName: row.appName,
+		sectionId: row.sectionId,
 	}
+}
+
+export async function getNdaAppParamsGroup(
+	applicationId: string,
+	preferredSectionId?: string,
+	executor: DbExecutor = db,
+): Promise<NdaAppParamsGroupEntry[]> {
+	const result = await executor.execute(sql`
+		WITH root AS (
+			SELECT COALESCE(primary_application_id, id) AS primary_id
+			FROM ${monitoredApplications}
+			WHERE id = ${applicationId}
+		),
+		members AS (
+			SELECT m.id, m.name AS app_name
+			FROM ${monitoredApplications} m, root
+			WHERE m.archived_at IS NULL
+			AND (m.id = root.primary_id OR m.primary_application_id = root.primary_id)
+		),
+		ranked AS (
+			SELECT
+				members.id AS application_id,
+				members.app_name AS app_name,
+				${naisTeams.slug} AS team_slug,
+				${naisTeams.sectionId} AS section_id,
+				ROW_NUMBER() OVER (
+					PARTITION BY members.id
+					ORDER BY (CASE WHEN ${naisTeams.sectionId} = ${preferredSectionId ?? null} THEN 0 ELSE 1 END), ${applicationEnvironments.cluster} ASC
+				) AS rn,
+				${applicationEnvironments.cluster} AS cluster
+			FROM members
+			JOIN ${applicationEnvironments} ON ${applicationEnvironments.applicationId} = members.id
+			JOIN ${naisTeams} ON ${naisTeams.id} = ${applicationEnvironments.naisTeamId}
+			WHERE ${naisTeams.sectionId} IS NOT NULL
+			AND ${applicationEnvironments.archivedAt} IS NULL
+			AND NOT EXISTS (
+				SELECT 1 FROM ${sectionEnvironments}
+				WHERE ${sectionEnvironments.sectionId} = ${naisTeams.sectionId}
+				AND ${sectionEnvironments.cluster} = ${applicationEnvironments.cluster}
+				AND ${sectionEnvironments.included} = false
+			)
+		)
+		SELECT application_id, app_name, team_slug, section_id, cluster
+		FROM ranked
+		WHERE rn = 1
+		ORDER BY app_name
+	`)
+
+	return (
+		result.rows as Array<{
+			application_id: string
+			app_name: string
+			team_slug: string | null
+			section_id: string | null
+			cluster: string
+		}>
+	)
+		.filter((row) => row.section_id !== null)
+		.map((row) => ({
+			applicationId: row.application_id,
+			team: row.team_slug ?? "",
+			environment: row.cluster,
+			appName: row.app_name,
+			sectionId: row.section_id as string,
+		}))
 }

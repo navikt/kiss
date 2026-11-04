@@ -30,7 +30,7 @@ import { EvidenceStatusBadge } from "./EvidenceStatusBadge"
 import { PeriodSelector } from "./PeriodSelector"
 
 export interface NdaEvidenceDataProp {
-	appParams: { team: string; environment: string; appName: string } | null
+	apps: Array<{ applicationId: string; team: string; environment: string; appName: string }>
 	periodConfig: { periodType: string; periodStart: string } | null
 	downloads: Array<{
 		id: string
@@ -41,6 +41,11 @@ export interface NdaEvidenceDataProp {
 		forceFetchJustification: string | null
 		performedBy: string
 		performedAt: string
+		team: string
+		environment: string
+		appName: string
+		periodType: string
+		periodStart: string
 	}>
 }
 
@@ -62,10 +67,23 @@ interface Props {
 export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, preview = false }: Props) {
 	const config = getProviderUiConfig("deployments")
 	const revalidator = useRevalidator()
-	const { appParams, periodConfig, downloads } = evidenceData
+	const { apps, periodConfig, downloads } = evidenceData
 	const showConfirmation = isDraft && !preview && downloads.length > 0
 
-	if (!appParams) {
+	const unmatchedDownloads = downloads.filter(
+		(d) => !apps.some((app) => d.team === app.team && d.environment === app.environment && d.appName === app.appName),
+	)
+
+	const otherPeriodDownloads =
+		periodConfig != null
+			? downloads.filter(
+					(d) =>
+						apps.some((app) => d.team === app.team && d.environment === app.environment && d.appName === app.appName) &&
+						(d.periodType !== periodConfig.periodType || d.periodStart !== periodConfig.periodStart),
+				)
+			: []
+
+	if (apps.length === 0) {
 		return (
 			<VStack gap="space-4">
 				<Heading size="medium" level="3">
@@ -96,15 +114,49 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, pre
 					{downloads.length > 0 && <NdaDownloadsTable downloads={downloads} preview={preview} />}
 				</>
 			) : (
-				<DeploymentStatusPanel
-					activity={activity}
-					appParams={appParams}
-					periodConfig={periodConfig}
-					downloads={downloads}
-					isDraft={isDraft}
-					preview={preview}
-					config={config}
-				/>
+				<VStack gap="space-6">
+					{apps.map((appParams) => (
+						<DeploymentStatusPanel
+							key={appParams.applicationId}
+							activity={activity}
+							appParams={appParams}
+							periodConfig={periodConfig}
+							downloads={downloads.filter(
+								(d) =>
+									d.team === appParams.team &&
+									d.environment === appParams.environment &&
+									d.appName === appParams.appName &&
+									d.periodType === periodConfig.periodType &&
+									d.periodStart === periodConfig.periodStart,
+							)}
+							isDraft={isDraft}
+							preview={preview}
+							config={config}
+						/>
+					))}
+					{otherPeriodDownloads.length > 0 && (
+						<VStack gap="space-2">
+							<ReadMore header="Rapporter fra tidligere perioder">
+								<BodyShort size="small" spacing>
+									Disse rapportene ble registrert for en annen periode enn den som er valgt for denne aktiviteten nå, og
+									vises derfor ikke under applikasjonspanelene ovenfor.
+								</BodyShort>
+								<NdaDownloadsTable downloads={otherPeriodDownloads} preview={preview} />
+							</ReadMore>
+						</VStack>
+					)}
+					{unmatchedDownloads.length > 0 && (
+						<VStack gap="space-2">
+							<ReadMore header="Historisk bevis fra tidligere applikasjonskonfigurasjon">
+								<BodyShort size="small" spacing>
+									Disse rapportene ble registrert mens applikasjonen hadde en annen team-, miljø- eller
+									navnekonfigurasjon enn i dag, og vises derfor ikke under noen av applikasjonspanelene ovenfor.
+								</BodyShort>
+								<NdaDownloadsTable downloads={unmatchedDownloads} preview={preview} />
+							</ReadMore>
+						</VStack>
+					)}
+				</VStack>
 			)}
 		</VStack>
 	)
@@ -157,10 +209,12 @@ function DeploymentStatusPanel({
 	const pollFailCountRef = useRef(0)
 	const MAX_POLL_FAILURES = 3
 
+	const canLoadLiveStatus = isDraft && !preview && activity.status === "pending"
+
 	// Fetch status on mount
 	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally mount-only
 	useEffect(() => {
-		if (preview) return
+		if (!canLoadLiveStatus) return
 		if (statusFetcher.state === "idle" && !statusFetcher.data) {
 			const params = new URLSearchParams({
 				providerType: "deployments",
@@ -313,9 +367,11 @@ function DeploymentStatusPanel({
 					{" — "}
 					{periodConfig.periodStart}
 				</Tag>
-				<Button variant="tertiary" size="xsmall" onClick={refreshStatus} loading={isLoadingStatus} disabled={preview}>
-					Oppdater status
-				</Button>
+				{canLoadLiveStatus && (
+					<Button variant="tertiary" size="xsmall" onClick={refreshStatus} loading={isLoadingStatus}>
+						Oppdater status
+					</Button>
+				)}
 			</HStack>
 
 			{isLoadingStatus && !validStatus && !statusError && (

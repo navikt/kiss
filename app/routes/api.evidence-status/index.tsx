@@ -1,7 +1,7 @@
 import { data } from "react-router"
 import { getActivityContext } from "~/db/queries/evidence-downloads.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireAnySectionRole } from "~/lib/authorization.server"
+import { requireReviewReadAccess } from "~/lib/authorization.server"
 import { getEvidenceProvider, isEvidenceProviderType } from "~/lib/evidence-providers/index.server"
 import { extractProviderParams, validateProviderAccess } from "~/lib/evidence-providers/validation.server"
 import { logger } from "~/lib/logger.server"
@@ -29,7 +29,7 @@ export async function loader({ request, url }: Route.LoaderArgs) {
 
 	const ctx = await getActivityContext(activityId)
 	if (!ctx) return data({ error: "Aktivitet ikke funnet" }, { status: 404 })
-	requireAnySectionRole(authedUser, ctx.sectionId)
+	await requireReviewReadAccess(authedUser, { applicationId: ctx.applicationId, sectionId: ctx.sectionId })
 
 	const providerParams = extractProviderParams(providerType, url.searchParams)
 	try {
