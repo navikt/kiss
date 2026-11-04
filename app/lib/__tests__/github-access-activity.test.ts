@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { applyGithubAccessStagedDataPatch, parseGithubAccessStagedData } from "~/lib/github-access-staged-data"
+import {
+	applyGithubAccessStagedDataPatch,
+	type GithubAccessStagedDataPatch,
+	parseGithubAccessStagedData,
+} from "~/lib/github-access-staged-data"
 
 const mocks = vi.hoisted(() => ({
 	select: vi.fn(),
@@ -38,7 +42,12 @@ vi.mock("~/db/connection.server", () => {
 	return { db: { ...executor, transaction: async (callback: (tx: unknown) => unknown) => callback(executor) } }
 })
 vi.mock("~/db/queries/audit.server", () => ({ writeAuditLog: mocks.audit }))
-vi.mock("~/db/queries/routines.server", () => ({ addFollowUpPointRow: mocks.followUp }))
+vi.mock("~/db/queries/routines.server", () => ({
+	addFollowUpPointRow: (...args: unknown[]) => {
+		mocks.followUp(...args)
+		return { id: `follow-up-${mocks.followUp.mock.calls.length}` }
+	},
+}))
 vi.mock("~/db/queries/users.server", () => ({ getUserNamesByNavIdents: async () => new Map() }))
 vi.mock("~/lib/lock.server", () => ({
 	withAdvisoryLock: async (_name: string, callback: () => unknown) => callback(),
@@ -333,6 +342,139 @@ describe("github access activity", () => {
 			text: 'Juster GitHub-tilgang for @rask-elv fra "admin" til "push"',
 			description: expect.stringContaining('fra "admin" til "push"'),
 		})
+	})
+
+	function decisionData() {
+		return parseGithubAccessStagedData({
+			...rawData,
+			subjects: [
+				{ ...rawData.subjects[0], markedForRemoval: true, removalMarkedBy: "Z990001", removalMarkedAt: markedAt },
+				{
+					...rawData.subjects[0],
+					username: "rask-elv",
+					permissionAdjustmentRequested: true,
+					targetPermission: "push",
+					permissionAdjustmentMarkedBy: "Z990001",
+					permissionAdjustmentMarkedAt: markedAt,
+				},
+			],
+			confirmedBy: "Z990001",
+			confirmedAt: timestamp,
+		})
+	}
+
+	function mockLinkedPoints(status = "completed") {
+		mocks.select.mockReturnValueOnce(
+			selectResult([
+				{
+					pointId: "removal-point",
+					subjectUsername: "glad-fjord",
+					decisionKind: "remove_access",
+					text: "Avtalt fjerning",
+					description: "Egen beskrivelse",
+					status,
+					resolution: "Gjennomført av Glad Fjord",
+				},
+				{
+					pointId: "adjustment-point",
+					subjectUsername: "rask-elv",
+					decisionKind: "adjust_access",
+					text: "Avtalt justering",
+					description: "Annen beskrivelse",
+					status,
+					resolution: "Gjennomført av Rask Elv",
+				},
+			]),
+		)
+	}
+
+	it.each(["needs_follow_up", "completed", "not_relevant"])(
+		"preserves %s points and custom content when confirmation or decision metadata changes",
+		async (status) => {
+			const patches: GithubAccessStagedDataPatch[] = [
+				{ op: "unconfirm-review" },
+				{ op: "confirm-review", confirmedBy: "Z990042", confirmedAt: timestamp },
+				{ op: "mark-for-removal", username: "glad-fjord", markedBy: "Z990042", markedAt },
+				{
+					op: "mark-for-adjustment",
+					username: "rask-elv",
+					targetPermission: "write",
+					markedBy: "Z990042",
+					markedAt,
+				},
+			]
+			for (const patch of patches) {
+				mocks.updateValues.mockClear()
+				mockPatchData(decisionData())
+				mockLinkedPoints(status)
+				await patchGithubAccessActivity("activity-1", patch, "Z990042")
+				expect(mocks.updateValues).toHaveBeenCalledTimes(1)
+				expect(mocks.followUp).not.toHaveBeenCalled()
+			}
+		},
+	)
+
+	it("cancels only the undone decision, preserving unrelated resolved points", async () => {
+		mockPatchData(decisionData())
+		mockLinkedPoints()
+		await patchGithubAccessActivity("activity-1", { op: "unmark-for-removal", username: "glad-fjord" }, "Z990042")
+		expect(mocks.updateValues).toHaveBeenCalledTimes(2)
+		expect(mocks.updateValues.mock.calls[1][0]).toMatchObject({ status: "not_relevant" })
+		expect(mocks.followUp).not.toHaveBeenCalled()
+	})
+
+	it("reopens an existing adjustment only when its target changes, before reconfirmation", async () => {
+		mockPatchData(decisionData())
+		mockLinkedPoints()
+		await patchGithubAccessActivity(
+			"activity-1",
+			{
+				op: "mark-for-adjustment",
+				username: "rask-elv",
+				targetPermission: "pull",
+				markedBy: "Z990042",
+				markedAt,
+			},
+			"Z990042",
+		)
+		expect(mocks.updateValues).toHaveBeenCalledTimes(2)
+		expect(mocks.updateValues.mock.calls[1][0]).toMatchObject({
+			status: "needs_follow_up",
+			resolution: null,
+			resolvedAt: null,
+			resolvedBy: null,
+			text: 'Juster GitHub-tilgang for @rask-elv fra "admin" til "pull"',
+			description: expect.stringContaining('til "pull"'),
+		})
+		expect(mocks.followUp).not.toHaveBeenCalled()
+	})
+
+	it("reactivates an undone decision without waiting for confirmation or creating duplicates", async () => {
+		const data = applyGithubAccessStagedDataPatch(decisionData(), {
+			op: "unmark-for-removal",
+			username: "glad-fjord",
+		})
+		mockPatchData(data)
+		mockLinkedPoints("not_relevant")
+		await patchGithubAccessActivity(
+			"activity-1",
+			{ op: "mark-for-removal", username: "glad-fjord", markedBy: "Z990042", markedAt },
+			"Z990042",
+		)
+		expect(mocks.updateValues).toHaveBeenCalledTimes(2)
+		expect(mocks.updateValues.mock.calls[1][0]).toMatchObject({ status: "needs_follow_up", resolution: null })
+		expect(mocks.followUp).not.toHaveBeenCalled()
+	})
+
+	it("does not create new follow-ups for unconfirmed decisions", async () => {
+		mockPatchData(rawData)
+		await patchGithubAccessActivity(
+			"activity-1",
+			{ op: "mark-for-removal", username: "glad-fjord", markedBy: "Z990001", markedAt },
+			"Z990001",
+		)
+		expect(mocks.followUp).not.toHaveBeenCalled()
+		expect(mocks.insertValues).not.toHaveBeenCalled()
 	})
 
 	it("rejects commit when the review has not been confirmed", async () => {

@@ -370,6 +370,12 @@ export const routineReviewEvidenceDownloads = pgTable("routine_review_evidence_d
 export const FOLLOW_UP_POINT_STATUSES = ["needs_follow_up", "completed", "not_relevant"] as const
 export type FollowUpPointStatus = (typeof FOLLOW_UP_POINT_STATUSES)[number]
 
+export const FOLLOW_UP_POINT_LINK_SOURCE_TYPES = ["github_access_maintenance"] as const
+export type FollowUpPointLinkSourceType = (typeof FOLLOW_UP_POINT_LINK_SOURCE_TYPES)[number]
+
+export const FOLLOW_UP_POINT_LINK_DECISION_KINDS = ["remove_access", "adjust_access"] as const
+export type FollowUpPointLinkDecisionKind = (typeof FOLLOW_UP_POINT_LINK_DECISION_KINDS)[number]
+
 export const routineReviewFollowUpPoints = pgTable("routine_review_follow_up_points", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	reviewId: uuid("review_id")
@@ -386,6 +392,36 @@ export const routineReviewFollowUpPoints = pgTable("routine_review_follow_up_poi
 	resolvedAt: timestamp("resolved_at", { withTimezone: true }),
 	resolvedBy: text("resolved_by"),
 })
+
+export const routineReviewFollowUpPointLinks = pgTable(
+	"routine_review_follow_up_point_links",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		reviewId: uuid("review_id")
+			.notNull()
+			.references(() => routineReviews.id, { onDelete: "cascade" }),
+		pointId: uuid("point_id")
+			.notNull()
+			.references(() => routineReviewFollowUpPoints.id, { onDelete: "cascade" }),
+		sourceType: text("source_type", { enum: FOLLOW_UP_POINT_LINK_SOURCE_TYPES }).notNull(),
+		subjectUsername: text("subject_username").notNull(),
+		decisionKind: text("decision_kind", { enum: FOLLOW_UP_POINT_LINK_DECISION_KINDS }).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		createdBy: text("created_by").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedBy: text("updated_by").notNull(),
+	},
+	(table) => [
+		uniqueIndex("routine_review_follow_up_point_links_unique_idx").on(
+			table.reviewId,
+			table.sourceType,
+			table.subjectUsername,
+			table.decisionKind,
+		),
+		index("routine_review_follow_up_point_links_review_id_idx").on(table.reviewId),
+		index("routine_review_follow_up_point_links_point_id_idx").on(table.pointId),
+	],
+)
 
 // ─── Review Follow-up Point Attachments ──────────────────────────────────
 

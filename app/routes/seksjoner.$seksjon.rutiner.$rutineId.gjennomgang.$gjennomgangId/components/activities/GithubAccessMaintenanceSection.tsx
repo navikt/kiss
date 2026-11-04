@@ -394,7 +394,7 @@ export function GithubAccessMaintenanceSection({
 								disabled={isSubmitting}
 								loading={isSubmitting}
 							>
-								Bekreft tjenstlig behov resterende
+								Bekreft tjenstlig behov for resterende
 							</Button>
 						</HStack>
 					</VStack>

@@ -95,7 +95,7 @@ describe("GitHub access maintenance UI", () => {
 	it("submits the single confirm-review intent via the fetcher", () => {
 		renderSection()
 		expect(screen.queryByText("Ikke bekreftet")).toBeNull()
-		fireEvent.click(screen.getByRole("button", { name: "Bekreft tjenstlig behov resterende" }))
+		fireEvent.click(screen.getByRole("button", { name: "Bekreft tjenstlig behov for resterende" }))
 		expect(submit).toHaveBeenCalledWith({ intent: "confirm-github-access-review" }, { method: "POST" })
 	})
 
@@ -112,7 +112,7 @@ describe("GitHub access maintenance UI", () => {
 
 	it("allows reconfirming even after confirmedAt is already set", () => {
 		renderSection([subject], { confirmedBy: "Z990001", confirmedAt: "2026-09-02T10:00:00.000Z" })
-		fireEvent.click(screen.getByRole("button", { name: "Bekreft tjenstlig behov resterende" }))
+		fireEvent.click(screen.getByRole("button", { name: "Bekreft tjenstlig behov for resterende" }))
 		expect(submit).toHaveBeenCalledWith({ intent: "confirm-github-access-review" }, { method: "POST" })
 	})
 
