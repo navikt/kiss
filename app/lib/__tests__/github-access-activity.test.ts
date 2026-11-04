@@ -315,6 +315,11 @@ describe("github access activity", () => {
 			markedBy: "Z990001",
 			markedAt,
 		})
+		data = applyGithubAccessStagedDataPatch(data, {
+			op: "confirm-review",
+			confirmedBy: "Z990001",
+			confirmedAt: timestamp,
+		})
 		mocks.select.mockReturnValueOnce(
 			selectResult([
 				{ reviewId: "review-1", status: "pending", stagedData: data, applicationId: "app-1", reviewStatus: "draft" },

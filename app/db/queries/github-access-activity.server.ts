@@ -24,6 +24,7 @@ import { db } from "../connection.server"
 import {
 	routineReviewActivities,
 	routineReviewAttachments,
+	routineReviewFollowUpPoints,
 	routineReviewParticipants,
 	routineReviews,
 	routines,
@@ -404,6 +405,8 @@ export async function patchGithubAccessActivity(
 				if (!updated) {
 					throw new Response("Kan ikke endre en fullført aktivitet", { status: 409 })
 				}
+
+				await synchronizeGithubAccessFollowUpPoints(tx, activity.reviewId, updatedData, performedBy)
 			}
 		})
 	})
@@ -417,6 +420,119 @@ const REMOVAL_FOLLOW_UP_GUIDANCE =
 	"Fjern GitHub-tilgangen for brukeren snarest mulig. Vurder om tilgangen kan ha blitt utnyttet i perioden der " +
 	"det ikke lenger forelå tjenstlig behov, og dokumenter en eventuell risikovurdering som vedlegg til " +
 	"gjennomgangen."
+
+function removalFollowUpText(username: string): string {
+	return `Fjern GitHub-tilgang for @${username}`
+}
+
+function adjustmentFollowUpText(subject: GithubAccessSubject): string {
+	return `Juster GitHub-tilgang for @${subject.username} fra "${subject.highestPermission}" til "${subject.targetPermission}"`
+}
+
+function adjustmentFollowUpDescription(subject: GithubAccessSubject): string {
+	return `Juster GitHub-tilgangsnivået for @${subject.username} fra "${subject.highestPermission}" til "${subject.targetPermission}" i repoet. KISS bekrefter ikke endringen mot GitHub — merk punktet som fullført når justeringen er gjennomført.`
+}
+
+function parseManagedGithubFollowUpText(text: string): { kind: "removal" | "adjustment"; username: string } | null {
+	const removalMatch = text.match(/^Fjern GitHub-tilgang for @([A-Za-z0-9_.-]+)$/)
+	if (removalMatch) {
+		return { kind: "removal", username: removalMatch[1] }
+	}
+	const adjustmentMatch = text.match(/^Juster GitHub-tilgang for @([A-Za-z0-9_.-]+) fra ".*" til ".*"$/)
+	if (adjustmentMatch) {
+		return { kind: "adjustment", username: adjustmentMatch[1] }
+	}
+	return null
+}
+
+async function synchronizeGithubAccessFollowUpPoints(
+	executor: DbExecutor,
+	reviewId: string,
+	stagedData: GithubAccessStagedData,
+	performedBy: string,
+) {
+	const desired = new Map<string, { description: string }>()
+	if (stagedData.confirmedAt) {
+		for (const subject of stagedData.subjects) {
+			if (subject.markedForRemoval) {
+				desired.set(removalFollowUpText(subject.username), { description: REMOVAL_FOLLOW_UP_GUIDANCE })
+			}
+			if (subject.permissionAdjustmentRequested && subject.targetPermission) {
+				desired.set(adjustmentFollowUpText(subject), { description: adjustmentFollowUpDescription(subject) })
+			}
+		}
+	}
+
+	const usernameSet = new Set(stagedData.subjects.map((subject) => subject.username.trim().toLowerCase()))
+	const existingRows = await executor
+		.select({
+			id: routineReviewFollowUpPoints.id,
+			text: routineReviewFollowUpPoints.text,
+			status: routineReviewFollowUpPoints.status,
+		})
+		.from(routineReviewFollowUpPoints)
+		.where(eq(routineReviewFollowUpPoints.reviewId, reviewId))
+
+	const managedExisting = existingRows.filter((row) => {
+		const parsed = parseManagedGithubFollowUpText(row.text)
+		if (!parsed) return false
+		return usernameSet.has(parsed.username.trim().toLowerCase())
+	})
+
+	const existingByText = new Map<string, Array<(typeof managedExisting)[number]>>()
+	for (const row of managedExisting) {
+		const rows = existingByText.get(row.text) ?? []
+		rows.push(row)
+		existingByText.set(row.text, rows)
+	}
+
+	const { addFollowUpPointRow } = await import("./routines.server")
+	for (const [text, spec] of desired) {
+		const existing = existingByText.get(text) ?? []
+		if (existing.length === 0) {
+			await addFollowUpPointRow(executor, {
+				reviewId,
+				text,
+				description: spec.description,
+				performedBy,
+			})
+			continue
+		}
+
+		for (const duplicate of existing.slice(1)) {
+			await executor.delete(routineReviewFollowUpPoints).where(eq(routineReviewFollowUpPoints.id, duplicate.id))
+			await writeAuditLog(
+				{
+					action: "review_follow_up_deleted",
+					entityType: "review_follow_up_point",
+					entityId: duplicate.id,
+					previousValue: duplicate.text,
+					metadata: { reviewId, status: duplicate.status },
+					performedBy,
+				},
+				executor,
+			)
+		}
+	}
+
+	for (const [text, rows] of existingByText) {
+		if (desired.has(text)) continue
+		for (const row of rows) {
+			await executor.delete(routineReviewFollowUpPoints).where(eq(routineReviewFollowUpPoints.id, row.id))
+			await writeAuditLog(
+				{
+					action: "review_follow_up_deleted",
+					entityType: "review_follow_up_point",
+					entityId: row.id,
+					previousValue: row.text,
+					metadata: { reviewId, status: row.status },
+					performedBy,
+				},
+				executor,
+			)
+		}
+	}
+}
 
 export async function commitGithubAccessActivity(
 	activityId: string,
@@ -529,25 +645,7 @@ export async function commitGithubAccessActivity(
 		throw err
 	}
 
-	const { addFollowUpPointRow } = await import("./routines.server")
-	for (const subject of stagedData.subjects) {
-		if (subject.markedForRemoval) {
-			await addFollowUpPointRow(executor, {
-				reviewId,
-				text: `Fjern GitHub-tilgang for @${subject.username}`,
-				description: REMOVAL_FOLLOW_UP_GUIDANCE,
-				performedBy,
-			})
-		}
-		if (subject.permissionAdjustmentRequested) {
-			await addFollowUpPointRow(executor, {
-				reviewId,
-				text: `Juster GitHub-tilgang for @${subject.username} fra "${subject.highestPermission}" til "${subject.targetPermission}"`,
-				description: `Juster GitHub-tilgangsnivået for @${subject.username} fra "${subject.highestPermission}" til "${subject.targetPermission}" i repoet. KISS bekrefter ikke endringen mot GitHub — merk punktet som fullført når justeringen er gjennomført.`,
-				performedBy,
-			})
-		}
-	}
+	await synchronizeGithubAccessFollowUpPoints(executor, reviewId, stagedData, performedBy)
 
 	return toGithubAccessSnapshot(stagedData)
 }

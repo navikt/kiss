@@ -124,6 +124,22 @@ describe("github access staged data", () => {
 		expect(isGithubAccessReviewComplete(updated)).toBe(false)
 	})
 
+	it("clears confirmedBy/confirmedAt when marking for removal after confirmation", () => {
+		let data = applyGithubAccessStagedDataPatch(parsed(), confirm)
+		expect(isGithubAccessReviewComplete(data)).toBe(true)
+		data = applyGithubAccessStagedDataPatch(data, removal)
+		expect(data).toMatchObject({ confirmedBy: null, confirmedAt: null })
+		expect(isGithubAccessReviewComplete(data)).toBe(false)
+	})
+
+	it("clears confirmedBy/confirmedAt when marking for adjustment after confirmation", () => {
+		let data = applyGithubAccessStagedDataPatch(parsed(), confirm)
+		expect(isGithubAccessReviewComplete(data)).toBe(true)
+		data = applyGithubAccessStagedDataPatch(data, adjustment)
+		expect(data).toMatchObject({ confirmedBy: null, confirmedAt: null })
+		expect(isGithubAccessReviewComplete(data)).toBe(false)
+	})
+
 	it.each([removal, adjustment])("records $op without a justification", (patch) => {
 		const updated = applyGithubAccessStagedDataPatch(parsed(), patch)
 		if (patch.op === "mark-for-removal") {
