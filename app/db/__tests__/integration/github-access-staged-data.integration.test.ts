@@ -130,6 +130,7 @@ describe("Github-tilgang staged data integration tests", () => {
 	beforeEach(async () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `
+			DELETE FROM routine_review_follow_up_point_links;
 			DELETE FROM routine_review_follow_up_points;
 			DELETE FROM routine_review_attachments;
 			DELETE FROM routine_review_activities;
@@ -266,7 +267,7 @@ describe("Github-tilgang staged data integration tests", () => {
 		])
 	})
 
-	it("removes GitHub-generated follow-up points when the markering is reverted after confirmation", async () => {
+	it("marks GitHub-generated follow-up points as not relevant when markering is reverted after confirmation", async () => {
 		const { appId, reviewId, activityId } = await createGithubAccessReview()
 		await markSynced(appId, "navikt/test-repo")
 		const teamId = await insertTeam(appId, "team-a", "Team A", "push")
@@ -292,9 +293,9 @@ describe("Github-tilgang staged data integration tests", () => {
 
 		await patchGithubAccessActivity(activityId, { op: "unmark-for-removal", username: "alice" }, "reviewer")
 		const pointsAfterUnmark = await db.execute(
-			/* sql */ `SELECT text FROM routine_review_follow_up_points WHERE review_id = '${reviewId}'`,
+			/* sql */ `SELECT text, status FROM routine_review_follow_up_points WHERE review_id = '${reviewId}'`,
 		)
-		expect(pointsAfterUnmark.rows).toEqual([])
+		expect(pointsAfterUnmark.rows).toEqual([{ text: "Fjern GitHub-tilgang for @alice", status: "not_relevant" }])
 	})
 
 	it("re-seeding after completion returns the already-seeded staged data instead of throwing", async () => {

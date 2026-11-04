@@ -38,7 +38,12 @@ vi.mock("~/db/connection.server", () => {
 	return { db: { ...executor, transaction: async (callback: (tx: unknown) => unknown) => callback(executor) } }
 })
 vi.mock("~/db/queries/audit.server", () => ({ writeAuditLog: mocks.audit }))
-vi.mock("~/db/queries/routines.server", () => ({ addFollowUpPointRow: mocks.followUp }))
+vi.mock("~/db/queries/routines.server", () => ({
+	addFollowUpPointRow: (...args: unknown[]) => {
+		mocks.followUp(...args)
+		return { id: `follow-up-${mocks.followUp.mock.calls.length}` }
+	},
+}))
 vi.mock("~/db/queries/users.server", () => ({ getUserNamesByNavIdents: async () => new Map() }))
 vi.mock("~/lib/lock.server", () => ({
 	withAdvisoryLock: async (_name: string, callback: () => unknown) => callback(),

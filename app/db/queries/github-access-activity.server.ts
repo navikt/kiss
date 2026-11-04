@@ -14,7 +14,7 @@ import {
 	toGithubAccessSnapshot,
 } from "~/lib/github-access-staged-data"
 import { canonicalizeGitRepository } from "~/lib/github-access-sync.server"
-import { computeGithubUserAccess } from "~/lib/github-user-access"
+import { computeGithubUserAccess, normalizeGithubUsername } from "~/lib/github-user-access"
 import { withAdvisoryLock } from "~/lib/lock.server"
 import { logger } from "~/lib/logger.server"
 import { type GitHubUserLookupResult, lookupGitHubUsers } from "~/lib/nda-github-users.server"
@@ -24,6 +24,7 @@ import { db } from "../connection.server"
 import {
 	routineReviewActivities,
 	routineReviewAttachments,
+	routineReviewFollowUpPointLinks,
 	routineReviewFollowUpPoints,
 	routineReviewParticipants,
 	routineReviews,
@@ -433,16 +434,17 @@ function adjustmentFollowUpDescription(subject: GithubAccessSubject): string {
 	return `Juster GitHub-tilgangsnivået for @${subject.username} fra "${subject.highestPermission}" til "${subject.targetPermission}" i repoet. KISS bekrefter ikke endringen mot GitHub — merk punktet som fullført når justeringen er gjennomført.`
 }
 
-function parseManagedGithubFollowUpText(text: string): { kind: "removal" | "adjustment"; username: string } | null {
-	const removalMatch = text.match(/^Fjern GitHub-tilgang for @([A-Za-z0-9_.-]+)$/)
-	if (removalMatch) {
-		return { kind: "removal", username: removalMatch[1] }
+type GithubFollowUpDecisionKind = "remove_access" | "adjust_access"
+
+function githubFollowUpDecisionKey(username: string, decisionKind: GithubFollowUpDecisionKind): string {
+	return `${normalizeGithubUsername(username)}:${decisionKind}`
+}
+
+function githubFollowUpStatusResolution(decisionKind: GithubFollowUpDecisionKind): string {
+	if (decisionKind === "remove_access") {
+		return "Automatisk satt til ikke relevant: brukeren er ikke lenger markert for fjerning i GitHub-tilgangsgjennomgangen."
 	}
-	const adjustmentMatch = text.match(/^Juster GitHub-tilgang for @([A-Za-z0-9_.-]+) fra ".*" til ".*"$/)
-	if (adjustmentMatch) {
-		return { kind: "adjustment", username: adjustmentMatch[1] }
-	}
-	return null
+	return "Automatisk satt til ikke relevant: brukeren er ikke lenger markert for tilgangsjustering i GitHub-tilgangsgjennomgangen."
 }
 
 async function synchronizeGithubAccessFollowUpPoints(
@@ -451,86 +453,139 @@ async function synchronizeGithubAccessFollowUpPoints(
 	stagedData: GithubAccessStagedData,
 	performedBy: string,
 ) {
-	const desired = new Map<string, { description: string }>()
+	const desired = new Map<
+		string,
+		{ username: string; decisionKind: GithubFollowUpDecisionKind; text: string; description: string }
+	>()
 	if (stagedData.confirmedAt) {
 		for (const subject of stagedData.subjects) {
 			if (subject.markedForRemoval) {
-				desired.set(removalFollowUpText(subject.username), { description: REMOVAL_FOLLOW_UP_GUIDANCE })
+				const text = removalFollowUpText(subject.username)
+				desired.set(githubFollowUpDecisionKey(subject.username, "remove_access"), {
+					username: subject.username,
+					decisionKind: "remove_access",
+					text,
+					description: REMOVAL_FOLLOW_UP_GUIDANCE,
+				})
 			}
 			if (subject.permissionAdjustmentRequested && subject.targetPermission) {
-				desired.set(adjustmentFollowUpText(subject), { description: adjustmentFollowUpDescription(subject) })
+				const text = adjustmentFollowUpText(subject)
+				desired.set(githubFollowUpDecisionKey(subject.username, "adjust_access"), {
+					username: subject.username,
+					decisionKind: "adjust_access",
+					text,
+					description: adjustmentFollowUpDescription(subject),
+				})
 			}
 		}
 	}
 
-	const usernameSet = new Set(stagedData.subjects.map((subject) => subject.username.trim().toLowerCase()))
-	const existingRows = await executor
+	const existingLinks = await executor
 		.select({
-			id: routineReviewFollowUpPoints.id,
+			linkId: routineReviewFollowUpPointLinks.id,
+			subjectUsername: routineReviewFollowUpPointLinks.subjectUsername,
+			decisionKind: routineReviewFollowUpPointLinks.decisionKind,
+			pointId: routineReviewFollowUpPointLinks.pointId,
 			text: routineReviewFollowUpPoints.text,
 			status: routineReviewFollowUpPoints.status,
+			resolution: routineReviewFollowUpPoints.resolution,
 		})
-		.from(routineReviewFollowUpPoints)
-		.where(eq(routineReviewFollowUpPoints.reviewId, reviewId))
+		.from(routineReviewFollowUpPointLinks)
+		.innerJoin(routineReviewFollowUpPoints, eq(routineReviewFollowUpPointLinks.pointId, routineReviewFollowUpPoints.id))
+		.where(
+			and(
+				eq(routineReviewFollowUpPointLinks.reviewId, reviewId),
+				eq(routineReviewFollowUpPointLinks.sourceType, "github_access_maintenance"),
+			),
+		)
 
-	const managedExisting = existingRows.filter((row) => {
-		const parsed = parseManagedGithubFollowUpText(row.text)
-		if (!parsed) return false
-		return usernameSet.has(parsed.username.trim().toLowerCase())
-	})
-
-	const existingByText = new Map<string, Array<(typeof managedExisting)[number]>>()
-	for (const row of managedExisting) {
-		const rows = existingByText.get(row.text) ?? []
-		rows.push(row)
-		existingByText.set(row.text, rows)
+	const existingByKey = new Map<string, (typeof existingLinks)[number]>()
+	for (const link of existingLinks) {
+		existingByKey.set(githubFollowUpDecisionKey(link.subjectUsername, link.decisionKind), link)
 	}
 
 	const { addFollowUpPointRow } = await import("./routines.server")
-	for (const [text, spec] of desired) {
-		const existing = existingByText.get(text) ?? []
-		if (existing.length === 0) {
-			await addFollowUpPointRow(executor, {
+	const allPointsForReview = await executor
+		.select({
+			id: routineReviewFollowUpPoints.id,
+			text: routineReviewFollowUpPoints.text,
+		})
+		.from(routineReviewFollowUpPoints)
+		.where(eq(routineReviewFollowUpPoints.reviewId, reviewId))
+	const linkedPointIds = new Set(existingLinks.map((link) => link.pointId))
+	const candidatePointByText = new Map<string, Array<(typeof allPointsForReview)[number]>>()
+	for (const point of allPointsForReview) {
+		if (linkedPointIds.has(point.id)) continue
+		const list = candidatePointByText.get(point.text) ?? []
+		list.push(point)
+		candidatePointByText.set(point.text, list)
+	}
+
+	for (const [key, spec] of desired) {
+		const existingLink = existingByKey.get(key)
+		if (existingLink) {
+			if (existingLink.status !== "needs_follow_up") {
+				await executor
+					.update(routineReviewFollowUpPoints)
+					.set({
+						status: "needs_follow_up",
+						resolution: null,
+						resolvedAt: null,
+						resolvedBy: null,
+						updatedAt: new Date(),
+						updatedBy: performedBy,
+					})
+					.where(eq(routineReviewFollowUpPoints.id, existingLink.pointId))
+			}
+			continue
+		}
+
+		const candidates = candidatePointByText.get(spec.text) ?? []
+		const adoptedPoint = candidates.shift()
+		if (adoptedPoint) {
+			await executor.insert(routineReviewFollowUpPointLinks).values({
 				reviewId,
-				text,
-				description: spec.description,
-				performedBy,
+				pointId: adoptedPoint.id,
+				sourceType: "github_access_maintenance",
+				subjectUsername: normalizeGithubUsername(spec.username),
+				decisionKind: spec.decisionKind,
+				createdBy: performedBy,
+				updatedBy: performedBy,
 			})
 			continue
 		}
 
-		for (const duplicate of existing.slice(1)) {
-			await executor.delete(routineReviewFollowUpPoints).where(eq(routineReviewFollowUpPoints.id, duplicate.id))
-			await writeAuditLog(
-				{
-					action: "review_follow_up_deleted",
-					entityType: "review_follow_up_point",
-					entityId: duplicate.id,
-					previousValue: duplicate.text,
-					metadata: { reviewId, status: duplicate.status },
-					performedBy,
-				},
-				executor,
-			)
-		}
+		const createdPoint = await addFollowUpPointRow(executor, {
+			reviewId,
+			text: spec.text,
+			description: spec.description,
+			performedBy,
+		})
+		await executor.insert(routineReviewFollowUpPointLinks).values({
+			reviewId,
+			pointId: createdPoint.id,
+			sourceType: "github_access_maintenance",
+			subjectUsername: normalizeGithubUsername(spec.username),
+			decisionKind: spec.decisionKind,
+			createdBy: performedBy,
+			updatedBy: performedBy,
+		})
 	}
 
-	for (const [text, rows] of existingByText) {
-		if (desired.has(text)) continue
-		for (const row of rows) {
-			await executor.delete(routineReviewFollowUpPoints).where(eq(routineReviewFollowUpPoints.id, row.id))
-			await writeAuditLog(
-				{
-					action: "review_follow_up_deleted",
-					entityType: "review_follow_up_point",
-					entityId: row.id,
-					previousValue: row.text,
-					metadata: { reviewId, status: row.status },
-					performedBy,
-				},
-				executor,
-			)
-		}
+	for (const [key, link] of existingByKey) {
+		if (desired.has(key)) continue
+		if (link.status === "not_relevant") continue
+		await executor
+			.update(routineReviewFollowUpPoints)
+			.set({
+				status: "not_relevant",
+				resolution: link.resolution?.trim() ? link.resolution : githubFollowUpStatusResolution(link.decisionKind),
+				resolvedAt: new Date(),
+				resolvedBy: performedBy,
+				updatedAt: new Date(),
+				updatedBy: performedBy,
+			})
+			.where(eq(routineReviewFollowUpPoints.id, link.pointId))
 	}
 }
 
