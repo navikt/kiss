@@ -13,7 +13,7 @@ import {
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useFetcher } from "react-router"
 import { GithubPermissionTag } from "~/components/GithubPermissionTag"
 import { UserDisplayName } from "~/components/UserDisplayName"
@@ -181,14 +181,16 @@ export function GithubAccessMaintenanceSection({
 	onConfirmed?: () => void
 }) {
 	const reviewFetcher = useFetcher<ActionResult>()
+	const pendingConfirmRef = useRef(false)
 	const isSubmitting = reviewFetcher.state !== "idle"
 	const isPending = activity.status === "pending"
 	const canEdit = isDraft && isPending
 
 	useEffect(() => {
 		if (reviewFetcher.state !== "idle") return
-		if (reviewFetcher.data?.success !== true) return
-		if (reviewFetcher.data.intent !== "confirm-github-access-review") return
+		if (!pendingConfirmRef.current) return
+		pendingConfirmRef.current = false
+		if (reviewFetcher.data?.success === false) return
 		onConfirmed?.()
 	}, [reviewFetcher.state, reviewFetcher.data, onConfirmed])
 
@@ -215,6 +217,7 @@ export function GithubAccessMaintenanceSection({
 	}
 
 	const handleConfirmReview = () => {
+		pendingConfirmRef.current = true
 		reviewFetcher.submit({ intent: "confirm-github-access-review" }, { method: "POST" })
 	}
 
