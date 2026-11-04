@@ -1692,6 +1692,23 @@ export function mockGjennomgangDetaljData(overrides?: {
 			resolvedBy: "Z990001",
 			attachments: [],
 		},
+		{
+			id: "fup-4",
+			text: "Fjern GitHub-tilgang for @sluttet-utvikler",
+			description:
+				"Fjern GitHub-tilgangen for brukeren snarest mulig. Vurder om tilgangen kan ha blitt utnyttet i " +
+				"perioden der det ikke lenger forelå tjenstlig behov, og dokumenter en eventuell risikovurdering " +
+				"som vedlegg til gjennomgangen.",
+			resolution: null as string | null,
+			status: "needs_follow_up" as const,
+			createdBy: "Z990001",
+			createdAt: "2026-03-01T10:45:00Z",
+			updatedBy: "Z990001",
+			updatedAt: "2026-03-01T10:45:00Z",
+			resolvedAt: null as string | null,
+			resolvedBy: null as string | null,
+			attachments: [],
+		},
 	]
 
 	const followUpPoints =

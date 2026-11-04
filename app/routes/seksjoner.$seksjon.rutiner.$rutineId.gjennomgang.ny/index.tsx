@@ -11,11 +11,12 @@ import {
 	getAppsRequiringRoutine,
 	getRoutine,
 	getRoutineActivityLinks,
+	isReviewConflictResponse,
 } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import type { ReviewActivityProviderConfig } from "~/db/schema/routines"
 import type { RoutineActivityType } from "~/lib/activity-types"
-import { activityTypeLabels, getProviderTypeForActivity } from "~/lib/activity-types"
+import { activityRequiresApplication, activityTypeLabels, getProviderTypeForActivity } from "~/lib/activity-types"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireReviewAccess } from "~/lib/authorization.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
@@ -77,6 +78,7 @@ export async function loader({ params, url, request }: Route.LoaderArgs) {
 	// Determine provider type from activity links
 	const activityTypes = activityLinks.map((l) => l.activityType)
 	const hasOracleActivity = activityTypes.some((t) => getProviderTypeForActivity(t) === "oracle")
+	const requiresApplication = hasOracleActivity || activityTypes.some(activityRequiresApplication)
 	const oracleInstancesByAppId: Record<string, string[]> = {}
 	if (hasOracleActivity && routine.isSectionRoutine !== 1) {
 		const { getOracleInstancesForApps } = await import("~/db/queries/audit-evidence.server")
@@ -105,6 +107,7 @@ export async function loader({ params, url, request }: Route.LoaderArgs) {
 		apps,
 		oracleInstancesByAppId,
 		hasOracleActivity,
+		requiresApplication,
 		loaderConflictError,
 		currentUser: { navIdent: authedUser.navIdent, name: authedUser.name },
 	})
@@ -175,6 +178,8 @@ export async function action({ request, params }: Route.ActionArgs) {
 			throw data({ message: "Valgt Oracle-instans er ikke konfigurert for applikasjonen" }, { status: 400 })
 		}
 		providerConfig = { instanceId: selectedInstanceId }
+	} else if (activityTypes.some(activityRequiresApplication) && !effectiveAppId) {
+		throw data({ message: "Denne rutinen krever at en applikasjon velges" }, { status: 400 })
 	}
 
 	let review: Awaited<ReturnType<typeof createReview>>
@@ -202,6 +207,21 @@ export async function action({ request, params }: Route.ActionArgs) {
 				{ status: 409 },
 			)
 		}
+		if (isReviewConflictResponse(err)) {
+			// Taper-siden av et cross-routine-race: spør på nytt for å finne den faktiske
+			// konflikterende aktivitetstypen (kan tilhøre en annen rutine enn denne).
+			const conflict = await findActiveReviewConflict(rutineId, effectiveAppId, activityTypes)
+			return data(
+				{
+					conflictError: buildConflictMessage(
+						conflict ?? { activityType: activityTypes[0] ?? null },
+						routine.isSectionRoutine === 1,
+						effectiveAppId,
+					),
+				},
+				{ status: 409 },
+			)
+		}
 		throw err
 	}
 
@@ -222,8 +242,15 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function NyGjennomgang() {
-	const { routine, apps, oracleInstancesByAppId, hasOracleActivity, loaderConflictError, currentUser } =
-		useLoaderData<typeof loader>()
+	const {
+		routine,
+		apps,
+		oracleInstancesByAppId,
+		hasOracleActivity,
+		requiresApplication,
+		loaderConflictError,
+		currentUser,
+	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const conflictError = actionData && "conflictError" in actionData ? actionData.conflictError : loaderConflictError
 	const [searchParams] = useSearchParams()
@@ -282,7 +309,7 @@ export default function NyGjennomgang() {
 								onChange={(e) => setSelectedAppId(e.target.value)}
 							>
 								<option value="">
-									{hasOracleActivity ? "Velg applikasjon" : "Generell (ikke applikasjonsspesifikk)"}
+									{requiresApplication ? "Velg applikasjon" : "Generell (ikke applikasjonsspesifikk)"}
 								</option>
 								{apps.map((app) => (
 									<option key={app.id} value={app.id}>

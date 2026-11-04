@@ -99,6 +99,7 @@ export async function getGitHubAccessChangeLog(appId: string, limit = 50): Promi
 		"github_access_team_member_added",
 		"github_access_team_member_removed",
 		"github_access_team_member_role_changed",
+		"github_access_sync_status_recorded",
 	]
 
 	return db

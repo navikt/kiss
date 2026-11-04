@@ -45,13 +45,20 @@ import {
 	parseEntraStagedData,
 } from "~/lib/entra-staged-data"
 import { getProviderUiConfig } from "~/lib/evidence-providers/ui-config"
+import { parseGithubAccessStagedData } from "~/lib/github-access-staged-data"
 import { logger } from "~/lib/logger.server"
 import type { ComponentConfig } from "~/lib/manual-activity-staged-data"
 import { renderMarkdown } from "~/lib/markdown.server"
+import { lookupGitHubUsers } from "~/lib/nda-github-users.server"
 import { parseOracleRoleCriticalitySnapshot, parseOracleRoleCriticalityStagedData } from "~/lib/oracle-role-staged-data"
 import { parseParticipantsFormValue } from "~/lib/participants"
+import { getDateOnlyOslo } from "~/lib/utils"
 import type { Route } from "./+types/index"
 import { EntraMaintenanceSection, type EntraStagedGroupsProp } from "./components/activities/EntraMaintenanceSection"
+import {
+	GithubAccessMaintenanceSection,
+	type GithubAccessSubjectWithIdentity,
+} from "./components/activities/GithubAccessMaintenanceSection"
 import {
 	type OracleRoleCriticalityData,
 	OracleRoleCriticalityMaintenanceSection,
@@ -347,6 +354,13 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 		ndaEvidenceData: NdaEvidenceData | null
 		rpaMaintenanceData: RpaMaintenanceData | null
 		oracleRoleCriticalityData: OracleRoleCriticalityData | null
+		githubAccessData: {
+			gitRepository: string
+			subjects: GithubAccessSubjectWithIdentity[]
+			confirmedBy: string | null
+			confirmedAt: string | null
+			confirmedByName?: string | null
+		} | null
 		activityStepsData: Array<{
 			stepId: string
 			title: string
@@ -371,6 +385,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 		let actNdaEvidenceData: NdaEvidenceData | null = null
 		let actRpaMaintenanceData: RpaMaintenanceData | null = null
 		let actOracleRoleCriticalityData: OracleRoleCriticalityData | null = null
+		let actGithubAccessData: ActivityWithEvidence["githubAccessData"] = null
 		let actManualActivityData: ActivityWithEvidence["activityStepsData"] = null
 		const evidenceProviderType = getProviderTypeForActivity(activity.type)
 
@@ -613,6 +628,34 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 				}
 			}
 
+			if (activity.type === "github_access_maintenance" && review.applicationId) {
+				if (activity.stagedData) {
+					actGithubAccessData = parseGithubAccessStagedData(activity.stagedData)
+				} else if (activity.status === "pending" && review.status === "draft") {
+					const { seedGithubAccessActivity } = await import("~/db/queries/github-access-activity.server")
+					const stagedData = await seedGithubAccessActivity(activity.id, "system")
+					actGithubAccessData = stagedData
+				}
+
+				if (actGithubAccessData && actGithubAccessData.subjects.length > 0) {
+					try {
+						const lookups = await lookupGitHubUsers(
+							actGithubAccessData.subjects.map((s) => s.username),
+							{ signal: request.signal },
+						)
+						actGithubAccessData = {
+							...actGithubAccessData,
+							subjects: actGithubAccessData.subjects.map((subject) => {
+								const lookup = lookups.get(subject.username)
+								return { ...subject, displayName: lookup?.displayName ?? null, navIdent: lookup?.navIdent ?? null }
+							}),
+						}
+					} catch (error) {
+						logger.warn("Kunne ikke hente visningsnavn for GitHub-brukere fra NDA", error)
+					}
+				}
+			}
+
 			if (activity.type === "manual_activity") {
 				const { parseManualActivityStagedData } = await import("~/lib/manual-activity-staged-data")
 				if (activity.status === "pending") {
@@ -639,10 +682,13 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 				`Failed to load evidence data for activity ${activity.id} (${activity.type})`,
 				err instanceof Error ? err : { details: String(err) },
 			)
-			const evidenceLoadError =
-				err instanceof Response && err.status === 409
-					? "Gjennomgangen er låst av en annen operasjon. Prøv å laste siden på nytt om noen sekunder."
-					: "Kunne ikke laste bevisdata. Prøv å laste siden på nytt."
+			let evidenceLoadError = "Kunne ikke laste bevisdata. Prøv å laste siden på nytt."
+			if (err instanceof Response && err.status === 409) {
+				evidenceLoadError = "Gjennomgangen er låst av en annen operasjon. Prøv å laste siden på nytt om noen sekunder."
+			} else if (err instanceof Response && err.status === 400 && activity.type === "github_access_maintenance") {
+				const body = await err.text().catch(() => null)
+				if (body) evidenceLoadError = body
+			}
 			activitiesWithEvidence.push({
 				id: activity.id,
 				type: activity.type,
@@ -660,6 +706,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 				ndaEvidenceData: null,
 				rpaMaintenanceData: null,
 				oracleRoleCriticalityData: null,
+				githubAccessData: null,
 				activityStepsData: null,
 				evidenceProviderType,
 				evidenceLoadError,
@@ -684,9 +731,26 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 			ndaEvidenceData: actNdaEvidenceData,
 			rpaMaintenanceData: actRpaMaintenanceData,
 			oracleRoleCriticalityData: actOracleRoleCriticalityData,
+			githubAccessData: actGithubAccessData,
 			activityStepsData: actManualActivityData,
 			evidenceProviderType,
 		})
+	}
+
+	const githubConfirmerIdents = activitiesWithEvidence
+		.map((a) => a.githubAccessData?.confirmedBy)
+		.filter((v): v is string => !!v)
+	if (githubConfirmerIdents.length > 0) {
+		const githubConfirmerNames = await getUserNamesByNavIdents(githubConfirmerIdents)
+		for (const a of activitiesWithEvidence) {
+			if (!a.githubAccessData) continue
+			a.githubAccessData = {
+				...a.githubAccessData,
+				confirmedByName: a.githubAccessData.confirmedBy
+					? (githubConfirmerNames.get(a.githubAccessData.confirmedBy.trim().toUpperCase()) ?? null)
+					: null,
+			}
+		}
 	}
 
 	// Load rulesets that share controls with this routine, filtered by screening selection when app is set
@@ -778,6 +842,11 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 			})),
 		},
 	})
+}
+
+async function githubAccessErrorText(e: Response): Promise<string> {
+	const body = await e.text()
+	return body || "Gjennomgangen er låst av en annen operasjon. Prøv igjen."
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -1355,6 +1424,194 @@ export async function action({ request, params }: Route.ActionArgs) {
 		return data<ActionResult>({ success: true, intent: "save-rpa-user-assessment" })
 	}
 
+	if (intent === "mark-github-access-subject-for-removal") {
+		const username = (formData.get("username") as string)?.trim()
+		if (!username) {
+			return data<ActionResult>(
+				{ success: false, error: "Mangler data", intent: "mark-github-access-subject-for-removal" },
+				{ status: 400 },
+			)
+		}
+		const activityId = await getReviewActivityIdByType(gjennomgangId, "github_access_maintenance")
+		if (!activityId) {
+			return data<ActionResult>(
+				{
+					success: false,
+					error: "Fant ikke GitHub-tilgangsaktivitet",
+					intent: "mark-github-access-subject-for-removal",
+				},
+				{ status: 404 },
+			)
+		}
+		const { patchGithubAccessActivity } = await import("~/db/queries/github-access-activity.server")
+		try {
+			await patchGithubAccessActivity(
+				activityId,
+				{
+					op: "mark-for-removal",
+					username,
+					markedBy: authedUser.navIdent,
+					markedAt: getDateOnlyOslo(),
+				},
+				authedUser.navIdent,
+			)
+		} catch (e) {
+			if (e instanceof Response) {
+				const error = await githubAccessErrorText(e)
+				return data<ActionResult>(
+					{ success: false, error, intent: "mark-github-access-subject-for-removal" },
+					{ status: e.status },
+				)
+			}
+			throw e
+		}
+		return data<ActionResult>({ success: true, intent: "mark-github-access-subject-for-removal" })
+	}
+
+	if (intent === "unmark-github-access-subject-for-removal") {
+		const username = (formData.get("username") as string)?.trim()
+		if (!username) {
+			return data<ActionResult>(
+				{ success: false, error: "Mangler brukernavn", intent: "unmark-github-access-subject-for-removal" },
+				{ status: 400 },
+			)
+		}
+		const activityId = await getReviewActivityIdByType(gjennomgangId, "github_access_maintenance")
+		if (!activityId) {
+			return data<ActionResult>(
+				{
+					success: false,
+					error: "Fant ikke GitHub-tilgangsaktivitet",
+					intent: "unmark-github-access-subject-for-removal",
+				},
+				{ status: 404 },
+			)
+		}
+		const { patchGithubAccessActivity } = await import("~/db/queries/github-access-activity.server")
+		try {
+			await patchGithubAccessActivity(activityId, { op: "unmark-for-removal", username }, authedUser.navIdent)
+		} catch (e) {
+			if (e instanceof Response) {
+				const error = await githubAccessErrorText(e)
+				return data<ActionResult>(
+					{ success: false, error, intent: "unmark-github-access-subject-for-removal" },
+					{ status: e.status },
+				)
+			}
+			throw e
+		}
+		return data<ActionResult>({ success: true, intent: "unmark-github-access-subject-for-removal" })
+	}
+
+	if (intent === "mark-github-access-subject-for-adjustment") {
+		const username = (formData.get("username") as string)?.trim()
+		const targetPermission = (formData.get("targetPermission") as string)?.trim()
+		if (!username || !targetPermission) {
+			return data<ActionResult>(
+				{ success: false, error: "Mangler data", intent: "mark-github-access-subject-for-adjustment" },
+				{ status: 400 },
+			)
+		}
+		const activityId = await getReviewActivityIdByType(gjennomgangId, "github_access_maintenance")
+		if (!activityId) {
+			return data<ActionResult>(
+				{
+					success: false,
+					error: "Fant ikke GitHub-tilgangsaktivitet",
+					intent: "mark-github-access-subject-for-adjustment",
+				},
+				{ status: 404 },
+			)
+		}
+		const { patchGithubAccessActivity } = await import("~/db/queries/github-access-activity.server")
+		try {
+			await patchGithubAccessActivity(
+				activityId,
+				{
+					op: "mark-for-adjustment",
+					username,
+					targetPermission,
+					markedBy: authedUser.navIdent,
+					markedAt: getDateOnlyOslo(),
+				},
+				authedUser.navIdent,
+			)
+		} catch (e) {
+			if (e instanceof Response) {
+				const error = await githubAccessErrorText(e)
+				return data<ActionResult>(
+					{ success: false, error, intent: "mark-github-access-subject-for-adjustment" },
+					{ status: e.status },
+				)
+			}
+			throw e
+		}
+		return data<ActionResult>({ success: true, intent: "mark-github-access-subject-for-adjustment" })
+	}
+
+	if (intent === "unmark-github-access-subject-for-adjustment") {
+		const username = (formData.get("username") as string)?.trim()
+		if (!username) {
+			return data<ActionResult>(
+				{ success: false, error: "Mangler brukernavn", intent: "unmark-github-access-subject-for-adjustment" },
+				{ status: 400 },
+			)
+		}
+		const activityId = await getReviewActivityIdByType(gjennomgangId, "github_access_maintenance")
+		if (!activityId) {
+			return data<ActionResult>(
+				{
+					success: false,
+					error: "Fant ikke GitHub-tilgangsaktivitet",
+					intent: "unmark-github-access-subject-for-adjustment",
+				},
+				{ status: 404 },
+			)
+		}
+		const { patchGithubAccessActivity } = await import("~/db/queries/github-access-activity.server")
+		try {
+			await patchGithubAccessActivity(activityId, { op: "unmark-for-adjustment", username }, authedUser.navIdent)
+		} catch (e) {
+			if (e instanceof Response) {
+				const error = await githubAccessErrorText(e)
+				return data<ActionResult>(
+					{ success: false, error, intent: "unmark-github-access-subject-for-adjustment" },
+					{ status: e.status },
+				)
+			}
+			throw e
+		}
+		return data<ActionResult>({ success: true, intent: "unmark-github-access-subject-for-adjustment" })
+	}
+
+	if (intent === "confirm-github-access-review") {
+		const activityId = await getReviewActivityIdByType(gjennomgangId, "github_access_maintenance")
+		if (!activityId) {
+			return data<ActionResult>(
+				{ success: false, error: "Fant ikke GitHub-tilgangsaktivitet", intent: "confirm-github-access-review" },
+				{ status: 404 },
+			)
+		}
+		const { patchGithubAccessActivity } = await import("~/db/queries/github-access-activity.server")
+		try {
+			await patchGithubAccessActivity(
+				activityId,
+				{ op: "confirm-review", confirmedBy: authedUser.navIdent, confirmedAt: new Date().toISOString() },
+				authedUser.navIdent,
+			)
+		} catch (e) {
+			if (e instanceof Response) {
+				const error = await githubAccessErrorText(e)
+				return data<ActionResult>(
+					{ success: false, error, intent: "confirm-github-access-review" },
+					{ status: e.status },
+				)
+			}
+			throw e
+		}
+		return data<ActionResult>({ success: true, intent: "confirm-github-access-review" })
+	}
+
 	if (intent === "set-oracle-role-criticality") {
 		const activityId = (formData.get("activityId") as string)?.trim()
 		const instanceId = (formData.get("instanceId") as string)?.trim()
@@ -1601,6 +1858,16 @@ export default function GjennomgangDetalj() {
 					}
 				}
 			}
+
+			if (activity.type === "github_access_maintenance" && activity.status === "pending" && activity.githubAccessData) {
+				if (!activity.githubAccessData.confirmedAt) {
+					violations.push({
+						stepTitle: "GitHub-tilgangsgjennomgang",
+						componentLabel: "Ikke bekreftet",
+						stepId: `aktivitet-${stepIdx}`,
+					})
+				}
+			}
 			stepIdx++
 		}
 		return violations
@@ -1695,6 +1962,19 @@ export default function GjennomgangDetalj() {
 					<RpaUserMaintenanceSection
 						activity={activity}
 						rpaMaintenanceData={activity.rpaMaintenanceData}
+						isDraft={isDraft}
+					/>
+				)
+			}
+			if (activity?.type === "github_access_maintenance" && activity.githubAccessData) {
+				return (
+					<GithubAccessMaintenanceSection
+						activity={activity}
+						gitRepository={activity.githubAccessData.gitRepository}
+						subjects={activity.githubAccessData.subjects}
+						confirmedBy={activity.githubAccessData.confirmedBy}
+						confirmedAt={activity.githubAccessData.confirmedAt}
+						confirmedByName={activity.githubAccessData.confirmedByName}
 						isDraft={isDraft}
 					/>
 				)
