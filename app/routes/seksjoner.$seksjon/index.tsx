@@ -448,41 +448,107 @@ export default function SeksjonDashboard() {
 			<ReadMore header="Hva betyr tallene?">
 				<VStack gap="space-4">
 					<BodyLong>
-						<strong>Team</strong> viser hvor mange team som er registrert i seksjonen.
+						Tallene gjelder applikasjonene i utvalget. Når «Vis kun økonomisystemer» er slått på, vises bare tall for
+						økonomisystemene. Arkiverte applikasjoner er ikke med. En applikasjon telles én gang i seksjonstotalene,
+						selv om den tilhører flere team. Kontroller og applikasjonsrutiner telles per applikasjon.
 					</BodyLong>
 					<BodyLong>
-						<strong>Applikasjoner</strong> viser hvor mange systemer og tjenester som er knyttet til seksjonen.
+						<strong>Total compliance</strong> viser hvor stor andel av kontrollene som er oppfylt. Implementert gir full
+						uttelling, delvis implementert gir halv uttelling, og «Ikke relevant» holdes utenfor. Kontroller uten status
+						og kontroller som ikke er implementert, gir ingen uttelling, men inngår i beregningen. Prosenten avrundes
+						til nærmeste heltall. Uten relevante kontroller vises 0 %.
 					</BodyLong>
 					<BodyLong>
-						<strong>Økonomisystemer</strong> viser hvor mange applikasjoner som er merket som økonomisystem – det vil si
-						systemer som behandler penger, regnskap, lønn eller annen økonomiinformasjon. Hvis noen klassifiseringer er
-						utløpt, betyr det at vurderingen bør gjøres på nytt.
+						Beregning: (implementert + 0,5 × delvis) / relevante kontroller × 100. Eksempel: 6 implementerte og 2 delvis
+						implementerte av 10 relevante kontroller gir (6 + 0,5 × 2) / 10 × 100 = 70 %. Dette er ikke et gjennomsnitt
+						av teamenes prosenter.
 					</BodyLong>
 					<BodyLong>
-						<strong>Ferdig screenet</strong> viser antall applikasjoner der alle screening-spørsmålene er besvart.
-						Screening er en gjennomgang der teamet svarer på spørsmål om hvilke regler og krav som gjelder for
-						applikasjonen – for eksempel om den lagrer personopplysninger eller er forretningskritisk.
+						<strong>Team</strong> viser antall aktive team i seksjonen. Med økonomifilteret på telles bare team med
+						minst ett økonomisystem.
 					</BodyLong>
 					<BodyLong>
-						<strong>Rutiner gjennomført</strong> viser totalt antall periodiske rutiner i seksjonen som er gjennomført
-						innenfor den angitte fristen. En rutine er en fast oppgave som skal gjøres regelmessig, for eksempel
-						kvartalsvis tilgangskontroll.
+						<strong>Applikasjoner</strong> viser antall applikasjoner i utvalget, inkludert applikasjoner uten
+						utviklingsteam.
 					</BodyLong>
 					<BodyLong>
-						<strong>Apprutiner ikke gjennomført</strong> viser totalt antall periodiske applikasjonsrutiner som mangler
-						gjennomgang i frekvensperioden, eller som aldri er gjennomført. Seksjonsrutiner er ikke inkludert i dette
-						tallet.
+						<strong>Økonomisystemer</strong> viser antall aktive applikasjoner i seksjonen som er klassifisert som
+						økonomisystem. Utløpte klassifiseringer telles fortsatt med, men merkes med «utløpt» fordi vurderingen må
+						fornyes. Tallet endres ikke når økonomifilteret slås på.
 					</BodyLong>
 					<BodyLong>
-						<strong>Seksjonsrutiner ikke gjennomført</strong> viser antall distinkte seksjonsrutiner som mangler
-						gjennomgang i frekvensperioden eller aldri er gjennomført. Seksjonsrutiner gjelder for hele seksjonen og
-						telles én gang — ikke per applikasjon.
+						<strong>Implementert</strong> viser antall kontroller med status «Implementert», ikke antall applikasjoner.
+						Statusen beregnes fra screeningsvar og rutiner som dekker kontrollen.
 					</BodyLong>
 					<BodyLong>
-						<strong>Åpne oppfølgingspunkter</strong> viser antall punkter fra rutinegjennomganger som er fullført, men
-						der det ble oppdaget noe som må følges opp – for eksempel en bruker med tilgang som ikke lenger skal ha det.
-						Selve rutinen er altså gjennomført, men det gjenstår konkrete oppfølgingsoppgaver.
+						<strong>Delvis</strong> viser antall kontroller med status «Delvis implementert». Det kan for eksempel
+						skyldes at en rutine ikke er gjennomgått ennå eller har forfalt. Hver av disse kontrollene gir halv
+						uttelling i «Total compliance».
 					</BodyLong>
+					<BodyLong>
+						<strong>Mangler</strong> viser antall kontroller uten beregnet status, for eksempel fordi screeningsvar
+						mangler. Kontroller med status «Ikke implementert» inngår ikke i dette tallet. Beregning: totalt antall
+						kontroller − implementert − delvis − ikke implementert − ikke relevant.
+					</BodyLong>
+					<BodyLong>
+						<strong>Ferdig screenet</strong> viser antall applikasjoner der alle gjeldende, godkjente screeningspørsmål
+						er besvart. Screeningen avklarer hvilke regler og krav som gjelder for applikasjonen. En utløpt
+						økonomiklassifisering regnes som et ubesvart spørsmål. Applikasjoner uten gjeldende spørsmål telles ikke.
+					</BodyLong>
+					<BodyLong>
+						<strong>Rutiner gjennomført</strong> viser antall periodiske applikasjonsrutiner med en gjennomgang som
+						fortsatt er gyldig i rutinens frekvensperiode. Samme rutine gjennomført for tre applikasjoner teller tre,
+						selv om rutinen dekker flere kontroller for hver applikasjon. Seksjonsrutiner og hendelsesbaserte rutiner er
+						ikke med.
+					</BodyLong>
+					<BodyLong>
+						<strong>Apprutiner ikke gjennomført</strong> viser antall periodiske applikasjonsrutiner uten en gyldig
+						gjennomgang i frekvensperioden, inkludert rutiner som aldri er gjennomført. Samme rutine for tre
+						applikasjoner teller tre. Seksjonsrutiner og hendelsesbaserte rutiner er ikke med.
+					</BodyLong>
+					<BodyLong>
+						<strong>Seksjonsrutiner ikke gjennomført</strong> viser antall periodiske seksjonsrutiner som gjelder minst
+						én applikasjon i utvalget, og som mangler en gyldig gjennomgang eller aldri er gjennomført. Hver
+						seksjonsrutine telles én gang, uansett hvor mange applikasjoner den gjelder.
+					</BodyLong>
+					<BodyLong>
+						<strong>Åpne oppfølgingspunkter</strong> viser antall åpne punkter fra applikasjonsgjennomganger med status
+						«Må følges opp». Det er punktene som telles, ikke applikasjonene eller gjennomgangene. Én gjennomgang med
+						tre åpne punkter bidrar med tre. Gjennomgangen er fullført, men oppfølgingsarbeidet gjenstår.
+					</BodyLong>
+					{deploymentStats.appsWithData > 0 && (
+						<>
+							<BodyLong>
+								<strong>Deployments i år</strong> viser samlet antall deployments i årets innhentede verifiseringsdata
+								for utvalget. Bare applikasjoner med synkroniserte data bidrar til tallet.
+							</BodyLong>
+							<BodyLong>
+								<strong>4-øyne-dekning</strong> viser andelen deployments som er registrert som godkjent etter
+								fireøyneprinsippet. Beregning: godkjente deployments / totalt antall deployments i datagrunnlaget × 100.
+								Eksempel: 8 av 10 gir 80 %.
+							</BodyLong>
+							<BodyLong>
+								<strong>Endringsopphav</strong> viser andelen deployments som er koblet til et endringsopphav i
+								verifiseringsdataene. Beregning: koblede deployments / totalt antall deployments i datagrunnlaget for
+								endringsopphav × 100. Eksempel: 9 av 10 gir 90 %. De to dekningsprosentene beregnes fra hver sine
+								datagrunnlag og avrundes til nærmeste heltall. Når datagrunnlaget er tomt, vises «Ingen data», ikke 0 %.
+							</BodyLong>
+						</>
+					)}
+					{visibleTeams.length > 0 && (
+						<BodyLong>
+							<strong>Teamkortene</strong> viser antall applikasjoner, implementerte kontroller, delvis implementerte
+							kontroller og kontroller uten status for hvert team. Prosenten beregnes på samme måte som «Total
+							compliance», men bare for teamets applikasjoner i utvalget. En applikasjon som tilhører flere team, inngår
+							i hvert teamkort, men bare én gang i seksjonstotalene.
+						</BodyLong>
+					)}
+					{showUnassignedCard && (
+						<BodyLong>
+							<strong>Uten team</strong> viser samme tall og beregning som teamkortene, men for applikasjoner som er
+							knyttet til seksjonen via Nais-team og ikke tilordnet et utviklingsteam.
+						</BodyLong>
+					)}
 				</VStack>
 			</ReadMore>
 

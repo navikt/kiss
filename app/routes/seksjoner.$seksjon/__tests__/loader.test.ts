@@ -67,6 +67,7 @@ function sectionDetail(economyOnly: boolean) {
 
 beforeEach(() => {
 	vi.clearAllMocks()
+	mocks.deployments.mockResolvedValue({ appsWithData: 0 })
 	mocks.getSectionDetail.mockImplementation((_, options) => sectionDetail(options.economyOnly))
 })
 
@@ -114,7 +115,7 @@ describe("section dashboard economy filter", () => {
 		])
 		render(createElement(Stub, { initialEntries: ["/seksjoner/pensjon-og-ufore?view=overview"] }))
 		const toggle = await screen.findByRole("checkbox", { name: "Vis kun økonomisystemer" })
-		const compliance = screen.getByText("Total compliance").parentElement
+		const compliance = screen.getByText("Total compliance", { selector: "p" }).parentElement
 		const applications = screen.getByText("Applikasjoner", { selector: "p" }).parentElement
 		expect(compliance?.textContent).toContain("50%")
 		expect(applications?.textContent).toBe("2Applikasjoner")
@@ -132,5 +133,47 @@ describe("section dashboard economy filter", () => {
 		expect(mocks.getSectionDetail).toHaveBeenLastCalledWith("pensjon-og-ufore", { economyOnly: false })
 		expect(requestUrls.at(-1)?.searchParams.get("view")).toBe("overview")
 		expect(requestUrls.at(-1)?.searchParams.has("economyOnly")).toBe(false)
+	})
+})
+
+describe("section dashboard metric explanations", () => {
+	it.each([false, true])("documents every visible card, including optional cards (%s)", async (showOptionalCards) => {
+		mocks.deployments.mockResolvedValue({
+			appsWithData: showOptionalCards ? 1 : 0,
+			fourEyesTotal: 10,
+			fourEyesApproved: 8,
+			fourEyesPercent: 80,
+			changeOriginTotal: 10,
+			changeOriginLinked: 9,
+			changeOriginPercent: 90,
+		})
+		if (showOptionalCards) {
+			mocks.getSectionDetail.mockImplementation((_, options) => {
+				const detail = sectionDetail(options.economyOnly)
+				return { ...detail, unassignedStats: { ...detail.sectionTotals, apps: 1 } }
+			})
+		}
+		const Stub = createRoutesStub([
+			{
+				path: "/seksjoner/:seksjon",
+				Component: SeksjonDashboard,
+				HydrateFallback: () => null,
+				loader: (args) => loader(args as Parameters<typeof loader>[0]),
+			},
+		])
+		const { container } = render(
+			createElement(Stub, { initialEntries: ["/seksjoner/pensjon-og-ufore?economyOnly=true"] }),
+		)
+		fireEvent.click(await screen.findByRole("button", { name: "Hva betyr tallene?" }))
+
+		const cardLabels = [...container.querySelectorAll(".aksel-detail")]
+			.filter((label) => [...(label.parentElement?.children ?? [])].some((child) => child.tagName === "H3"))
+			.map((label) => label.textContent)
+		expect(cardLabels.length).toBeGreaterThan(0)
+		for (const label of cardLabels) {
+			expect(screen.getByText(label ?? "", { selector: "strong" })).toBeTruthy()
+		}
+		expect(Boolean(screen.queryByText("Deployments i år", { selector: "strong" }))).toBe(showOptionalCards)
+		expect(Boolean(screen.queryByText("Uten team", { selector: "strong" }))).toBe(showOptionalCards)
 	})
 })
