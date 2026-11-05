@@ -583,6 +583,43 @@ describe("sections.server integration tests", () => {
 			expect(result.unassignedStats.apps).toBe(2)
 			expect(result.unassignedStats.economyOnly.apps).toBe(1)
 		})
+
+		it("filters section totals and application IDs to economy systems without double-counting shared apps", async () => {
+			const section = await insertTestSection("Economy Filter", null, "Z990001")
+			const teamA = await createTeam(section.id, "Team A", null, "Z990001")
+			const teamB = await createTeam(section.id, "Team B", null, "Z990001")
+			const naisTeam = await createNaisTeam("nais-economy-filter", section.id)
+			const economyApp = await createApp("shared-economy")
+			await createDirectMapping(economyApp.id, teamA.id)
+			await createDirectMapping(economyApp.id, teamB.id)
+			await classifyEconomy(economyApp.id, true)
+			const unassignedEconomyApp = await createApp("unassigned-economy")
+			await createEnv(unassignedEconomyApp.id, "prod-gcp", "economy", naisTeam.id)
+			await classifyEconomy(unassignedEconomyApp.id, true)
+			const nonEconomyApp = await createApp("non-economy")
+			await createDirectMapping(nonEconomyApp.id, teamA.id)
+			await classifyEconomy(nonEconomyApp.id, false)
+			const unclassifiedApp = await createApp("unclassified")
+			await createEnv(unclassifiedApp.id, "prod-gcp", "economy", naisTeam.id)
+
+			const result = await getSectionDetail(section.slug, { economyOnly: true })
+			assert(result)
+			expect(result.allAppIds.sort()).toEqual([economyApp.id, unassignedEconomyApp.id].sort())
+			expect(result.sectionTotals.apps).toBe(2)
+			expect(result.teams.map((team) => team.apps)).toEqual([1, 1])
+			expect(result.unassignedStats.apps).toBe(1)
+
+			await getTestDb().execute(/* sql */ `
+				UPDATE application_economy_classifications SET is_economy_system = false
+				WHERE application_id IN ('${economyApp.id}', '${unassignedEconomyApp.id}')
+			`)
+			const emptyResult = await getSectionDetail(section.slug, { economyOnly: true })
+			assert(emptyResult)
+			expect(emptyResult.allAppIds).toEqual([])
+			expect(emptyResult.sectionTotals.apps).toBe(0)
+			expect(emptyResult.teams.every((team) => team.apps === 0)).toBe(true)
+			expect(emptyResult.unassignedStats.apps).toBe(0)
+		})
 	})
 })
 
