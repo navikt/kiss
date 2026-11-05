@@ -1,5 +1,7 @@
 import { BodyLong, BodyShort, Detail, Heading, HStack, Link, Table, Tag, VStack } from "@navikt/ds-react"
 import { useState } from "react"
+import { GithubPermissionTag } from "~/components/GithubPermissionTag"
+import { computeGithubUserAccess, type GithubUserAccess, githubProfileUrl } from "~/lib/github-user-access"
 
 interface TeamMember {
 	username: string
@@ -42,83 +44,11 @@ interface Props {
 	changeLog: ChangeLogEntry[]
 }
 
-const PERMISSION_ORDER = ["admin", "maintain", "push", "write", "triage", "pull", "read"]
-
-function highestPermission(permissions: string[]): string {
-	for (const p of PERMISSION_ORDER) {
-		if (permissions.includes(p)) return p
-	}
-	return permissions[0] ?? "unknown"
-}
-
-interface UserAccess {
-	username: string
-	displayName: string | null
-	navIdent: string | null
-	highestPermission: string
-	directPermission: string | null
-	viaTeams: Array<{ teamSlug: string; teamName: string; permission: string }>
-}
-
-function computeUserAccess(teams: GitHubTeam[], collaborators: GitHubCollaborator[]): UserAccess[] {
-	const map = new Map<
-		string,
-		{
-			displayName: string | null
-			navIdent: string | null
-			permissions: string[]
-			directPermission: string | null
-			viaTeams: UserAccess["viaTeams"]
-		}
-	>()
-
-	for (const collab of collaborators) {
-		map.set(collab.username, {
-			displayName: collab.displayName ?? null,
-			navIdent: collab.navIdent ?? null,
-			permissions: [collab.permission],
-			directPermission: collab.permission,
-			viaTeams: [],
-		})
-	}
-
-	for (const team of teams) {
-		for (const member of team.members) {
-			const entry = map.get(member.username) ?? {
-				displayName: member.displayName ?? null,
-				navIdent: member.navIdent ?? null,
-				permissions: [],
-				directPermission: null,
-				viaTeams: [],
-			}
-			entry.displayName ??= member.displayName ?? null
-			entry.navIdent ??= member.navIdent ?? null
-			entry.permissions.push(team.permission)
-			entry.viaTeams.push({ teamSlug: team.teamSlug, teamName: team.teamName, permission: team.permission })
-			map.set(member.username, entry)
-		}
-	}
-
-	return Array.from(map.entries())
-		.map(([username, data]) => ({
-			username,
-			displayName: data.displayName,
-			navIdent: data.navIdent,
-			highestPermission: highestPermission(data.permissions),
-			directPermission: data.directPermission,
-			viaTeams: data.viaTeams,
-		}))
-		.sort((a, b) => {
-			// Ukjente permissions (indexOf = -1) sorteres sist, ikke først
-			const aIdx = PERMISSION_ORDER.indexOf(a.highestPermission)
-			const bIdx = PERMISSION_ORDER.indexOf(b.highestPermission)
-			const aOrder = aIdx === -1 ? PERMISSION_ORDER.length : aIdx
-			const bOrder = bIdx === -1 ? PERMISSION_ORDER.length : bIdx
-			return aOrder !== bOrder ? aOrder - bOrder : a.username.localeCompare(b.username)
-		})
-}
-
-function GitHubUser({ username, displayName, navIdent }: Pick<UserAccess, "username" | "displayName" | "navIdent">) {
+function GitHubUser({
+	username,
+	displayName,
+	navIdent,
+}: Pick<GithubUserAccess, "username" | "displayName" | "navIdent">) {
 	const normalizedDisplayName = displayName?.trim() || null
 	const normalizedNavIdent = navIdent?.trim() || null
 
@@ -126,7 +56,7 @@ function GitHubUser({ username, displayName, navIdent }: Pick<UserAccess, "usern
 		<VStack gap="space-1">
 			{normalizedDisplayName && <BodyShort>{normalizedDisplayName}</BodyShort>}
 			<HStack gap="space-2" align="center" wrap>
-				<Link href={`https://github.com/${username}`} target="_blank" rel="noopener noreferrer">
+				<Link href={githubProfileUrl(username)} target="_blank" rel="noopener noreferrer">
 					{normalizedDisplayName ? `@${username}` : username}
 				</Link>
 				{normalizedNavIdent && <Detail>{normalizedNavIdent}</Detail>}
@@ -135,7 +65,7 @@ function GitHubUser({ username, displayName, navIdent }: Pick<UserAccess, "usern
 	)
 }
 
-function UserSourcesContent({ user }: { user: UserAccess }) {
+function UserSourcesContent({ user }: { user: GithubUserAccess }) {
 	return (
 		<VStack gap="space-4">
 			{user.directPermission && (
@@ -163,23 +93,6 @@ function UserSourcesContent({ user }: { user: UserAccess }) {
 	)
 }
 
-function permissionTag(permission: string) {
-	const variants: Record<string, "warning" | "error" | "success" | "info" | "neutral"> = {
-		admin: "error",
-		maintain: "warning",
-		push: "success",
-		write: "success",
-		triage: "info",
-		pull: "neutral",
-		read: "neutral",
-	}
-	return (
-		<Tag variant={variants[permission] ?? "neutral"} size="xsmall">
-			{permission}
-		</Tag>
-	)
-}
-
 function formatAction(action: string): string {
 	const labels: Record<string, string> = {
 		github_access_team_added: "Team lagt til",
@@ -192,6 +105,7 @@ function formatAction(action: string): string {
 		github_access_team_member_added: "Teammedlem lagt til",
 		github_access_team_member_removed: "Teammedlem fjernet",
 		github_access_team_member_role_changed: "Teammedlem-rolle endret",
+		github_access_sync_status_recorded: "Synkronisert mot GitHub",
 	}
 	return labels[action] ?? action
 }
@@ -200,6 +114,10 @@ function formatChangeDetails(entry: ChangeLogEntry): string {
 	try {
 		const prev = entry.previousValue ? JSON.parse(entry.previousValue) : null
 		const next = entry.newValue ? JSON.parse(entry.newValue) : null
+
+		if (entry.action === "github_access_sync_status_recorded") {
+			return next?.gitRepository ? `Repo: ${next.gitRepository}` : ""
+		}
 
 		// Team permission changed — show team + old → new permission (must be before generic permission_changed)
 		if (entry.action === "github_access_team_permission_changed") {
@@ -283,7 +201,9 @@ function TeamRow({ team }: { team: GitHubTeam }) {
 						team.teamName
 					)}
 				</Table.DataCell>
-				<Table.DataCell>{permissionTag(team.permission)}</Table.DataCell>
+				<Table.DataCell>
+					<GithubPermissionTag permission={team.permission} />
+				</Table.DataCell>
 				<Table.DataCell>{team.members.length}</Table.DataCell>
 				<Table.DataCell>{new Date(team.syncedAt).toLocaleDateString("nb-NO")}</Table.DataCell>
 			</Table.Row>
@@ -312,7 +232,7 @@ function TeamRow({ team }: { team: GitHubTeam }) {
 
 export function GitHubTilgangerTab({ teams, collaborators, changeLog }: Props) {
 	const hasData = teams.length > 0 || collaborators.length > 0
-	const allUsers = computeUserAccess(teams, collaborators)
+	const allUsers = computeGithubUserAccess(teams, collaborators)
 
 	if (!hasData && changeLog.length === 0) {
 		return <BodyLong>Ingen GitHub-tilgangsdata synkronisert ennå.</BodyLong>
@@ -341,7 +261,9 @@ export function GitHubTilgangerTab({ teams, collaborators, changeLog }: Props) {
 										<Table.DataCell>
 											<GitHubUser username={user.username} displayName={user.displayName} navIdent={user.navIdent} />
 										</Table.DataCell>
-										<Table.DataCell>{permissionTag(user.highestPermission)}</Table.DataCell>
+										<Table.DataCell>
+											<GithubPermissionTag permission={user.highestPermission} />
+										</Table.DataCell>
 									</Table.ExpandableRow>
 								))}
 							</Table.Body>
@@ -401,7 +323,9 @@ export function GitHubTilgangerTab({ teams, collaborators, changeLog }: Props) {
 												navIdent={collab.navIdent ?? null}
 											/>
 										</Table.DataCell>
-										<Table.DataCell>{permissionTag(collab.permission)}</Table.DataCell>
+										<Table.DataCell>
+											<GithubPermissionTag permission={collab.permission} />
+										</Table.DataCell>
 										<Table.DataCell>{new Date(collab.syncedAt).toLocaleDateString("nb-NO")}</Table.DataCell>
 									</Table.Row>
 								))}

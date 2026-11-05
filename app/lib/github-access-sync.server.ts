@@ -1,7 +1,12 @@
 import { eq, sql } from "drizzle-orm"
 import { db } from "../db/connection.server"
 import { writeAuditLog } from "../db/queries/audit.server"
-import { githubRepoCollaborators, githubRepoTeamMembers, githubRepoTeams } from "../db/schema/github-access"
+import {
+	githubAccessSyncStatus,
+	githubRepoCollaborators,
+	githubRepoTeamMembers,
+	githubRepoTeams,
+} from "../db/schema/github-access"
 import {
 	type GitHubCollaborator,
 	type GitHubTeam,
@@ -11,6 +16,7 @@ import {
 	getTeamMembers,
 	isGitHubAppConfigured,
 } from "./github.server"
+import { normalizeGithubUsername } from "./github-user-access"
 import { withAdvisoryLock } from "./lock.server"
 import { logger } from "./logger.server"
 
@@ -57,6 +63,11 @@ export function parseGitRepository(gitRepository: string): { owner: string; repo
 	return { owner: segments[0], repo: segments[1] }
 }
 
+export function canonicalizeGitRepository(gitRepository: string): string {
+	const { owner, repo } = parseGitRepository(gitRepository)
+	return `${owner.toLowerCase()}/${repo.toLowerCase()}`
+}
+
 /**
  * Henter alle aktive applikasjoner som har et git-repository konfigurert.
  * Foretrekker app-nivå git_repository, faller tilbake til første environment-repo (tidligst discoveredAt).
@@ -75,6 +86,7 @@ export async function findAppsWithGitRepository(): Promise<Array<{ id: string; g
 						SELECT ae.git_repository
 						FROM application_environments ae
 						WHERE ae.application_id = ma.id
+							AND ae.archived_at IS NULL
 							AND ae.git_repository IS NOT NULL
 							AND trim(ae.git_repository) != ''
 						ORDER BY ae.discovered_at ASC
@@ -88,6 +100,7 @@ export async function findAppsWithGitRepository(): Promise<Array<{ id: string; g
 					OR EXISTS (
 						SELECT 1 FROM application_environments ae2
 						WHERE ae2.application_id = ma.id
+							AND ae2.archived_at IS NULL
 							AND ae2.git_repository IS NOT NULL
 							AND trim(ae2.git_repository) != ''
 					)
@@ -185,6 +198,7 @@ interface AppSyncResult {
 
 async function syncAppAccess(appId: string, gitRepository: string, performedBy: string): Promise<AppSyncResult> {
 	const { owner, repo } = parseGitRepository(gitRepository)
+	const canonicalGitRepository = canonicalizeGitRepository(gitRepository)
 
 	// Fetch current state from GitHub (outside transaction to avoid long-held locks)
 	const [ghTeams, ghCollaborators] = await Promise.all([getRepoTeams(owner, repo), getRepoCollaborators(owner, repo)])
@@ -214,7 +228,7 @@ async function syncAppAccess(appId: string, gitRepository: string, performedBy: 
 		}
 
 		// Sync teams
-		const teamResult = await syncTeams(tx, appId, gitRepository, ghTeams, performedBy)
+		const teamResult = await syncTeams(tx, appId, canonicalGitRepository, ghTeams, performedBy)
 		result.teamsAdded = teamResult.added
 		result.teamsRemoved = teamResult.removed
 		result.teamsUpdated = teamResult.updated
@@ -227,16 +241,68 @@ async function syncAppAccess(appId: string, gitRepository: string, performedBy: 
 
 		for (const team of currentTeams) {
 			const members = ghTeamMembers.get(team.teamSlug) ?? []
-			const memberResult = await syncTeamMembers(tx, team.id, team.teamSlug, appId, gitRepository, members, performedBy)
+			const memberResult = await syncTeamMembers(
+				tx,
+				team.id,
+				team.teamSlug,
+				appId,
+				canonicalGitRepository,
+				members,
+				performedBy,
+			)
 			result.membersAdded += memberResult.added
 			result.membersRemoved += memberResult.removed
 		}
 
 		// Sync collaborators
-		const collabResult = await syncCollaborators(tx, appId, gitRepository, ghCollaborators, performedBy)
+		const collabResult = await syncCollaborators(tx, appId, canonicalGitRepository, ghCollaborators, performedBy)
 		result.collaboratorsAdded = collabResult.added
 		result.collaboratorsRemoved = collabResult.removed
 		result.collaboratorsUpdated = collabResult.updated
+
+		const [existingSyncStatus] = await tx
+			.select({
+				lastSuccessAt: githubAccessSyncStatus.lastSuccessAt,
+				gitRepository: githubAccessSyncStatus.gitRepository,
+			})
+			.from(githubAccessSyncStatus)
+			.where(eq(githubAccessSyncStatus.applicationId, appId))
+		const newSuccessAt = new Date()
+		await tx
+			.insert(githubAccessSyncStatus)
+			.values({
+				applicationId: appId,
+				gitRepository: canonicalGitRepository,
+				lastSuccessAt: newSuccessAt,
+				createdBy: performedBy,
+				updatedBy: performedBy,
+			})
+			.onConflictDoUpdate({
+				target: githubAccessSyncStatus.applicationId,
+				set: {
+					gitRepository: canonicalGitRepository,
+					lastSuccessAt: newSuccessAt,
+					updatedBy: performedBy,
+					updatedAt: newSuccessAt,
+				},
+			})
+		await writeAuditLog(
+			{
+				action: "github_access_sync_status_recorded",
+				entityType: "monitored_application",
+				entityId: appId,
+				previousValue: existingSyncStatus
+					? JSON.stringify({
+							lastSuccessAt: existingSyncStatus.lastSuccessAt,
+							gitRepository: existingSyncStatus.gitRepository,
+						})
+					: undefined,
+				newValue: JSON.stringify({ lastSuccessAt: newSuccessAt, gitRepository: canonicalGitRepository }),
+				metadata: { gitRepository: canonicalGitRepository },
+				performedBy,
+			},
+			tx,
+		)
 
 		return result
 	})
@@ -370,15 +436,15 @@ async function syncTeamMembers(
 ): Promise<{ added: number; removed: number }> {
 	const existing = await tx.select().from(githubRepoTeamMembers).where(eq(githubRepoTeamMembers.repoTeamId, repoTeamId))
 
-	const existingByUsername = new Map(existing.map((m) => [m.username, m]))
-	const ghByUsername = new Map(ghMembers.map((m) => [m.login, m]))
+	const existingByUsername = new Map(existing.map((m) => [normalizeGithubUsername(m.username), m]))
+	const ghByUsername = new Map(ghMembers.map((m) => [normalizeGithubUsername(m.login), m]))
 
 	let added = 0
 	let removed = 0
 	const now = new Date()
 
 	for (const ghMember of ghMembers) {
-		const existingMember = existingByUsername.get(ghMember.login)
+		const existingMember = existingByUsername.get(normalizeGithubUsername(ghMember.login))
 		if (!existingMember) {
 			await tx.insert(githubRepoTeamMembers).values({
 				repoTeamId,
@@ -458,8 +524,8 @@ async function syncCollaborators(
 		.from(githubRepoCollaborators)
 		.where(eq(githubRepoCollaborators.applicationId, appId))
 
-	const existingByUsername = new Map(existing.map((c) => [c.username, c]))
-	const ghByUsername = new Map(ghCollaborators.map((c) => [c.login, c]))
+	const existingByUsername = new Map(existing.map((c) => [normalizeGithubUsername(c.username), c]))
+	const ghByUsername = new Map(ghCollaborators.map((c) => [normalizeGithubUsername(c.login), c]))
 
 	let added = 0
 	let removed = 0
@@ -467,7 +533,7 @@ async function syncCollaborators(
 	const now = new Date()
 
 	for (const ghCollab of ghCollaborators) {
-		const existingCollab = existingByUsername.get(ghCollab.login)
+		const existingCollab = existingByUsername.get(normalizeGithubUsername(ghCollab.login))
 		if (!existingCollab) {
 			await tx.insert(githubRepoCollaborators).values({
 				applicationId: appId,
