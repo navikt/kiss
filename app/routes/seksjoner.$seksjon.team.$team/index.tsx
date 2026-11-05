@@ -10,8 +10,10 @@ import {
 	Detail,
 	Dialog,
 	Heading,
+	HelpText,
 	HGrid,
 	HStack,
+	ReadMore,
 	Table,
 	Tag,
 	VStack,
@@ -435,13 +437,25 @@ export default function TeamDashboard() {
 				)}
 			</HStack>
 
-			<HGrid gap="space-6" columns={{ xs: 2, sm: 3, md: 5 }}>
+			<BodyShort size="small">
+				Tallene gjelder teamets aktive applikasjoner. Arkiverte applikasjoner telles separat.
+			</BodyShort>
+			<HGrid gap="space-6" columns={{ xs: 1, sm: 2, md: 4 }}>
 				<Box padding="space-6" borderRadius="8" background="sunken">
 					<VStack align="center">
 						<Heading size="xlarge" level="3">
 							{overallPercent}%
 						</Heading>
-						<Detail>Total compliance</Detail>
+						<HStack gap="space-8" align="center" justify="center">
+							<Detail>Kontrolloppfyllelse</Detail>
+							<HelpText title="Om kontrolloppfyllelse">
+								Implementert gir full uttelling. Delvis implementert gir halv uttelling. Summen deles på antall
+								kontrollpunkter, uten de som er vurdert som ikke relevante, og vises i prosent. Ikke implementert og
+								kontrollpunkter uten vurdering gir ingen uttelling. Uten beregningsgrunnlag vises 0 %. Dette er ikke et
+								gjennomsnitt av applikasjonenes rutineprosenter.
+							</HelpText>
+						</HStack>
+						<BodyShort size="small">Implementert gir full uttelling, delvis gir halv.</BodyShort>
 					</VStack>
 				</Box>
 				<Box padding="space-6" borderRadius="8" background="sunken">
@@ -449,7 +463,13 @@ export default function TeamDashboard() {
 						<Heading size="xlarge" level="3">
 							{apps.length}
 						</Heading>
-						<Detail>Applikasjoner</Detail>
+						<HStack gap="space-8" align="center" justify="center">
+							<Detail>Applikasjoner</Detail>
+							<HelpText title="Om applikasjoner">
+								Antall aktive applikasjoner tilknyttet teamet, direkte eller via Nais-team, innenfor seksjonens
+								miljøutvalg. Applikasjonene vises i tabellen nedenfor.
+							</HelpText>
+						</HStack>
 					</VStack>
 				</Box>
 				<Box padding="space-6" borderRadius="8" background="sunken">
@@ -457,7 +477,13 @@ export default function TeamDashboard() {
 						<Heading size="xlarge" level="3">
 							{totalImplemented}
 						</Heading>
-						<Detail>Implementert</Detail>
+						<HStack gap="space-8" align="center" justify="center">
+							<Detail>Implementerte kontrollpunkter</Detail>
+							<HelpText title="Om implementerte kontrollpunkter">
+								Antall kontrollpunkter med status implementert, summert for applikasjonene. Samme kontroll kan telles
+								flere ganger dersom den gjelder flere applikasjoner eller teknologielementer.
+							</HelpText>
+						</HStack>
 					</VStack>
 				</Box>
 				<Box padding="space-6" borderRadius="8" background="sunken">
@@ -465,53 +491,75 @@ export default function TeamDashboard() {
 						<Heading size="xlarge" level="3">
 							{totalPartial}
 						</Heading>
-						<Detail>Delvis</Detail>
+						<HStack gap="space-8" align="center" justify="center">
+							<Detail>Delvis implementerte kontrollpunkter</Detail>
+							<HelpText title="Om delvis implementerte kontrollpunkter">
+								Antall kontrollpunkter med status delvis implementert, summert for applikasjonene. Hvert punkt gir halv
+								uttelling i kontrolloppfyllelsen.
+							</HelpText>
+						</HStack>
 					</VStack>
 				</Box>
-				<Link to={`/seksjoner/${seksjon}/team/${team}/mangler`} style={{ textDecoration: "none", color: "inherit" }}>
-					<Box padding="space-6" borderRadius="8" background="sunken">
-						<VStack align="center">
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center" gap="space-8">
+						<Link to={`/seksjoner/${seksjon}/team/${team}/mangler`} style={{ color: "inherit" }}>
 							<Heading size="xlarge" level="3">
 								{totalMangler}
 							</Heading>
-							<Detail>Mangler</Detail>
-						</VStack>
-					</Box>
-				</Link>
-				<Link to={`/seksjoner/${seksjon}/team/${team}/rutiner`} style={{ textDecoration: "none", color: "inherit" }}>
-					<Box
-						padding="space-6"
-						borderRadius="8"
-						background={totalRoutinesIkkeGjennomfort > 0 ? "warning-moderate" : "sunken"}
-					>
-						<VStack align="center">
+							<Detail>Kontrollpunkter uten vurdering</Detail>
+						</Link>
+						<HelpText title="Om kontrollpunkter uten vurdering">
+							Kontrollpunkter som ennå ikke har fått en status, for eksempel fordi nødvendige spørsmål ikke er besvart.
+							Ikke implementert er en vurdert status og telles ikke her.
+						</HelpText>
+					</VStack>
+				</Box>
+				<Box
+					padding="space-6"
+					borderRadius="8"
+					background={totalRoutinesIkkeGjennomfort > 0 ? "warning-moderate" : "sunken"}
+				>
+					<VStack align="center" gap="space-8">
+						<Link to={`/seksjoner/${seksjon}/team/${team}/rutiner`} style={{ color: "inherit" }}>
 							<Heading size="xlarge" level="3">
 								{totalRoutinesIkkeGjennomfort}
 							</Heading>
-							<Detail>Ikke-gjennomførte rutiner</Detail>
-						</VStack>
-					</Box>
-				</Link>
-				<Link to={`/seksjoner/${seksjon}/team/${team}/oppfolging`} style={{ textDecoration: "none", color: "inherit" }}>
-					<Box padding="space-6" borderRadius="8" background={needsFollowUpPoints > 0 ? "warning-moderate" : "sunken"}>
-						<VStack align="center">
+							<Detail>Rutiner som må gjennomføres</Detail>
+						</Link>
+						<HelpText title="Om rutiner som må gjennomføres">
+							Periodiske rutiner uten en gjennomgang innenfor rutinens frekvensperiode. Summen teller per applikasjon,
+							så samme rutine kan telles flere ganger. Hendelsesbaserte rutiner og seksjonsrutiner er ikke med.
+						</HelpText>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background={needsFollowUpPoints > 0 ? "warning-moderate" : "sunken"}>
+					<VStack align="center" gap="space-8">
+						<Link to={`/seksjoner/${seksjon}/team/${team}/oppfolging`} style={{ color: "inherit" }}>
 							<Heading size="xlarge" level="3">
 								{needsFollowUpPoints}
 							</Heading>
 							<Detail>Åpne oppfølgingspunkter</Detail>
-						</VStack>
-					</Box>
-				</Link>
-				<Link to={`/seksjoner/${seksjon}/team/${team}/arkiverte`} style={{ textDecoration: "none", color: "inherit" }}>
-					<Box padding="space-6" borderRadius="8" background="sunken">
-						<VStack align="center">
+						</Link>
+						<HelpText title="Om åpne oppfølgingspunkter">
+							Antall åpne enkeltpunkter i gjennomganger som venter på oppfølging, for teamets applikasjoner og
+							seksjonens aktive rutiner. Én gjennomgang kan ha flere punkter.
+						</HelpText>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center" gap="space-8">
+						<Link to={`/seksjoner/${seksjon}/team/${team}/arkiverte`} style={{ color: "inherit" }}>
 							<Heading size="xlarge" level="3">
 								{archivedAppsCount}
 							</Heading>
 							<Detail>Arkiverte applikasjoner</Detail>
-						</VStack>
-					</Box>
-				</Link>
+						</Link>
+						<HelpText title="Om arkiverte applikasjoner">
+							Arkiverte applikasjoner som historisk har tilhørt teamet. De er ikke med i de andre nøkkeltallene eller i
+							applikasjonstabellen.
+						</HelpText>
+					</VStack>
+				</Box>
 			</HGrid>
 
 			<DeploymentSummaryCards stats={deploymentStats} />
@@ -524,6 +572,35 @@ export default function TeamDashboard() {
 			</HStack>
 
 			{actionData && "error" in actionData && <Alert variant="error">{actionData.error}</Alert>}
+
+			<ReadMore header="Slik leser du tabellen" size="small">
+				<VStack gap="space-12">
+					<BodyShort size="small">
+						<strong>Økonomisystem:</strong> Applikasjonens klassifisering som økonomisystem. «–» betyr at den ikke er
+						klassifisert. <strong>Spørsmål:</strong> Besvarte spørsmål av totalt antall i seksjonens screening.
+					</BodyShort>
+					<BodyShort size="small">
+						<strong>Rutiner gjennomført:</strong> Periodiske rutiner med en gjennomgang innenfor rutinens
+						frekvensperiode. Gjennomganger med åpne oppfølgingspunkter teller også som gjennomført.{" "}
+						<strong>Rutiner ikke gjennomført:</strong> Periodiske rutiner som mangler en slik gjennomgang.
+						Hendelsesbaserte rutiner og seksjonsrutiner inngår ikke i disse tallene.
+					</BodyShort>
+					<BodyShort size="small">
+						<strong>Gjennomganger med åpne punkter:</strong> Antall gjennomganger som venter på oppfølging, også for
+						hendelsesbaserte rutiner. Dette er antall gjennomganger, ikke antall enkeltpunkter.
+					</BodyShort>
+					<BodyShort size="small">
+						<strong>Rutiner gjennomført (%):</strong> Gjennomførte periodiske rutiner delt på totalt antall periodiske
+						rutiner, avrundet til nærmeste hele prosent. Dette er ikke det samme som kontrolloppfyllelse i kortene over.
+						«–» i rutinetallene betyr at applikasjonen ikke har periodiske rutiner; åpne gjennomganger vises likevel
+						hvis de finnes.
+					</BodyShort>
+					<BodyShort size="small">
+						<strong>Borte fra Nais:</strong> Applikasjonen kan arkiveres, men er fortsatt aktiv i KISS og inngår i
+						tallene frem til den arkiveres.
+					</BodyShort>
+				</VStack>
+			</ReadMore>
 
 			{apps.length > 0 ? (
 				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
@@ -550,7 +627,7 @@ export default function TeamDashboard() {
 									Gjennomganger med åpne punkter
 								</Table.ColumnHeader>
 								<Table.ColumnHeader scope="col" align="right" sortKey="statusPct" sortable>
-									Status %
+									Rutiner gjennomført (%)
 								</Table.ColumnHeader>
 								<Table.HeaderCell scope="col" align="right">
 									Handlinger

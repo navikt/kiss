@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react"
 import { mockTeamDetailData } from "@storybook-mocks/data"
 import { renderWithLoader } from "@storybook-mocks/router"
+import { expect, screen, userEvent, within } from "storybook/test"
 import TeamDashboard from "../index"
 
 const meta = {
@@ -13,6 +14,49 @@ type Story = StoryObj<typeof meta>
 export const Default: Story = {
 	render: () =>
 		renderWithLoader(TeamDashboard, mockTeamDetailData(), "/seksjoner/pensjon-og-ufore/team/starte-pensjon"),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement)
+
+		await expect(
+			canvas.getByText("Tallene gjelder teamets aktive applikasjoner. Arkiverte applikasjoner telles separat."),
+		).toBeVisible()
+		await userEvent.click(canvas.getByRole("button", { name: "Om kontrolloppfyllelse" }))
+		await expect(screen.getByText(/Delvis implementert gir halv uttelling/)).toBeVisible()
+		await userEvent.keyboard("{Escape}")
+
+		const help = canvas.getByRole("button", { name: "Om kontrollpunkter uten vurdering" })
+		await expect(help.closest("a")).toBeNull()
+		await userEvent.click(help)
+		await expect(screen.getByText(/Ikke implementert er en vurdert status/)).toBeVisible()
+		await userEvent.keyboard("{Escape}")
+		await expect(canvas.getByRole("link", { name: /Kontrollpunkter uten vurdering/ })).toHaveAttribute(
+			"href",
+			"/seksjoner/pensjon-og-ufore/team/starte-pensjon/mangler",
+		)
+
+		await expect(canvas.getByRole("columnheader", { name: /Rutiner gjennomført \(%\)/ })).toBeVisible()
+		const tableHelp = canvas.getByRole("button", { name: "Slik leser du tabellen" })
+		await expect(tableHelp).toHaveAttribute("aria-expanded", "false")
+		await userEvent.click(tableHelp)
+		await expect(
+			canvas.getByText(/Gjennomganger med åpne oppfølgingspunkter teller også som gjennomført/),
+		).toBeVisible()
+		await expect(canvas.getByText(/Dette er ikke det samme som kontrolloppfyllelse/)).toBeVisible()
+		await userEvent.click(tableHelp)
+		await expect(tableHelp).toHaveAttribute("aria-expanded", "false")
+	},
+}
+
+export const DeploymentForklaringer: Story = {
+	render: Default.render,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement)
+		await userEvent.click(canvas.getByRole("button", { name: "Om 4-øyne-dekning" }))
+		await expect(screen.getByText(/godkjent etter 4-øyne-prinsippet/)).toBeVisible()
+		await userEvent.keyboard("{Escape}")
+		await userEvent.click(canvas.getByRole("button", { name: "Om endringsopphav" }))
+		await expect(screen.getByText(/koblet til et dokumentert endringsopphav/)).toBeVisible()
+	},
 }
 
 export const RutineetterlevelseMiks: Story = {
