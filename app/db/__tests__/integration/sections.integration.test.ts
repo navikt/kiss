@@ -23,6 +23,7 @@ const {
 	unarchiveTeam,
 	getTeamsForSection,
 	getSectionDetail,
+	getTeamApps,
 } = await import("~/db/queries/sections.server")
 
 async function getAuditByEntity(entityType: string, entityId: string) {
@@ -50,6 +51,9 @@ describe("sections.server integration tests", () => {
 	beforeEach(async () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `
+			DELETE FROM application_control_history;
+			DELETE FROM application_controls;
+			DELETE FROM framework_controls;
 			DELETE FROM section_ignored_applications;
 			DELETE FROM section_environments;
 			DELETE FROM application_economy_classifications;
@@ -365,6 +369,62 @@ describe("sections.server integration tests", () => {
 			expect(result).toBeNull()
 		})
 
+		it.each(["direct", "nais-team", "unassigned"] as const)(
+			"excludes archived applications and their controls from %s statistics",
+			async (source) => {
+				const section = await insertTestSection("Active Applications", null, "Z990001")
+				const team = await createTeam(section.id, "Team Active", null, "Z990001")
+				const naisTeam = await createNaisTeam("nais-active", section.id)
+				if (source === "nais-team") await createNaisTeamMapping(team.id, naisTeam.id)
+
+				const activeApp = await createApp("active-application")
+				const archivedApp = await createApp("archived-application")
+				for (const app of [activeApp, archivedApp]) {
+					if (source === "direct") {
+						await createDirectMapping(app.id, team.id)
+					} else {
+						await createEnv(app.id, "prod-gcp", "nais-active", naisTeam.id)
+					}
+					await classifyEconomy(app.id, true)
+					await getTestDb().execute(/* sql */ `
+						WITH control AS (
+							INSERT INTO framework_controls (control_id) VALUES ('${app.id}') RETURNING id
+						)
+						INSERT INTO application_controls (application_id, control_id, status, created_by, updated_by)
+						SELECT '${app.id}', id, '${app.id === activeApp.id ? "implemented" : "not_implemented"}',
+							'Z990001', 'Z990001' FROM control
+					`)
+				}
+				await getTestDb().execute(/* sql */ `
+					UPDATE monitored_applications SET archived_at = now(), archived_by = 'Z990001'
+					WHERE id = '${archivedApp.id}'
+				`)
+
+				const result = await getSectionDetail(section.slug, { includeEconomyBreakdown: true })
+				assert(result)
+				expect(result.allAppIds).toEqual([activeApp.id])
+				const expected = {
+					apps: 1,
+					implemented: 1,
+					partial: 0,
+					notImplemented: 0,
+					notRelevant: 0,
+					total: 1,
+				}
+				expect(result.sectionTotals).toEqual(expected)
+				const stats = source === "unassigned" ? result.unassignedStats : result.teams[0]
+				expect(stats).toMatchObject(expected)
+				expect(stats.economyOnly).toEqual(expected)
+
+				if (source !== "unassigned") {
+					const teamResult = await getTeamApps(team.slug)
+					assert(teamResult)
+					expect(teamResult.apps.map((app) => app.appId)).toEqual(result.allAppIds)
+					expect(teamResult.apps[0]).toMatchObject({ implemented: stats.implemented, total: stats.total })
+				}
+			},
+		)
+
 		it("returns section with 0 dev teams but includes unassigned NAIS team apps", async () => {
 			const section = await insertTestSection("Empty Section", "No teams", "admin")
 			const naisTeam = await createNaisTeam("nais-team-1", section.id)
@@ -446,6 +506,43 @@ describe("sections.server integration tests", () => {
 			expect(result.allAppIds.filter((id) => id === app.id)).toHaveLength(1)
 			// sectionTotals counts per unique app, not per team assignment
 			expect(result.sectionTotals.apps).toBe(1)
+		})
+
+		it("uses the same application scope for section cards and team details", async () => {
+			const section = await insertTestSection("Shared Team Scope", null, "Z990001")
+			const teamA = await createTeam(section.id, "Team A", null, "Z990001")
+			const teamB = await createTeam(section.id, "Team B", null, "Z990001")
+			const emptyTeam = await createTeam(section.id, "Team Empty", null, "Z990001")
+			const naisTeam = await createNaisTeam("nais-shared-scope", section.id)
+			await createNaisTeamMapping(teamA.id, naisTeam.id)
+			await createNaisTeamMapping(teamB.id, naisTeam.id)
+			await excludeEnv(section.id, "dev-gcp")
+
+			const sharedApp = await createApp("shared-production-application")
+			await createEnv(sharedApp.id, "prod-gcp", "shared", naisTeam.id)
+			await createEnv(sharedApp.id, "dev-gcp", "shared", naisTeam.id)
+			await createDirectMapping(sharedApp.id, teamA.id)
+			const directApp = await createApp("direct-without-environments")
+			await createDirectMapping(directApp.id, teamB.id)
+			const excludedApp = await createApp("excluded-development-application")
+			await createEnv(excludedApp.id, "dev-gcp", "shared", naisTeam.id)
+			await createDirectMapping(excludedApp.id, teamA.id)
+
+			const result = await getSectionDetail(section.slug)
+			assert(result)
+			expect(result.allAppIds.sort()).toEqual([sharedApp.id, directApp.id].sort())
+			expect(result.sectionTotals.apps).toBe(2)
+			expect(result.unassignedStats.apps).toBe(0)
+			for (const [team, expectedIds] of [
+				[teamA, [sharedApp.id]],
+				[teamB, [sharedApp.id, directApp.id]],
+				[emptyTeam, []],
+			] as const) {
+				const details = await getTeamApps(team.slug)
+				assert(details)
+				expect(details.apps.map((app) => app.appId).sort()).toEqual([...expectedIds].sort())
+				expect(result.teams.find((card) => card.slug === team.slug)?.apps).toBe(expectedIds.length)
+			}
 		})
 
 		it("restricts team economyOnly stats to apps classified as economy systems", async () => {
