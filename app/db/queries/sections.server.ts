@@ -136,8 +136,11 @@ async function getTeamAppIds(teamId: string, excludedEnvs?: Set<string>): Promis
 }
 
 /** Get section detail with team compliance stats. */
-export async function getSectionDetail(seksjonSlug: string, options: { includeEconomyBreakdown?: boolean } = {}) {
-	const { includeEconomyBreakdown = false } = options
+export async function getSectionDetail(
+	seksjonSlug: string,
+	options: { includeEconomyBreakdown?: boolean; economyOnly?: boolean } = {},
+) {
+	const { includeEconomyBreakdown = false, economyOnly = false } = options
 	const [section] = await db.select().from(sections).where(eq(sections.slug, seksjonSlug)).limit(1)
 	if (!section) return null
 
@@ -200,20 +203,18 @@ export async function getSectionDetail(seksjonSlug: string, options: { includeEc
 		unassignedAppIds = naisAppRows.map((r) => r.appId).filter((id) => !allAssignedAppIds.has(id))
 	}
 
-	// Batch-fetch compliance summaries for ALL apps in a single SQL query.
-	// Economy classifications are only fetched when a caller needs the economy-only breakdown,
-	// since several consumers (e.g. rapporter, koblingsforslag) don't use it and some already
-	// fetch classifications themselves.
 	const activeApps = await getActiveApplications([...allAssignedAppIds, ...unassignedAppIds])
-	const allAppIds = activeApps.map((app) => app.id)
+	const candidateAppIds = activeApps.map((app) => app.id)
+	const economyMap =
+		includeEconomyBreakdown || economyOnly
+			? await getEconomyClassifications(candidateAppIds)
+			: new Map<string, EconomyClassification>()
+	const allAppIds = economyOnly
+		? candidateAppIds.filter((id) => economyMap.get(id)?.isEconomySystem === true)
+		: candidateAppIds
 	const activeAppIds = new Set(allAppIds)
 	unassignedAppIds = unassignedAppIds.filter((id) => activeAppIds.has(id))
-	const [summaryMap, economyMap] = await Promise.all([
-		getComplianceSummaries(allAppIds),
-		includeEconomyBreakdown
-			? getEconomyClassifications(allAppIds)
-			: Promise.resolve(new Map<string, EconomyClassification>()),
-	])
+	const summaryMap = await getComplianceSummaries(allAppIds)
 
 	const emptyStats = () => ({ apps: 0, implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 })
 

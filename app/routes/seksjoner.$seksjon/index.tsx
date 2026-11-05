@@ -15,8 +15,7 @@ import {
 	Tooltip,
 	VStack,
 } from "@navikt/ds-react"
-import { useState } from "react"
-import { data, Link, useLoaderData } from "react-router"
+import { data, Link, useLoaderData, useNavigation, useSearchParams } from "react-router"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { DomainStatusCard } from "~/components/DomainStatusCard"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -52,7 +51,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 	const user = await getAuthenticatedUser(request)
 
-	const result = await getSectionDetail(seksjon, { includeEconomyBreakdown: true })
+	const economyOnly = new URL(request.url).searchParams.get("economyOnly") === "true"
+	const result = await getSectionDetail(seksjon, { economyOnly })
 	if (!result) throw new Response("Seksjon ikke funnet", { status: 404 })
 
 	const [
@@ -164,15 +164,16 @@ export default function SeksjonDashboard() {
 	} = useLoaderData<typeof loader>()
 
 	const redigerBase = `/seksjoner/${seksjon}/rediger`
-	const [showEconomyOnly, setShowEconomyOnly] = useState(false)
+	const [searchParams, setSearchParams] = useSearchParams()
+	const navigation = useNavigation()
+	const showEconomyOnly = searchParams.get("economyOnly") === "true"
 
-	const hasAnyGroups = teams.length > 0 || unassigned.apps > 0
-	const visibleTeams = showEconomyOnly ? teams.filter((team) => team.economyOnly.apps > 0) : teams
-	const showUnassignedCard = unassigned.apps > 0 && (!showEconomyOnly || unassigned.economyOnly.apps > 0)
-	const noEconomyMatches = showEconomyOnly && hasAnyGroups && visibleTeams.length === 0 && !showUnassignedCard
+	const visibleTeams = showEconomyOnly ? teams.filter((team) => team.apps > 0) : teams
+	const showUnassignedCard = unassigned.apps > 0
+	const noEconomyMatches = showEconomyOnly && totalApps === 0
 
 	return (
-		<VStack gap="space-8">
+		<VStack gap="space-8" aria-busy={navigation.state === "loading"}>
 			<HStack align="center" justify="space-between" wrap>
 				<VStack gap="space-1">
 					<Heading size="xlarge" level="2">
@@ -297,7 +298,27 @@ export default function SeksjonDashboard() {
 					</VStack>
 				</Alert>
 			)}
-			<BodyLong>Compliance-status for alle team i seksjonen.</BodyLong>
+			<BodyLong>
+				{showEconomyOnly
+					? "Compliance-status for økonomisystemene i seksjonen."
+					: "Compliance-status for alle team i seksjonen."}
+			</BodyLong>
+
+			<Switch
+				size="small"
+				checked={showEconomyOnly}
+				onChange={(event) => {
+					const nextParams = new URLSearchParams(searchParams)
+					if (event.target.checked) {
+						nextParams.set("economyOnly", "true")
+					} else {
+						nextParams.delete("economyOnly")
+					}
+					setSearchParams(nextParams, { preventScrollReset: true })
+				}}
+			>
+				Vis kun økonomisystemer
+			</Switch>
 
 			<HGrid gap="space-6" columns={{ xs: 2, sm: 3, md: 6 }}>
 				<Box padding="space-6" borderRadius="8" background="sunken">
@@ -311,7 +332,7 @@ export default function SeksjonDashboard() {
 				<Box padding="space-6" borderRadius="8" background="sunken">
 					<VStack align="center">
 						<Heading size="xlarge" level="3">
-							{teams.length}
+							{visibleTeams.length}
 						</Heading>
 						<Detail>Team</Detail>
 					</VStack>
@@ -467,21 +488,16 @@ export default function SeksjonDashboard() {
 
 			<DeploymentSummaryCards stats={deploymentStats} />
 
-			<HStack justify="space-between" align="center" wrap>
-				<Heading size="large" level="3">
-					Team
-				</Heading>
-				<Switch size="small" checked={showEconomyOnly} onChange={(e) => setShowEconomyOnly(e.target.checked)}>
-					Vis kun økonomisystemer
-				</Switch>
-			</HStack>
+			<Heading size="large" level="3">
+				Team
+			</Heading>
 
 			{noEconomyMatches ? (
 				<BodyShort>Ingen applikasjoner er klassifisert som økonomisystem.</BodyShort>
 			) : (
 				<HGrid gap="space-6" columns={{ xs: 1, sm: 2 }}>
 					{visibleTeams.map((team) => {
-						const stats = showEconomyOnly ? team.economyOnly : team
+						const stats = team
 						const { pct, mangler } = complianceFigures(stats)
 						return (
 							<DomainStatusCard
@@ -500,7 +516,7 @@ export default function SeksjonDashboard() {
 					})}
 					{showUnassignedCard &&
 						(() => {
-							const stats = showEconomyOnly ? unassigned.economyOnly : unassigned
+							const stats = unassigned
 							const { pct, mangler } = complianceFigures(stats)
 							return (
 								<DomainStatusCard

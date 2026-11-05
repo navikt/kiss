@@ -34,14 +34,32 @@ export const IngenOkonomisystemer: Story = {
 			SeksjonDashboard,
 			{
 				...base,
+				totalApps: 0,
+				totalImplemented: 0,
+				totalPartial: 0,
+				totalMangler: 0,
+				totalControls: 0,
+				overallPercent: 0,
+				screenedCount: 0,
+				routinesGjennomfort: 0,
+				routinesIkkeGjennomfort: 0,
+				sectionRoutinesIkkeGjennomfort: 0,
+				needsFollowUpPoints: 0,
+				deploymentStats: {
+					appsWithData: 0,
+					fourEyesPercent: null,
+					fourEyesTotal: 0,
+					fourEyesApproved: 0,
+					changeOriginPercent: null,
+					changeOriginTotal: 0,
+					changeOriginLinked: 0,
+				},
 				economySystemCount: 0,
 				economySystemExpiredCount: 0,
-				// Ingen apper er klassifisert som økonomisystem i dette scenarioet, så «Vis kun
-				// økonomisystemer»-toggelen skal ikke vise noen data for team/uten-team heller.
-				teams: base.teams.map((team) => ({ ...team, economyOnly: zeroEconomyStats })),
-				unassigned: { ...base.unassigned, economyOnly: zeroEconomyStats },
+				teams: base.teams.map((team) => ({ ...team, ...zeroEconomyStats, economyOnly: zeroEconomyStats })),
+				unassigned: emptyUnassigned,
 			},
-			"/seksjoner/pensjon-og-ufore",
+			"/seksjoner/pensjon-og-ufore?economyOnly=true",
 		)
 	},
 }
